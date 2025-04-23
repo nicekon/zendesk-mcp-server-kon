@@ -176,6 +176,39 @@ async def handle_list_tools() -> list[types.Tool]:
                 },
                 "required": ["ticket_id", "comment"]
             }
+        ),
+        types.Tool(
+            name="get_community_posts",
+            description="Retrieve community posts with optional filtering and sorting",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "filter_by": {
+                        "type": "string",
+                        "description": "Filter posts by status (planned, not_planned, completed, answered, none)",
+                        "enum": ["planned", "not_planned", "completed", "answered", "none"]
+                    },
+                    "sort_by": {
+                        "type": "string",
+                        "description": "Sort posts by criteria (created_at, edited_at, updated_at, recent_activity, votes, comments)",
+                        "enum": ["created_at", "edited_at", "updated_at", "recent_activity", "votes", "comments"]
+                    }
+                }
+            }
+        ),
+        types.Tool(
+            name="get_community_post_comments",
+            description="Retrieve a community post and all its comments. Returns both the post details (title, content, author, status, etc.) and all associated comments.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "post_id": {
+                        "type": "integer",
+                        "description": "The ID of the post to retrieve comments for"
+                    }
+                },
+                "required": ["post_id"]
+            }
         )
     ]
 
@@ -215,6 +248,22 @@ async def handle_call_tool(
             return [types.TextContent(
                 type="text",
                 text=f"Comment created successfully: {result}"
+            )]
+            
+        elif name == "get_community_posts":
+            filter_by = arguments.get("filter_by")
+            sort_by = arguments.get("sort_by")
+            posts = zendesk_client.get_community_posts(filter_by=filter_by, sort_by=sort_by)
+            return [types.TextContent(
+                type="text",
+                text=json.dumps(posts)
+            )]
+            
+        elif name == "get_community_post_comments":
+            comments = zendesk_client.get_community_post_comments(arguments["post_id"])
+            return [types.TextContent(
+                type="text",
+                text=json.dumps(comments)
             )]
 
         else:

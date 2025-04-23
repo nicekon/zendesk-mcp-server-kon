@@ -1,0 +1,323 @@
+---
+description: 
+globs: 
+alwaysApply: false
+---
+
+Posts
+A post represents content that a user shares with the community.
+
+JSON format
+Posts are represented as JSON objects with the following properties:
+
+Name	Type	Read-only	Mandatory	Description
+author_id	integer	true	false	The id of the author of the post. *Writable on create by Help Center managers -- see Create Post
+closed	boolean	false	false	Whether further comments are allowed
+comment_count	integer	true	false	The number of comments on the post
+content_tag_ids	array	false	false	The list of content tags attached to the post
+created_at	string	true	false	When the post was created. Writable on create by Help Center managers -- see Create Post
+details	string	false	false	The details of the post made by the author. See User content
+featured	boolean	false	false	Whether the post is featured
+follower_count	integer	true	false	The number of followers of the post
+html_url	string	true	false	The community url of the post
+id	integer	true	false	Automatically assigned when the post is created
+non_author_editor_id	integer	true	false	The user id of whoever performed the most recent (if any) non-author edit. A non-author edit consists of an edit make by a user other than the author that creates or updates the title or details. Note that only edits made after May 17, 2021 will be reflected in this field. If no non-author edits have occured since May 17, 2021, then this field will be null.
+non_author_updated_at	string	true	false	When the post was last edited by a non-author user
+pinned	boolean	false	false	When true, pins the post to the top of its topic
+status	string	false	false	The status of the post. Possible values: "planned", "not_planned" , "answered", or "completed"
+title	string	false	true	The title of the post
+topic_id	integer	false	false	The id of the topic that the post belongs to
+updated_at	string	true	false	When the post was last updated
+url	string	true	false	The API url of the post
+vote_count	integer	true	false	The total number of upvotes and downvotes
+vote_sum	integer	true	false	The sum of upvotes (+1) and downvotes (-1), which may be positive or negative
+User content
+End users can add their own contents in the form of community posts, post comments, or article comments. Collectively, this is called user content. The format of user content is HTML-based.
+
+Content may contain the following standard HTML tags:
+
+Paragraphs and blocks: <p>, <div>, <span>, <br>
+Text formatting: <b>, <i>, <u>, <strong>, <em>, <sub>, <sup>
+Links and dividers: <a>, <hr>
+Images: <img> (where the src attribute has to reference a user-uploaded image)
+Headers: <h1>, <h2>, <h3>, <h4>, <h5>, <h6>
+Bullet lists: <ul>, <ol>, <li>
+Description lists: <dl>, <dt>, <dd>
+Tables: <table>, <thead>, <tbody>, <tfoot>, <tr>, <th>, <td>, <colgroup>, <col>
+Quotes and code snippets: <blockquote>, <pre>
+Semantics: <abbr>, <acronym>, <cite>, <code>, <tt>, <samp>, <kbd>, <var>, <dfn>, <address>
+In addition, the content may contain these non-standard HTML tags:
+
+@mentions: <x-zendesk-user>, where the contents of the tag should be the user ID of the mentioned user. Example: <x-zendesk-user>1234</x-zendesk-user> to mention the user whose ID is 1234.
+Even if the content is validated, the body that's output may not be identical to the request body. For example, adjustments may be made for security or standards-compliance reasons.
+
+Example
+{
+  "author_id": 3465,
+  "featured": true,
+  "id": 1635,
+  "title": "The post"
+}
+List Posts
+GET /api/v2/community/posts
+GET /api/v2/community/topics/{topic_id}/posts
+GET /api/v2/community/users/{user_id}/posts
+Lists all posts, all posts in a given topic, or all posts by a specific user. When listing by specific user, the posts of the user making the request can be listed by specifying me as the id.
+
+Allowed for
+Anonymous users
+Pagination
+Cursor pagination (recommended)
+Offset pagination
+See Pagination.
+
+Filtering
+You can filter the results with the filter_by query string parameter.
+
+GET /api/v2/community/posts.json?filter_by=completed
+The filter_by parameter can have one of the following values:
+
+value	description
+planned	list only posts with a status of 'Planned'
+not_planned	list only posts with a status of 'Not planned'
+completed	list only posts with a status of 'Completed'
+answered	list only posts with a status of 'Answered'
+none	list only posts with a status of 'None'
+Sorting
+You can sort the results with the sort_by query string parameter.
+
+GET /api/v2/community/posts.json?sort_by=comments
+The sort_by parameter can have one of the following values:
+
+value	description
+created_at	order by creation time. Default order
+edited_at	order by last edit time
+updated_at	order by last update time
+recent_activity	order by recent activity on the post
+votes	order by vote sum
+comments	order by comment count
+Sideloads
+You can sideload related records with the include query string parameter. The following sideloads are supported:
+
+Name	Will sideload
+users	authors
+topics	topics
+See Sideloading related records.
+
+Parameters
+Name	Type	In	Required	Description
+filter_by	string	Query	false	Filter the results using the provided value. Allowed values are "planned", "not_planned", "completed", "answered", or "none".
+sort_by	string	Query	false	Sorts the results using the provided value. Allowed values are "created_at", "edited_at", "updated_at", "recent_activity", "votes", or "comments".
+Code Samples
+curl
+curl https://{subdomain}.zendesk.com/api/v2/community/users/{user_id}/posts.json \
+  -v -u {email_address}/token:{api_token}
+Go
+Java
+Nodejs
+Python
+import requests
+from requests.auth import HTTPBasicAuth
+
+url = "https://support.zendesk.com/api/v2/community/posts?filter_by=&sort_by="
+headers = {
+	"Content-Type": "application/json",
+}
+email_address = 'your_email_address'
+api_token = 'your_api_token'
+# Use basic authentication
+auth = HTTPBasicAuth(f'{email_address}/token', api_token)
+
+response = requests.request(
+	"GET",
+	url,
+	auth=auth,
+	headers=headers
+)
+
+print(response.text)
+Ruby
+Example response(s)
+200 OK
+Show Post
+GET /api/v2/community/posts/{post_id}
+Gets information about a given post.
+
+Allowed for
+Anonymous users
+Sideloads
+The following sideloads are supported:
+
+Name	Will sideload
+users	authors
+topics	topics
+Parameters
+Name	Type	In	Required	Description
+post_id	integer	Path	true	The unique ID of the post
+Code Samples
+curl
+curl https://{subdomain}.zendesk.com/api/v2/community/posts/{post_id}.json \
+  -v -u {email_address}/token:{api_token}
+Go
+Java
+Nodejs
+Python
+import requests
+from requests.auth import HTTPBasicAuth
+
+url = "https://support.zendesk.com/api/v2/community/posts/360039436873"
+headers = {
+	"Content-Type": "application/json",
+}
+email_address = 'your_email_address'
+api_token = 'your_api_token'
+# Use basic authentication
+auth = HTTPBasicAuth(f'{email_address}/token', api_token)
+
+response = requests.request(
+	"GET",
+	url,
+	auth=auth,
+	headers=headers
+)
+
+print(response.text)
+Ruby
+Example response(s)
+200 OK
+Create Post
+POST /api/v2/community/posts
+Adds a post to the specified topic.
+
+Allowed for
+End users
+Agents with the Help Center manager role can optionally supply an author_id as part of the post object. If it is provided, the post's author will be set to the value of the author_id key.
+
+Agents with the Help Center manager role can optionally supply a created_at as part of the post object. If it is not provided created_at is set to the current time.
+
+Supplying a notify_subscribers property with a value of false will prevent subscribers to the post's topic from receiving a post creation email notification. This can be helpful when creating many posts at a time. Specify the property in the root of the JSON object, not in the "post" object. Optionally, you can attach existing content tags by specifying their ids.
+
+Code Samples
+curl
+curl https://{subdomain}.zendesk.com/api/v2/community/posts.json \
+  -d '{"post": {"title": "Help!", "details": "My printer is on fire!", "topic_id": 10046}, "notify_subscribers": false}' \
+-v -u {email_address}/token:{api_token} -X POST -H "Content-Type: application/json"
+
+# Setting the post's author:
+curl https://{subdomain}.zendesk.com/api/v2/community/posts.json \
+  -d '{"post": {"title": "Help!", "details": "My printer is on fire!", "author_id": 10056, "topic_id": 10046}}' \
+  -v -u {email_address}/token:{api_token} -X POST -H "Content-Type: application/json"
+
+# Attaching content tags to the post:
+curl https://{subdomain}.zendesk.com/api/v2/community/posts.json \
+  -d '{"post": {"title": "Help!", "details": "My printer is on fire!", "author_id": 10056, "topic_id": 10046, "content_tag_ids": [6776, 4545]}}' \
+  -v -u {email_address}/token:{api_token} -X POST -H "Content-Type: application/json"
+Go
+Java
+Nodejs
+Python
+import requests
+from requests.auth import HTTPBasicAuth
+
+url = "https://support.zendesk.com/api/v2/community/posts"
+headers = {
+	"Content-Type": "application/json",
+}
+email_address = 'your_email_address'
+api_token = 'your_api_token'
+# Use basic authentication
+auth = HTTPBasicAuth(f'{email_address}/token', api_token)
+
+response = requests.request(
+	"POST",
+	url,
+	auth=auth,
+	headers=headers
+)
+
+print(response.text)
+Ruby
+Example response(s)
+201 Created
+Update Post
+PUT /api/v2/community/posts/{post_id}
+Allowed for
+Agents
+The end user who created the post
+Parameters
+Name	Type	In	Required	Description
+post_id	integer	Path	true	The unique ID of the post
+Code Samples
+curl
+curl https://{subdomain}.zendesk.com/api/v2/community/posts/{post_id}.json \
+  -d '{"post": {"title": "Help!", "details": "My printer is on fire!", "topic_id": 10046}}' \
+  -v -u {email_address}/token:{api_token} -X PUT -H "Content-Type: application/json"
+Go
+Java
+Nodejs
+Python
+import requests
+from requests.auth import HTTPBasicAuth
+
+url = "https://support.zendesk.com/api/v2/community/posts/360039436873"
+headers = {
+	"Content-Type": "application/json",
+}
+email_address = 'your_email_address'
+api_token = 'your_api_token'
+# Use basic authentication
+auth = HTTPBasicAuth(f'{email_address}/token', api_token)
+
+response = requests.request(
+	"PUT",
+	url,
+	auth=auth,
+	headers=headers
+)
+
+print(response.text)
+Ruby
+Example response(s)
+200 OK
+Delete Post
+DELETE /api/v2/community/posts/{post_id}
+Allowed for
+Agents
+The end user who created the post
+Parameters
+Name	Type	In	Required	Description
+post_id	integer	Path	true	The unique ID of the post
+Code Samples
+curl
+curl https://{subdomain}.zendesk.com/api/v2/community/posts/{post_id}.json \
+  -v -u {email_address}/token:{api_token} -X DELETE
+Go
+Java
+Nodejs
+Python
+import requests
+from requests.auth import HTTPBasicAuth
+
+url = "https://support.zendesk.com/api/v2/community/posts/360039436873"
+headers = {
+	"Content-Type": "application/json",
+}
+email_address = 'your_email_address'
+api_token = 'your_api_token'
+# Use basic authentication
+auth = HTTPBasicAuth(f'{email_address}/token', api_token)
+
+response = requests.request(
+	"DELETE",
+	url,
+	auth=auth,
+	headers=headers
+)
+
+print(response.text)
+Ruby
+Example response(s)
+204 No Content
+// Status 204 No Content
+
+null

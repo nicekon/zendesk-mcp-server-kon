@@ -1,0 +1,270 @@
+---
+description: 
+globs: 
+alwaysApply: false
+---
+Post Comments
+Users can participate in community discussions by adding comments to community posts in the help center. The user must have a Zendesk account and their requests must be authenticated. Anonymous users can't add comments. For more information, see Anatomy of the help center.
+
+JSON format
+Post Comments are represented as JSON objects with the following properties:
+
+Name	Type	Read-only	Mandatory	Description
+author_id	integer	false	false	The id of the author of the comment. Writable on create by Help Center managers. See Create Post Comment
+body	string	false	true	The comment made by the author. See User content
+created_at	string	false	false	When the comment was created. Writable on create by Help Center managers. See Create Post Comment
+html_url	string	true	false	The community url of the comment
+id	integer	true	false	Automatically assigned when the comment is created
+non_author_editor_id	integer	true	false	The user id of whoever performed the most recent (if any) non-author edit. A non-author edit consists of an edit make by a user other than the author that creates or updates the body. Note that only edits made after May 17, 2021 will be reflected in this field. If no non-author edits have occured since May 17, 2021, then this field will be null.
+non_author_updated_at	string	true	false	When the comment was last edited by a non-author user
+official	boolean	false	false	Whether the comment is marked as official
+post_id	integer	true	false	The id of the post on which the comment was made
+updated_at	string	true	false	When the comment was last updated
+url	string	true	false	The API url of the comment
+vote_count	integer	true	false	The total number of upvotes and downvotes
+vote_sum	integer	true	false	The sum of upvotes (+1) and downvotes (-1), which may be positive or negative
+User content
+End users can add their own contents in the form of community posts, post comments, or article comments. Collectively, this is called user content. The format of user content is HTML-based.
+
+Content may contain the following standard HTML tags:
+
+Paragraphs and blocks: <p>, <div>, <span>, <br>
+Text formatting: <b>, <i>, <u>, <strong>, <em>, <sub>, <sup>
+Links and dividers: <a>, <hr>
+Images: <img> (where the src attribute has to reference a user-uploaded image)
+Headers: <h1>, <h2>, <h3>, <h4>, <h5>, <h6>
+Bullet lists: <ul>, <ol>, <li>
+Description lists: <dl>, <dt>, <dd>
+Tables: <table>, <thead>, <tbody>, <tfoot>, <tr>, <th>, <td>, <colgroup>, <col>
+Quotes and code snippets: <blockquote>, <pre>
+Semantics: <abbr>, <acronym>, <cite>, <code>, <tt>, <samp>, <kbd>, <var>, <dfn>, <address>
+In addition, the content may contain these non-standard HTML tags:
+
+@mentions: <x-zendesk-user>, where the contents of the tag should be the user ID of the mentioned user. Example: <x-zendesk-user>1234</x-zendesk-user> to mention the user whose ID is 1234.
+Even if the content is validated, the body that's output may not be identical to the request body. For example, adjustments may be made for security or standards-compliance reasons.
+
+Example
+{
+  "author_id": 89567,
+  "body": "My printer is on fire!",
+  "id": 35467,
+  "official": false,
+  "vote_count": 15,
+  "vote_sum": 10
+}
+List Comments
+GET /api/v2/community/posts/{post_id}/comments
+GET /api/v2/community/users/{user_id}/comments
+Lists all comments on a specific post or all the comments created by a specific user. When listing comments by specific user, the comments of the user making the request can be listed by specifying me as the id.
+
+Allowed for
+End users
+Pagination
+Cursor pagination (recommended)
+Offset pagination
+See Pagination.
+
+Sideloads
+You can sideload related records with the include query string parameter. The following sideloads are supported:
+
+Name	Will sideload
+users	authors
+posts	posts
+See Sideloading related records.
+
+Parameters
+Name	Type	In	Required	Description
+post_id	integer	Path	true	The unique ID of the post
+Code Samples
+curl
+curl https://{subdomain}.zendesk.com/api/v2/community/posts/{post_id}/comments.json \
+  -v -u {email_address}/token:{api_token}
+Go
+Java
+Nodejs
+Python
+import requests
+from requests.auth import HTTPBasicAuth
+
+url = "https://support.zendesk.com/api/v2/community/posts/360039436873/comments"
+headers = {
+	"Content-Type": "application/json",
+}
+email_address = 'your_email_address'
+api_token = 'your_api_token'
+# Use basic authentication
+auth = HTTPBasicAuth(f'{email_address}/token', api_token)
+
+response = requests.request(
+	"GET",
+	url,
+	auth=auth,
+	headers=headers
+)
+
+print(response.text)
+Ruby
+Example response(s)
+200 OK
+Show Comment
+GET /api/v2/community/posts/{post_id}/comments/{post_comment_id}
+Shows information about the specified comment.
+
+Allowed for
+End users
+Sideloads
+The following sideloads are supported:
+
+Name	Will sideload
+users	The comment's author
+posts	The comment's post
+Parameters
+Name	Type	In	Required	Description
+post_comment_id	integer	Path	true	The unique ID of the post comment
+post_id	integer	Path	true	The unique ID of the post
+Code Samples
+curl
+curl https://{subdomain}.zendesk.com/api/v2/community/posts/{post_id}/comments/{post_comment_id}.json \
+  -v -u {email_address}/token:{api_token}
+Go
+Java
+Nodejs
+Python
+import requests
+from requests.auth import HTTPBasicAuth
+
+url = "https://support.zendesk.com/api/v2/community/posts/360039436873/comments/360010837133"
+headers = {
+	"Content-Type": "application/json",
+}
+email_address = 'your_email_address'
+api_token = 'your_api_token'
+# Use basic authentication
+auth = HTTPBasicAuth(f'{email_address}/token', api_token)
+
+response = requests.request(
+	"GET",
+	url,
+	auth=auth,
+	headers=headers
+)
+
+print(response.text)
+Ruby
+Example response(s)
+200 OK
+Create Post Comment
+POST /api/v2/community/posts/{post_id}/comments
+Adds a comment to the specified post.
+
+Allowed for
+End users
+Agents with the Help Center manager role can optionally supply an author_id as part of the comment object. If it is provided, the comment's author will be set to the value of the author_id key.
+
+Supplying a notify_subscribers property with a value of false will prevent subscribers to the comment's post from receiving a comment creation email notification. This can be helpful when creating many comments at a time. Specify the property in the root of the JSON object, not in the "comment" object.
+
+Parameters
+Name	Type	In	Required	Description
+post_id	integer	Path	true	The unique ID of the post
+Code Samples
+curl
+curl https://{subdomain}.zendesk.com/api/v2/community/posts/{post_id}/comments.json \
+  -d '{"comment": {"body": "I love my new non-flammable printer!"}, "notify_subscribers": false}' \
+  -v -u {email_address}/token:{api_token} -X POST -H "Content-Type: application/json"
+
+# Setting the comment's author:
+curl https://{subdomain}.zendesk.com/api/v2/community/posts/{post_id}/comments.json \
+  -d '{"comment": {"body": "I love my new non-flammable printer!", "author_id": 10056}}' \
+  -v -u {email_address}/token:{api_token} -X POST -H "Content-Type: application/json"
+Go
+Java
+Nodejs
+Python
+import requests
+from requests.auth import HTTPBasicAuth
+
+url = "https://support.zendesk.com/api/v2/community/posts/360039436873/comments"
+headers = {
+	"Content-Type": "application/json",
+}
+email_address = 'your_email_address'
+api_token = 'your_api_token'
+# Use basic authentication
+auth = HTTPBasicAuth(f'{email_address}/token', api_token)
+
+response = requests.request(
+	"POST",
+	url,
+	auth=auth,
+	headers=headers
+)
+
+print(response.text)
+Ruby
+Example response(s)
+201 Created
+Update Comment
+PUT /api/v2/community/posts/{post_id}/comments/{post_comment_id}
+Updates the specified comment.
+
+Allowed for
+Agents
+The end user who created the comment
+Parameters
+Name	Type	In	Required	Description
+post_comment_id	integer	Path	true	The unique ID of the post comment
+post_id	integer	Path	true	The unique ID of the post
+Code Samples
+curl
+curl https://{subdomain}.zendesk.com/api/v2/community/posts/{post_id}/comments/{post_comment_id}.json \
+  -d '{"comment": {"body": "The new, non-flammable printer is on fire too!"}}' \
+  -v -u {email_address}/token:{api_token} -X PUT -H "Content-Type: application/json"
+Go
+Java
+Nodejs
+Python
+Ruby
+Example response(s)
+200 OK
+Delete Comment
+DELETE /api/v2/community/posts/{post_id}/comments/{post_comment_id}
+Deletes the specified comment.
+
+Allowed for
+Agents
+The end user who created the comment
+Parameters
+Name	Type	In	Required	Description
+post_comment_id	integer	Path	true	The unique ID of the post comment
+post_id	integer	Path	true	The unique ID of the post
+Code Samples
+curl
+curl https://{subdomain}.zendesk.com/api/v2/community/posts/{post_id}/comments/{post_comment_id}.json \
+  -v -u {email_address}/token:{api_token} -X DELETE
+Go
+Java
+Nodejs
+Python
+import requests
+from requests.auth import HTTPBasicAuth
+
+url = "https://support.zendesk.com/api/v2/community/posts/360039436873/comments/360010837133"
+headers = {
+	"Content-Type": "application/json",
+}
+email_address = 'your_email_address'
+api_token = 'your_api_token'
+# Use basic authentication
+auth = HTTPBasicAuth(f'{email_address}/token', api_token)
+
+response = requests.request(
+	"DELETE",
+	url,
+	auth=auth,
+	headers=headers
+)
+
+print(response.text)
+Ruby
+Example response(s)
+204 No Content
