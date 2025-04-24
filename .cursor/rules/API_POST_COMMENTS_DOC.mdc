@@ -1,14 +1,8 @@
 ---
-description: 
+description:  Zendesk 커뮤니티 포스트 댓글 관련 API를 사용할 때 필요한 문서입니다. 댓글 생성, 조회, 수정, 삭제 등의 API 엔드포인트와 요청/응답 형식, 파라미터 정보를 포함하고 있습니다.
 globs: 
 alwaysApply: false
 ---
----
-description: RPC Service boilerplate
-globs: 
-alwaysApply: true
----
-
 Post Comments
 Users can participate in community discussions by adding comments to community posts in the help center. The user must have a Zendesk account and their requests must be authenticated. Anonymous users can't add comments. For more information, see Anatomy of the help center.
 

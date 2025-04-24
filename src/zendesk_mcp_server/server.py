@@ -178,6 +178,33 @@ async def handle_list_tools() -> list[types.Tool]:
             }
         ),
         types.Tool(
+            name="create_community_post_comment",
+            description="커뮤니티 포스트에 새로운 댓글을 작성합니다.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "post_id": {
+                        "type": "integer",
+                        "description": "댓글을 작성할 포스트의 ID"
+                    },
+                    "body": {
+                        "type": "string",
+                        "description": "댓글 내용"
+                    },
+                    "author_id": {
+                        "type": "integer",
+                        "description": "댓글 작성자 ID (Help Center 관리자만 사용 가능)",
+                    },
+                    "notify_subscribers": {
+                        "type": "boolean",
+                        "description": "구독자에게 알림을 보낼지 여부",
+                        "default": True
+                    }
+                },
+                "required": ["post_id", "body"]
+            }
+        ),
+        types.Tool(
             name="get_community_posts",
             description="Retrieve community posts with optional filtering and sorting",
             inputSchema={
@@ -217,7 +244,60 @@ async def handle_list_tools() -> list[types.Tool]:
                 "type": "object",
                 "properties": {}
             }
-        )
+        ),
+        types.Tool(
+            name="update_community_post_comment",
+            description="커뮤니티 포스트의 댓글을 수정합니다.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "post_id": {
+                        "type": "integer",
+                        "description": "댓글이 속한 포스트의 ID"
+                    },
+                    "comment_id": {
+                        "type": "integer",
+                        "description": "수정할 댓글의 ID"
+                    },
+                    "body": {
+                        "type": "string",
+                        "description": "수정할 댓글 내용"
+                    }
+                },
+                "required": ["post_id", "comment_id", "body"]
+            }
+        ),
+        types.Tool(
+            name="update_community_post",
+            description="커뮤니티 포스트를 수정합니다.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "post_id": {
+                        "type": "integer",
+                        "description": "수정할 포스트의 ID"
+                    },
+                    "title": {
+                        "type": "string",
+                        "description": "포스트 제목"
+                    },
+                    "details": {
+                        "type": "string",
+                        "description": "포스트 내용(p, br, strong 태그 사용)"
+                    },
+                    "topic_id": {
+                        "type": "integer",
+                        "description": "포스트가 속할 토픽의 ID"
+                    },
+                    "status": {
+                        "type": "string",
+                        "description": "포스트 상태",
+                        "enum": ["planned", "not_planned", "answered", "completed"]
+                    }
+                },
+                "required": ["post_id"]
+            }
+        ),
     ]
 
 
@@ -258,6 +338,23 @@ async def handle_call_tool(
                 text=f"Comment created successfully: {result}"
             )]
 
+        elif name == "create_community_post_comment":
+            post_id = arguments["post_id"]
+            body = arguments["body"]
+            author_id = arguments.get("author_id")
+            notify_subscribers = arguments.get("notify_subscribers", True)
+            
+            result = zendesk_client.create_community_post_comment(
+                post_id=post_id,
+                body=body,
+                author_id=author_id,
+                notify_subscribers=notify_subscribers
+            )
+            return [types.TextContent(
+                type="text",
+                text=json.dumps(result)
+            )]
+
         elif name == "get_community_posts":
             filter_by = arguments.get("filter_by")
             sort_by = arguments.get("sort_by")
@@ -280,6 +377,30 @@ async def handle_call_tool(
             return [types.TextContent(
                 type="text",
                 text=json.dumps(topics)
+            )]
+
+        elif name == "update_community_post_comment":
+            result = zendesk_client.update_community_post_comment(
+                post_id=arguments["post_id"],
+                comment_id=arguments["comment_id"],
+                body=arguments["body"]
+            )
+            return [types.TextContent(
+                type="text",
+                text=json.dumps(result)
+            )]
+
+        elif name == "update_community_post":
+            result = zendesk_client.update_community_post(
+                post_id=arguments["post_id"],
+                title=arguments.get("title"),
+                details=arguments.get("details"),
+                topic_id=arguments.get("topic_id"),
+                status=arguments.get("status")
+            )
+            return [types.TextContent(
+                type="text",
+                text=json.dumps(result)
             )]
 
         else:

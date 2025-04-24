@@ -1,9 +1,8 @@
 ---
-description: 
+description: Zendesk 커뮤니티 포스트 관련 API를 사용할 때 필요한 문서입니다.  포스트 생성, 조회, 수정, 삭제 등의 API 엔드포인트와  요청/응답 형식, 파라미터 정보를 포함하고 있습니다.
 globs: 
 alwaysApply: false
 ---
-
 Posts
 A post represents content that a user shares with the community.
 

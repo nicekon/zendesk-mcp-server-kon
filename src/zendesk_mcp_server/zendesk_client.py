@@ -198,3 +198,106 @@ class ZendeskClient:
             return topics
         except Exception as e:
             raise Exception(f"Failed to get community topics: {str(e)}")
+
+    def create_community_post_comment(self, post_id: int, body: str, author_id: int = None, notify_subscribers: bool = True) -> Dict[str, Any]:
+        """
+        커뮤니티 포스트에 댓글을 작성합니다.
+        
+        Args:
+            post_id (int): 댓글을 작성할 포스트의 ID
+            body (str): 댓글 내용(p, br, strong 태그 사용)
+            author_id (int, optional): 댓글 작성자 ID (Help Center 관리자만 사용 가능)
+            notify_subscribers (bool, optional): 구독자에게 알림을 보낼지 여부
+        
+        Returns:
+            Dict[str, Any]: 생성된 댓글 정보
+        """
+        try:
+            url = f"https://{self.subdomain}.zendesk.com/api/v2/community/posts/{post_id}/comments.json"
+            auth = HTTPBasicAuth(f"{self.email}/token", self.token)
+            
+            data = {
+                "comment": {
+                    "body": body
+                }
+            }
+            
+            if author_id is not None:
+                data["comment"]["author_id"] = author_id
+            
+            if not notify_subscribers:
+                data["notify_subscribers"] = False
+            
+            response = requests.post(url, json=data, auth=auth)
+            response.raise_for_status()
+            
+            return response.json()["comment"]
+        except Exception as e:
+            raise Exception(f"Failed to create comment on post {post_id}: {str(e)}")
+
+    def update_community_post_comment(self, post_id: int, comment_id: int, body: str) -> Dict[str, Any]:
+        """
+        커뮤니티 포스트의 댓글을 수정합니다.
+        
+        Args:
+            post_id (int): 댓글이 속한 포스트의 ID
+            comment_id (int): 수정할 댓글의 ID
+            body (str): 댓글 내용(p, br, strong 태그 사용)
+        
+        Returns:
+            Dict[str, Any]: 수정된 댓글 정보
+        """
+        try:
+            url = f"https://{self.subdomain}.zendesk.com/api/v2/community/posts/{post_id}/comments/{comment_id}.json"
+            auth = HTTPBasicAuth(f"{self.email}/token", self.token)
+            
+            data = {
+                "comment": {
+                    "body": body
+                }
+            }
+            
+            response = requests.put(url, json=data, auth=auth)
+            response.raise_for_status()
+            
+            return response.json()["comment"]
+        except Exception as e:
+            raise Exception(f"Failed to update comment {comment_id} on post {post_id}: {str(e)}")
+
+    def update_community_post(self, post_id: int, title: str = None, details: str = None, topic_id: int = None, status: str = None) -> Dict[str, Any]:
+        """
+        커뮤니티 포스트를 수정합니다.
+        
+        Args:
+            post_id (int): 수정할 포스트의 ID
+            title (str, optional): 포스트 제목
+            details (str, optional): 포스트 내용(p, br, strong 태그 사용 가능)
+            topic_id (int, optional): 포스트가 속할 토픽의 ID
+            status (str, optional): 포스트 상태 ("planned", "not_planned", "answered", "completed" 중 하나)
+        
+        Returns:
+            Dict[str, Any]: 수정된 포스트 정보
+        """
+        try:
+            url = f"https://{self.subdomain}.zendesk.com/api/v2/community/posts/{post_id}.json"
+            auth = HTTPBasicAuth(f"{self.email}/token", self.token)
+            
+            data = {
+                "post": {}
+            }
+            
+            if title is not None:
+                data["post"]["title"] = title
+            if details is not None:
+                data["post"]["details"] = details
+            if topic_id is not None:
+                data["post"]["topic_id"] = topic_id
+            if status is not None:
+                data["post"]["status"] = status
+            
+            response = requests.put(url, json=data, auth=auth)
+            response.raise_for_status()
+            
+            return response.json()["post"]
+        except Exception as e:
+            raise Exception(f"Failed to update post {post_id}: {str(e)}")
