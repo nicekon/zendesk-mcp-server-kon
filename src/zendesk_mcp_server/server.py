@@ -209,6 +209,14 @@ async def handle_list_tools() -> list[types.Tool]:
                 },
                 "required": ["post_id"]
             }
+        ),
+        types.Tool(
+            name="get_community_topics",
+            description="Retrieve all community topics. Returns a list of topics with their details including name, description, follower count, etc.",
+            inputSchema={
+                "type": "object",
+                "properties": {}
+            }
         )
     ]
 
@@ -249,31 +257,37 @@ async def handle_call_tool(
                 type="text",
                 text=f"Comment created successfully: {result}"
             )]
-            
+
         elif name == "get_community_posts":
             filter_by = arguments.get("filter_by")
             sort_by = arguments.get("sort_by")
-            posts = zendesk_client.get_community_posts(filter_by=filter_by, sort_by=sort_by)
+            posts = zendesk_client.get_community_posts(filter_by, sort_by)
             return [types.TextContent(
                 type="text",
                 text=json.dumps(posts)
             )]
-            
+
         elif name == "get_community_post_comments":
-            comments = zendesk_client.get_community_post_comments(arguments["post_id"])
+            post_comments = zendesk_client.get_community_post_comments(
+                arguments["post_id"])
             return [types.TextContent(
                 type="text",
-                text=json.dumps(comments)
+                text=json.dumps(post_comments)
+            )]
+
+        elif name == "get_community_topics":
+            topics = zendesk_client.get_community_topics()
+            return [types.TextContent(
+                type="text",
+                text=json.dumps(topics)
             )]
 
         else:
             raise ValueError(f"Unknown tool: {name}")
 
     except Exception as e:
-        return [types.TextContent(
-            type="text",
-            text=f"Error: {str(e)}"
-        )]
+        logger.error(f"Error executing tool {name}: {e}")
+        raise
 
 
 @server.list_resources()

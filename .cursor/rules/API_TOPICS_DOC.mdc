@@ -1,0 +1,235 @@
+---
+description: 
+globs: 
+alwaysApply: false
+---
+Topics
+A topic represents a collection of community posts on a subject.
+
+JSON format
+Topics are represented as JSON objects with the following properties:
+
+Name	Type	Read-only	Mandatory	Description
+created_at	string	true	false	When the topic was created
+description	string	false	false	The description of the topic. By default an empty string
+follower_count	integer	true	false	The number of users following the topic
+html_url	string	true	false	The community url of the topic
+id	integer	true	false	Automatically assigned when the topic is created
+manageable_by	string	false	false	The set of users who can manage this topic. Allowed values are "staff", or "managers".
+name	string	false	true	The name of the topic
+position	integer	false	false	The position of the topic relative to other topics in the community
+updated_at	string	true	false	When the topic was last updated
+url	string	true	false	The API url of the topic
+user_segment_id	integer	false	false	The id of the user segment to which this topic belongs
+The manageable_by attribute takes one of the following values:
+
+Value	Users
+staff	agents and managers
+managers	only Help Center managers
+Note that manageable_by is only displayed to users who can manage the topic.
+
+Example
+{
+  "created_at": "2012-04-04T09:14:57Z",
+  "description": "Security Best Practices",
+  "follower_count": 332,
+  "id": 1635,
+  "manageable_by": "staff",
+  "name": "Security"
+}
+List Topics
+GET /api/v2/community/topics
+Lists all topics.
+
+Allowed for
+Anonymous users
+Pagination
+Cursor pagination (recommended)
+Offset pagination
+See Pagination.
+
+Code Samples
+curl
+curl https://{subdomain}.zendesk.com/api/v2/community/topics.json \
+  -v -u {email_address}/token:{api_token}
+Go
+Java
+Nodejs
+Python
+import requests
+from requests.auth import HTTPBasicAuth
+
+url = "https://support.zendesk.com/api/v2/community/topics"
+headers = {
+	"Content-Type": "application/json",
+}
+email_address = 'your_email_address'
+api_token = 'your_api_token'
+# Use basic authentication
+auth = HTTPBasicAuth(f'{email_address}/token', api_token)
+
+response = requests.request(
+	"GET",
+	url,
+	auth=auth,
+	headers=headers
+)
+
+print(response.text)
+Ruby
+Example response(s)
+200 OK
+Show Topic
+GET /api/v2/community/topics/{topic_id}
+Shows information about a single topic.
+
+Allowed for
+Anonymous users
+Parameters
+Name	Type	In	Required	Description
+topic_id	integer	Path	true	The unique ID of the topic
+Code Samples
+curl
+curl https://{subdomain}.zendesk.com/api/v2/community/topics/{topic_id}.json \
+  -v -u {email_address}/token:{api_token}
+Go
+Java
+Nodejs
+Python
+import requests
+from requests.auth import HTTPBasicAuth
+
+url = "https://support.zendesk.com/api/v2/community/topics/360001326113"
+headers = {
+	"Content-Type": "application/json",
+}
+email_address = 'your_email_address'
+api_token = 'your_api_token'
+# Use basic authentication
+auth = HTTPBasicAuth(f'{email_address}/token', api_token)
+
+response = requests.request(
+	"GET",
+	url,
+	auth=auth,
+	headers=headers
+)
+
+print(response.text)
+Ruby
+Example response(s)
+200 OK
+Create Topic
+POST /api/v2/community/topics
+Allowed for
+Help Center managers
+Agents with the Help Center Manager role can optionally supply a created_at as part of the topic object. If it is not provided created_at is set to the current time.
+
+Code Samples
+curl
+curl https://{subdomain}.zendesk.com/api/v2/community/topics.json \
+  -v -u {email_address}/token:{api_token} -d '{"topic": {"name": "Help Center-Tricks"}}' \
+  -X POST -H "Content-Type: application/json"
+Go
+Java
+Nodejs
+Python
+import requests
+from requests.auth import HTTPBasicAuth
+
+url = "https://support.zendesk.com/api/v2/community/topics"
+headers = {
+	"Content-Type": "application/json",
+}
+email_address = 'your_email_address'
+api_token = 'your_api_token'
+# Use basic authentication
+auth = HTTPBasicAuth(f'{email_address}/token', api_token)
+
+response = requests.request(
+	"POST",
+	url,
+	auth=auth,
+	headers=headers
+)
+
+print(response.text)
+Ruby
+Example response(s)
+201 Created
+Update Topic
+PUT /api/v2/community/topics/{topic_id}
+Allowed for
+Help Center managers
+Parameters
+Name	Type	In	Required	Description
+topic_id	integer	Path	true	The unique ID of the topic
+Code Samples
+curl
+curl  -v -u {email_address}/token:{api_token} -d '{"topic": {"name": "Help Center-Tricks Updated"}}' \
+  -X PUT -H "Content-Type: application/json"
+Go
+Java
+Nodejs
+Python
+import requests
+from requests.auth import HTTPBasicAuth
+
+url = "https://support.zendesk.com/api/v2/community/topics/360001326113"
+headers = {
+	"Content-Type": "application/json",
+}
+email_address = 'your_email_address'
+api_token = 'your_api_token'
+# Use basic authentication
+auth = HTTPBasicAuth(f'{email_address}/token', api_token)
+
+response = requests.request(
+	"PUT",
+	url,
+	auth=auth,
+	headers=headers
+)
+
+print(response.text)
+Ruby
+Example response(s)
+200 OK
+Delete Topic
+DELETE /api/v2/community/topics/{topic_id}
+Allowed for
+Help Center managers
+Parameters
+Name	Type	In	Required	Description
+topic_id	integer	Path	true	The unique ID of the topic
+Code Samples
+curl
+curl https://{subdomain}.zendesk.com/api/v2/community/topics/{topic_id}.json \
+  -v -u {email_address}/token:{api_token} -X DELETE
+Go
+Java
+Nodejs
+Python
+import requests
+from requests.auth import HTTPBasicAuth
+
+url = "https://support.zendesk.com/api/v2/community/topics/360001326113"
+headers = {
+	"Content-Type": "application/json",
+}
+email_address = 'your_email_address'
+api_token = 'your_api_token'
+# Use basic authentication
+auth = HTTPBasicAuth(f'{email_address}/token', api_token)
+
+response = requests.request(
+	"DELETE",
+	url,
+	auth=auth,
+	headers=headers
+)
+
+print(response.text)
+Ruby
+Example response(s)
+204 No Content

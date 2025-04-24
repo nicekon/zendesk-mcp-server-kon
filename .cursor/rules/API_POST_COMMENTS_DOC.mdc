@@ -3,6 +3,12 @@ description:
 globs: 
 alwaysApply: false
 ---
+---
+description: RPC Service boilerplate
+globs: 
+alwaysApply: true
+---
+
 Post Comments
 Users can participate in community discussions by adding comments to community posts in the help center. The user must have a Zendesk account and their requests must be authenticated. Anonymous users can't add comments. For more information, see Anatomy of the help center.
 

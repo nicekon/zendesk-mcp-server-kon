@@ -3,13 +3,11 @@ description:
 globs: 
 alwaysApply: false
 ---
-Zenpy 사용(구현되어 있음)
+아래 기능들은 Zenpy 라이브러리 사용하여 구현되어 있음
 - get_ticket_comments
 - get_ticket
 - post_comment
 - get_all_articles
 
-Zendesk API 직접 사용하여 구현(구현 필요)
-- community post 조회
-- community post 댓글 조회
-- community post 댓글 수정
+그 외 모든 기능들은 Zendesk API 직접 사용하여 구현해야 됨
+- .cursor/rules 폴더에 각 API 문서를 참고할 수 있음

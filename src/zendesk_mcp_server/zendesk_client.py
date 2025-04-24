@@ -178,3 +178,23 @@ class ZendeskClient:
             }
         except Exception as e:
             raise Exception(f"Failed to get post and comments for post {post_id}: {str(e)}")
+
+    def get_community_topics(self) -> List[Dict[str, Any]]:
+        """
+        Get all community topics.
+        
+        Returns:
+            List[Dict[str, Any]]: List of community topics
+        """
+        try:
+            url = f"https://{self.subdomain}.zendesk.com/api/v2/community/topics.json"
+            auth = HTTPBasicAuth(f"{self.email}/token", self.token)
+            response = requests.get(url, auth=auth)
+            response.raise_for_status()
+            
+            data = response.json()
+            topics = data.get("topics", [])
+            
+            return topics
+        except Exception as e:
+            raise Exception(f"Failed to get community topics: {str(e)}")
