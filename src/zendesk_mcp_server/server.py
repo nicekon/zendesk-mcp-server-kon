@@ -179,25 +179,25 @@ async def handle_list_tools() -> list[types.Tool]:
         ),
         types.Tool(
             name="create_community_post_comment",
-            description="커뮤니티 포스트에 새로운 댓글을 작성합니다.",
+            description="Create a new comment on a community post",
             inputSchema={
                 "type": "object",
                 "properties": {
                     "post_id": {
                         "type": "integer",
-                        "description": "댓글을 작성할 포스트의 ID"
+                        "description": "ID of the post to comment on"
                     },
                     "body": {
                         "type": "string",
-                        "description": "댓글 내용"
+                        "description": "Comment content"
                     },
                     "author_id": {
                         "type": "integer",
-                        "description": "댓글 작성자 ID (Help Center 관리자만 사용 가능)",
+                        "description": "Comment author ID (only available for Help Center administrators)",
                     },
                     "notify_subscribers": {
                         "type": "boolean",
-                        "description": "구독자에게 알림을 보낼지 여부",
+                        "description": "Whether to notify subscribers",
                         "default": True
                     }
                 },
@@ -247,21 +247,21 @@ async def handle_list_tools() -> list[types.Tool]:
         ),
         types.Tool(
             name="update_community_post_comment",
-            description="커뮤니티 포스트의 댓글을 수정합니다.",
+            description="Update a comment on a community post",
             inputSchema={
                 "type": "object",
                 "properties": {
                     "post_id": {
                         "type": "integer",
-                        "description": "댓글이 속한 포스트의 ID"
+                        "description": "ID of the post containing the comment"
                     },
                     "comment_id": {
                         "type": "integer",
-                        "description": "수정할 댓글의 ID"
+                        "description": "ID of the comment to update"
                     },
                     "body": {
                         "type": "string",
-                        "description": "수정할 댓글 내용"
+                        "description": "Updated comment content"
                     }
                 },
                 "required": ["post_id", "comment_id", "body"]
@@ -269,29 +269,29 @@ async def handle_list_tools() -> list[types.Tool]:
         ),
         types.Tool(
             name="update_community_post",
-            description="커뮤니티 포스트를 수정합니다.",
+            description="Update a community post",
             inputSchema={
                 "type": "object",
                 "properties": {
                     "post_id": {
                         "type": "integer",
-                        "description": "수정할 포스트의 ID"
+                        "description": "ID of the post to update"
                     },
                     "title": {
                         "type": "string",
-                        "description": "포스트 제목"
+                        "description": "Post title"
                     },
                     "details": {
                         "type": "string",
-                        "description": "포스트 내용(p, br, strong 태그 사용)"
+                        "description": "Post content (supports p, br, strong tags)"
                     },
                     "topic_id": {
                         "type": "integer",
-                        "description": "포스트가 속할 토픽의 ID"
+                        "description": "ID of the topic this post belongs to"
                     },
                     "status": {
                         "type": "string",
-                        "description": "포스트 상태",
+                        "description": "Post status",
                         "enum": ["planned", "not_planned", "answered", "completed"]
                     }
                 },
