@@ -5,7 +5,6 @@ import os
 from typing import Any, Dict
 
 from cachetools.func import ttl_cache
-from dotenv import load_dotenv
 from mcp.server import InitializationOptions, NotificationOptions
 from mcp.server import Server, types
 from mcp.server.stdio import stdio_server
@@ -21,11 +20,20 @@ logging.basicConfig(
 logger = logging.getLogger("zendesk-mcp-server")
 logger.info("zendesk mcp server started")
 
-load_dotenv()
+# Get environment variables
+subdomain = os.environ.get("ZENDESK_SUBDOMAIN")
+email = os.environ.get("ZENDESK_EMAIL")
+api_key = os.environ.get("ZENDESK_API_KEY")
+
+if not all([subdomain, email, api_key]):
+    raise ValueError(
+        "Missing required environment variables. Please set ZENDESK_SUBDOMAIN, ZENDESK_EMAIL, and ZENDESK_API_KEY"
+    )
+
 zendesk_client = ZendeskClient(
-    subdomain=os.getenv("ZENDESK_SUBDOMAIN"),
-    email=os.getenv("ZENDESK_EMAIL"),
-    token=os.getenv("ZENDESK_API_KEY")
+    subdomain=subdomain,
+    email=email,
+    token=api_key
 )
 
 server = Server("Zendesk Server")
