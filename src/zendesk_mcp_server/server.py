@@ -40,6 +40,20 @@ draft and ask for confirmation before any Zendesk write.
 """
 
 
+TICKET_QUERY_SCHEMA = {
+    "oneOf": [
+        {"type": "string", "minLength": 1},
+        {"type": "object", "properties": {
+            "status": {"type": "string", "enum": ["new", "open", "pending", "hold", "solved", "closed"]},
+            "priority": {"type": "string", "enum": ["low", "normal", "high", "urgent"]},
+            "tags": {"type": "object", "properties": {"include": {"type": "array", "items": {"type": "string"}}, "exclude": {"type": "array", "items": {"type": "string"}}}, "additionalProperties": False},
+            "assignee": {"type": "object", "properties": {"kind": {"type": "string", "enum": ["me", "none", "id"]}, "value": {"type": "integer", "minimum": 1}}, "required": ["kind"], "additionalProperties": False},
+            "requester": {"type": "object", "properties": {"kind": {"type": "string", "enum": ["me", "none", "id"]}, "value": {"type": "integer", "minimum": 1}}, "required": ["kind"], "additionalProperties": False},
+        }, "additionalProperties": False},
+    ]
+}
+
+
 def build_tools() -> list[types.Tool]:
     return [
         types.Tool(
@@ -56,14 +70,14 @@ def build_tools() -> list[types.Tool]:
         types.Tool(
             name="zendesk_search_tickets",
             description="Search Zendesk Support tickets without making changes.",
-            inputSchema={"type": "object", "properties": {"query": {"type": "string", "minLength": 1}, "limit": {"type": "integer", "minimum": 1, "maximum": 100}}, "required": ["query"]},
+            inputSchema={"type": "object", "properties": {"query": TICKET_QUERY_SCHEMA, "limit": {"type": "integer", "minimum": 1, "maximum": 100}}, "required": ["query"]},
         ),
         types.Tool(
             name="zendesk_count_tickets",
             description="Count Zendesk Support tickets matching a search query without making changes.",
-            inputSchema={"type": "object", "properties": {"query": {"type": "string", "minLength": 1}}, "required": ["query"]},
+            inputSchema={"type": "object", "properties": {"query": TICKET_QUERY_SCHEMA}, "required": ["query"]},
         ),
-        types.Tool(name="zendesk_export_tickets", description="Export one cursor-paginated ticket-only Search Export page without making changes.", inputSchema={"type": "object", "properties": {"query": {"type": "string", "minLength": 1}, "cursor": {"type": "string", "minLength": 1}, "limit": {"type": "integer", "minimum": 1, "maximum": 1000, "default": 100}}, "required": ["query"]}),
+        types.Tool(name="zendesk_export_tickets", description="Export one cursor-paginated ticket-only Search Export page without making changes.", inputSchema={"type": "object", "properties": {"query": TICKET_QUERY_SCHEMA, "cursor": {"type": "string", "minLength": 1}, "limit": {"type": "integer", "minimum": 1, "maximum": 1000, "default": 100}}, "required": ["query"]}),
         types.Tool(name="zendesk_apply_ticket_macro", description="Preview or apply a ticket macro through the unified ticket update path. Apply requires local approval; public macro comments also require the public-write gate.", inputSchema={"type": "object", "properties": {"ticket_id": {"type": "integer", "minimum": 1}, "macro_id": {"type": "integer", "minimum": 1}, "execution_mode": {"type": "string", "enum": ["preview", "apply"], "default": "preview"}, "approval_request_id": {"type": "string"}, "approval_token": {"type": "string"}}, "required": ["ticket_id", "macro_id"]}),
         types.Tool(
             name="zendesk_get_ticket",

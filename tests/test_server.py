@@ -37,6 +37,15 @@ def test_attachment_image_result_uses_image_content():
     assert content[1].mimeType == "image/png"
 
 
+def test_ticket_search_tools_accept_the_shared_structured_filter():
+    from zendesk_mcp_server.server import build_tools
+
+    tools = {tool.name: tool for tool in build_tools()}
+
+    for name in ("zendesk_search_tickets", "zendesk_count_tickets", "zendesk_export_tickets"):
+        assert tools[name].inputSchema["properties"]["query"]["oneOf"][1]["type"] == "object"
+
+
 def test_server_import_does_not_require_credentials(monkeypatch):
     for name in (
         "ZENDESK_SUBDOMAIN",

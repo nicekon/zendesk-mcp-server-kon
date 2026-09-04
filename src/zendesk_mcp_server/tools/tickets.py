@@ -13,7 +13,7 @@ import zipfile
 import json
 from datetime import datetime
 from pathlib import Path
-from typing import Protocol
+from typing import Mapping, Protocol
 
 from ..approvals import ApprovalStore
 from ..config import Settings
@@ -193,7 +193,7 @@ class TicketTools:
             and 0 <= attachment["size"] <= 20 * 1024 * 1024
         )
 
-    def search_tickets(self, query: str, limit: int = 100) -> dict[str, object]:
+    def search_tickets(self, query: object, limit: int = 100) -> dict[str, object]:
         ticket_query = _ticket_query(query)
         if ticket_query is None:
             return failure(ErrorCode.VALIDATION_ERROR, "query must be a non-empty string")
@@ -215,7 +215,7 @@ class TicketTools:
         has_more = bool(data.get("next_page"))
         return {"ok": True, "items": data["results"], "has_more": has_more, "next_cursor": None, "truncated": has_more}
 
-    def count_tickets(self, query: str) -> dict[str, object]:
+    def count_tickets(self, query: object) -> dict[str, object]:
         ticket_query = _ticket_query(query)
         if ticket_query is None:
             return failure(ErrorCode.VALIDATION_ERROR, "query must be a non-empty string")
@@ -231,14 +231,15 @@ class TicketTools:
             return failure(ErrorCode.UPSTREAM_ERROR, "Zendesk returned an invalid ticket count")
         return success({"count": count["value"], "refreshed_at": count.get("refreshed_at")})
 
-    def export_tickets(self, query: str, *, cursor: str | None = None, limit: int = 100) -> dict[str, object]:
-        if not isinstance(query, str) or not query.strip():
+    def export_tickets(self, query: object, *, cursor: str | None = None, limit: int = 100) -> dict[str, object]:
+        ticket_query = _ticket_query(query, include_type=False)
+        if ticket_query is None:
             return failure(ErrorCode.VALIDATION_ERROR, "query must be a non-empty string")
         if cursor is not None and (not isinstance(cursor, str) or not cursor): return failure(ErrorCode.VALIDATION_ERROR, "cursor must be a non-empty string")
         if not isinstance(limit, int) or isinstance(limit, bool) or not 1 <= limit <= 1000: return failure(ErrorCode.VALIDATION_ERROR, "limit must be an integer from 1 to 1000")
         client = self._configured_client()
         if isinstance(client, dict): return client
-        params = {"filter[type]": "ticket", "query": query.strip(), "page[size]": str(limit)}
+        params = {"filter[type]": "ticket", "query": ticket_query, "page[size]": str(limit)}
         if cursor is not None: params["page[after]"] = cursor
         result = client.get("/api/v2/search/export.json", params=params)
         if not result.get("ok"): return result
@@ -502,10 +503,40 @@ def _valid_ticket_id(ticket_id: int) -> bool:
     return isinstance(ticket_id, int) and not isinstance(ticket_id, bool) and ticket_id > 0
 
 
-def _ticket_query(query: str) -> str | None:
-    if not isinstance(query, str) or not (cleaned := query.strip()):
-        return None
-    return f"type:ticket {cleaned}"
+def _ticket_query(query: object, *, include_type: bool = True) -> str | None:
+    if isinstance(query, str):
+        if not (cleaned := query.strip()): return None
+        return f"type:ticket {cleaned}" if include_type else cleaned
+    if not isinstance(query, Mapping) or not set(query) <= {"status", "priority", "tags", "assignee", "requester"}: return None
+    fragments: list[str] = []
+    for key, allowed in (("status", {"new", "open", "pending", "hold", "solved", "closed"}), ("priority", {"low", "normal", "high", "urgent"})):
+        value = query.get(key)
+        if value is not None:
+            if not isinstance(value, str) or value not in allowed: return None
+            fragments.append(f"{key}:{value}")
+    tags = query.get("tags")
+    if tags is not None:
+        if not isinstance(tags, Mapping) or not set(tags) <= {"include", "exclude"}: return None
+        for prefix, name in (("", "include"), ("-", "exclude")):
+            values = tags.get(name, [])
+            if not isinstance(values, list) or not all(_valid_tag(value) for value in values): return None
+            fragments.extend(f"{prefix}tags:{value}" for value in values)
+    for field in ("assignee", "requester"):
+        value = query.get(field)
+        if value is not None:
+            fragment = _ticket_user_reference(field, value)
+            if fragment is None: return None
+            fragments.append(fragment)
+    if not fragments: return None
+    return " ".join((["type:ticket"] if include_type else []) + fragments)
+
+
+def _ticket_user_reference(field: str, value: object) -> str | None:
+    if not isinstance(value, Mapping) or not isinstance(value.get("kind"), str): return None
+    kind = value["kind"]
+    if kind in {"me", "none"} and set(value) == {"kind"}: return f"{field}:{kind}"
+    if kind == "id" and set(value) == {"kind", "value"} and _valid_ticket_id(value.get("value")): return f"{field}:{value['value']}"
+    return None
 
 
 def _page_size(limit: int) -> int | None:

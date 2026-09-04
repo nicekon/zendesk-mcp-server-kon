@@ -126,6 +126,31 @@ def test_search_and_count_use_ticket_query():
     ]
 
 
+def test_structured_ticket_filter_uses_the_same_serializer_for_search_count_and_export():
+    query = {
+        "status": "open",
+        "tags": {"include": ["billing"], "exclude": ["spam"]},
+        "assignee": {"kind": "id", "value": 8},
+    }
+    client = StubClient(
+        {
+            "/api/v2/search.json": success({"results": [], "next_page": None}),
+            "/api/v2/search/count.json": success({"count": {"value": 0}}),
+            "/api/v2/search/export.json": success({"results": [], "meta": {"has_more": False}}),
+        }
+    )
+
+    TicketTools(client).search_tickets(query)
+    TicketTools(client).count_tickets(query)
+    TicketTools(client).export_tickets(query)
+
+    assert client.paths == [
+        ("/api/v2/search.json", {"query": "type:ticket status:open tags:billing -tags:spam assignee:8", "page[size]": "100"}),
+        ("/api/v2/search/count.json", {"query": "type:ticket status:open tags:billing -tags:spam assignee:8"}),
+        ("/api/v2/search/export.json", {"filter[type]": "ticket", "query": "status:open tags:billing -tags:spam assignee:8", "page[size]": "100"}),
+    ]
+
+
 def test_ticket_export_uses_dedicated_export_type_filter():
     client = StubClient({"/api/v2/search/export.json": success({"results": [{"id": 1}], "meta": {"has_more": True, "after_cursor": "next"}})})
 
