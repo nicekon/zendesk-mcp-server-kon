@@ -194,7 +194,8 @@ class TicketTools:
         )
 
     def search_tickets(self, query: object, limit: int = 100) -> dict[str, object]:
-        ticket_query = _ticket_query(query)
+        ticket_query = self._resolve_ticket_query(query)
+        if isinstance(ticket_query, dict): return ticket_query
         if ticket_query is None:
             return failure(ErrorCode.VALIDATION_ERROR, "query must be a non-empty string")
         page_size = _page_size(limit)
@@ -216,7 +217,8 @@ class TicketTools:
         return {"ok": True, "items": data["results"], "has_more": has_more, "next_cursor": None, "truncated": has_more}
 
     def count_tickets(self, query: object) -> dict[str, object]:
-        ticket_query = _ticket_query(query)
+        ticket_query = self._resolve_ticket_query(query)
+        if isinstance(ticket_query, dict): return ticket_query
         if ticket_query is None:
             return failure(ErrorCode.VALIDATION_ERROR, "query must be a non-empty string")
         client = self._configured_client()
@@ -232,7 +234,8 @@ class TicketTools:
         return success({"count": count["value"], "refreshed_at": count.get("refreshed_at")})
 
     def export_tickets(self, query: object, *, cursor: str | None = None, limit: int = 100) -> dict[str, object]:
-        ticket_query = _ticket_query(query, include_type=False)
+        ticket_query = self._resolve_ticket_query(query, include_type=False)
+        if isinstance(ticket_query, dict): return ticket_query
         if ticket_query is None:
             return failure(ErrorCode.VALIDATION_ERROR, "query must be a non-empty string")
         if cursor is not None and (not isinstance(cursor, str) or not cursor): return failure(ErrorCode.VALIDATION_ERROR, "cursor must be a non-empty string")
@@ -452,6 +455,25 @@ class TicketTools:
         if self._client is None:
             return failure(ErrorCode.NOT_CONFIGURED, "Zendesk is not configured")
         return self._client
+
+    def _resolve_ticket_query(self, query: object, *, include_type: bool = True) -> str | dict[str, object] | None:
+        if not isinstance(query, Mapping): return _ticket_query(query, include_type=include_type)
+        resolved = dict(query)
+        for field in ("assignee", "requester"):
+            reference = resolved.get(field)
+            if not isinstance(reference, Mapping) or reference.get("kind") not in {"name", "email", "phone"}:
+                continue
+            kind, value = reference.get("kind"), reference.get("value")
+            if not isinstance(value, str) or not value.strip(): return None
+            client = self._configured_client()
+            if isinstance(client, dict): return client
+            result = client.get("/api/v2/users/search.json", params={"query": value.strip()})
+            if not result.get("ok"): return result
+            data = result.get("data"); users = data.get("users") if isinstance(data, dict) else None
+            matches = [user for user in users if isinstance(user, dict) and user.get(kind) == value and _valid_ticket_id(user.get("id"))] if isinstance(users, list) else []
+            if len(matches) != 1: return failure(ErrorCode.VALIDATION_ERROR, f"{field} {kind} must match exactly one user")
+            resolved[field] = {"kind": "id", "value": matches[0]["id"]}
+        return _ticket_query(resolved, include_type=include_type)
 
     def _configured_mutation_client(self) -> TicketMutationClient | dict[str, object]:
         client = self._configured_client()

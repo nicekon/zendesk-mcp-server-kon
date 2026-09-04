@@ -151,6 +151,20 @@ def test_structured_ticket_filter_uses_the_same_serializer_for_search_count_and_
     ]
 
 
+def test_structured_ticket_filter_resolves_an_exact_user_email_before_searching():
+    client = StubClient({
+        "/api/v2/users/search.json": success({"users": [{"id": 8, "email": "agent@example.test"}]}),
+        "/api/v2/search.json": success({"results": [], "next_page": None}),
+    })
+
+    TicketTools(client).search_tickets({"assignee": {"kind": "email", "value": "agent@example.test"}})
+
+    assert client.paths == [
+        ("/api/v2/users/search.json", {"query": "agent@example.test"}),
+        ("/api/v2/search.json", {"query": "type:ticket assignee:8", "page[size]": "100"}),
+    ]
+
+
 def test_ticket_export_uses_dedicated_export_type_filter():
     client = StubClient({"/api/v2/search/export.json": success({"results": [{"id": 1}], "meta": {"has_more": True, "after_cursor": "next"}})})
 
