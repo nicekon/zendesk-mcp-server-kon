@@ -49,6 +49,34 @@ Replace the environment variables with your Zendesk credentials:
 - `ZENDESK_EMAIL`: Your Zendesk admin email address
 - `ZENDESK_API_KEY`: Your Zendesk API token
 
+### Quick Install (No Clone Required)
+
+If you have `uv` installed, you can skip step 1 and run this repository directly via `uvx`:
+
+```json
+{
+  "mcpServers": {
+    "zendesk": {
+      "command": "uvx",
+      "args": [
+        "--from",
+        "git+https://github.com/nicekon/zendesk-mcp-server-kon.git@4717ee6299539c653655ba1d579cdcde42a0757c",
+        "zendesk"
+      ],
+      "env": {
+        "ZENDESK_SUBDOMAIN": "your-zendesk-subdomain",
+        "ZENDESK_EMAIL": "your-zendesk-email",
+        "ZENDESK_API_KEY": "your-zendesk-api-key"
+      }
+    }
+  }
+}
+```
+
+Since `uvx` fetches and runs the package directly from GitHub, there's no need to manage a local clone or a `--directory` path.
+
+The URL above is pinned to a specific commit hash rather than a branch name. Because `uv` caches Git dependencies keyed by the fully resolved commit hash, pinning a commit makes this behave fully offline after the first install, just like the local clone method above. Pointing to a branch instead (e.g., `...git@main`) makes every run issue a network request to check that branch's `HEAD` on GitHub — it won't reinstall if the commit hasn't changed, but it needs internet access every time, and in exchange automatically picks up new commits. To keep this install method tracking the latest version, you'll need to manually update the pinned commit hash.
+
 ## Resources
 
 - zendesk://knowledge-base, get access to the whole help center articles.

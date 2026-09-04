@@ -47,6 +47,34 @@ uv venv && uv pip install -e .
 - `ZENDESK_EMAIL`: Zendesk 관리자 이메일 주소
 - `ZENDESK_API_KEY`: Zendesk API 토큰
 
+### 빠른 설치 (클론 불필요)
+
+`uv`가 설치되어 있다면 1번 단계 없이 `uvx`로 이 저장소에서 바로 실행할 수 있습니다:
+
+```json
+{
+  "mcpServers": {
+    "zendesk": {
+      "command": "uvx",
+      "args": [
+        "--from",
+        "git+https://github.com/nicekon/zendesk-mcp-server-kon.git@4717ee6299539c653655ba1d579cdcde42a0757c",
+        "zendesk"
+      ],
+      "env": {
+        "ZENDESK_SUBDOMAIN": "your-zendesk-subdomain",
+        "ZENDESK_EMAIL": "your-zendesk-email",
+        "ZENDESK_API_KEY": "your-zendesk-api-key"
+      }
+    }
+  }
+}
+```
+
+`uvx`가 GitHub에서 패키지를 직접 가져와 실행하므로 로컬 클론이나 `--directory` 경로 관리가 필요 없습니다.
+
+위 URL은 브랜치명이 아니라 특정 커밋 해시로 고정되어 있습니다. `uv`는 Git 의존성을 완전히 resolve된 커밋 해시 기준으로 캐싱하기 때문에, 커밋을 고정하면 최초 설치 이후에는 위의 로컬 클론 방식과 동일하게 완전히 오프라인으로 동작합니다. 반대로 브랜치(예: `...git@main`)를 지정하면 실행할 때마다 GitHub의 해당 브랜치 `HEAD`를 확인하는 네트워크 요청이 발생합니다 — 커밋이 안 바뀌었으면 재설치는 안 하지만 매번 인터넷 연결이 필요하고, 대신 새 커밋이 자동으로 반영됩니다. 이 설치 방식이 최신 버전을 추적하게 하려면 고정된 커밋 해시를 수동으로 갱신해야 합니다.
+
 ## 리소스
 
 - zendesk://knowledge-base: 전체 헬프 센터 문서에 접근
