@@ -109,6 +109,14 @@ def test_ticket_search_tools_accept_the_shared_structured_filter():
         assert set(tools[name].inputSchema["properties"]["projection"]["properties"]) == {"fields", "include_custom_objects"}
 
 
+def test_macro_preview_has_a_canonical_tool_registration():
+    from zendesk_mcp_server.server import build_tools
+
+    tools = {tool.name: tool for tool in build_tools()}
+
+    assert tools["zendesk_preview_macro"].inputSchema["required"] == ["ticket_id", "macro_id"]
+
+
 def test_server_import_does_not_require_credentials(monkeypatch):
     for name in (
         "ZENDESK_SUBDOMAIN",
@@ -164,6 +172,7 @@ def test_support_read_tools_are_registered():
         "zendesk_search_tickets",
         "zendesk_count_tickets",
         "zendesk_export_tickets",
+        "zendesk_preview_macro",
         "zendesk_apply_ticket_macro",
         "zendesk_get_ticket",
         "zendesk_create_ticket",

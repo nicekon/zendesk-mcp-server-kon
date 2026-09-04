@@ -101,6 +101,7 @@ def build_tools() -> list[types.Tool]:
             inputSchema={"type": "object", "properties": {"query": TICKET_QUERY_SCHEMA}, "required": ["query"]},
         ),
         types.Tool(name="zendesk_export_tickets", description="Export one cursor-paginated ticket-only Search Export page without making changes.", inputSchema={"type": "object", "properties": {"query": TICKET_QUERY_SCHEMA, "projection": TICKET_PROJECTION_SCHEMA, "cursor": {"type": "string", "minLength": 1}, "limit": {"type": "integer", "minimum": 1, "maximum": 1000, "default": 100}, "format": {"type": "string", "enum": ["json", "csv"], "default": "json"}}, "required": ["query"]}),
+        types.Tool(name="zendesk_preview_macro", description="Preview a Zendesk macro's ticket changes without making changes.", inputSchema={"type": "object", "properties": {"ticket_id": {"type": "integer", "minimum": 1}, "macro_id": {"type": "integer", "minimum": 1}}, "required": ["ticket_id", "macro_id"]}),
         types.Tool(name="zendesk_apply_ticket_macro", description="Preview or apply a ticket macro through the unified ticket update path. Apply requires local approval; public macro comments also require the public-write gate.", inputSchema={"type": "object", "properties": {"ticket_id": {"type": "integer", "minimum": 1}, "macro_id": {"type": "integer", "minimum": 1}, "execution_mode": {"type": "string", "enum": ["preview", "apply"], "default": "preview"}, "approval_request_id": {"type": "string"}, "approval_token": {"type": "string"}}, "required": ["ticket_id", "macro_id"]}),
         types.Tool(
             name="zendesk_get_ticket",
@@ -598,6 +599,7 @@ def create_server(environ: Mapping[str, str] | None = None) -> Server:
             "zendesk_search_tickets",
             "zendesk_count_tickets",
             "zendesk_export_tickets",
+            "zendesk_preview_macro",
             "zendesk_apply_ticket_macro",
             "zendesk_get_ticket",
             "zendesk_create_ticket",
@@ -628,6 +630,8 @@ def create_server(environ: Mapping[str, str] | None = None) -> Server:
                 result = tools.count_tickets((arguments or {}).get("query"))
             elif name == "zendesk_export_tickets":
                 values = arguments or {}; result = tools.export_tickets(values.get("query"), cursor=values.get("cursor"), limit=values.get("limit", 100), projection=values.get("projection"), output_format=values.get("format", "json"))
+            elif name == "zendesk_preview_macro":
+                values = arguments or {}; result = tools.apply_macro(values.get("ticket_id"), values.get("macro_id"))
             elif name == "zendesk_apply_ticket_macro":
                 values = arguments or {}
                 result = tools.apply_macro(values.get("ticket_id"), values.get("macro_id"), execution_mode=values.get("execution_mode", "preview"), approval_request_id=values.get("approval_request_id"), approval_token=values.get("approval_token"))
