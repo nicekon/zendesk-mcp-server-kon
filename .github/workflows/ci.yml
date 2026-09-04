@@ -31,3 +31,27 @@ jobs:
 
       - name: Build the project
         run: uv build
+
+      - name: Install and handshake the wheel
+        shell: bash
+        run: |
+          uv venv --python ${{ matrix.python }} .wheel-venv
+          uv pip install --python .wheel-venv/bin/python dist/*.whl
+          .wheel-venv/bin/python - <<'PY'
+          import asyncio
+          import sys
+          from mcp.client.session import ClientSession
+          from mcp.client.stdio import StdioServerParameters, stdio_client
+
+          async def main():
+              params = StdioServerParameters(
+                  command=sys.executable,
+                  args=["-c", "from zendesk_mcp_server import main; main()"],
+                  env={},
+              )
+              async with stdio_client(params) as (read, write):
+                  async with ClientSession(read, write) as session:
+                      assert (await session.initialize()).serverInfo.name == "Zendesk"
+
+          asyncio.run(main())
+          PY
