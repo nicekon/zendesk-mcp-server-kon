@@ -4,36 +4,36 @@
 
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 
-A Zendesk Model Context Protocol server. This branch is the first implementation
-stage of the [unified Zendesk MCP PRD](docs/superpowers/specs/2026-09-04-unified-zendesk-mcp-design.md).
-It establishes safe startup, explicit authentication selection, and one HTTP
-transport before Support, Guide, CSAT, and Community tools are added.
+A Zendesk Model Context Protocol server implementing the evolving
+[unified Zendesk MCP PRD](docs/superpowers/specs/2026-09-04-unified-zendesk-mcp-design.md).
 
 ## Current status
 
-The current pre-release exposes these safe tools:
+The current pre-release provides the following guarded domains:
 
 - `zendesk_get_connection_status` reports whether the server is configured. It
   never sends a network request and never returns an email address, token, or
   OAuth secret.
-- `zendesk_list_tickets`, `zendesk_search_tickets`, `zendesk_count_tickets`,
-  `zendesk_get_ticket`, and `zendesk_get_ticket_conversation` provide
-  read-only Support access. Search is always limited to ticket records.
-- `zendesk_create_ticket` and `zendesk_update_ticket` are standard writes. They
-  are unavailable until
-  `ZENDESK_WRITE_MODE=standard` is set, and their responses note that account
-  automations can have additional side effects.
-- `zendesk_post_internal_note` is a standard write. `zendesk_post_public_reply`
-  defaults to a non-writing preview. To apply a public reply, enable
-  `ZENDESK_ENABLE_PUBLIC_WRITES=true`, inspect and approve its request locally
-  with `zendesk approve <approval_request_id>`, then submit the returned token
-  with the unchanged payload.
-- Read-only account metadata tools cover user search, groups and group members,
-  organizations, brands, ticket fields/forms, and custom statuses.
+- Support: ticket reads, search/count/export, guarded mutations, comments,
+  macro preview/apply, metadata, and safe attachment download/inspection.
+- Guide and CSAT: locales, categories, sections, article search/export,
+  permission metadata, ratings, draft article and translation workflows.
+- Community: posts, comments, topics, votes, subscriptions, content tags,
+  badges, and secure user-image/badge-icon upload flows.
 
-The server starts in `read_only` mode. Help Center, CSAT, attachment, and
-Community tools are intentionally not available until their corresponding
-implementation stages are complete.
+The server starts in `read_only` mode. Standard writes require
+`ZENDESK_WRITE_MODE=standard`; public, destructive, impersonation, and external
+upload operations require their separate `ZENDESK_ENABLE_*` gates. Any
+preview/apply operation also requires a matching one-time local approval:
+
+```bash
+zendesk approve <approval_request_id>
+```
+
+Attachment downloads accept only the attachment identified by its ticket and
+attachment ID, require Zendesk's safe malware result, and use a managed cache.
+Set `ZENDESK_ATTACHMENT_CACHE_ROOT` to relocate it. Secure local image uploads
+require `ZENDESK_UPLOAD_ROOT`.
 
 ## Setup
 

@@ -4,33 +4,35 @@
 
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 
-Zendesk용 Model Context Protocol 서버입니다. 이 브랜치는
-[통합 Zendesk MCP PRD](docs/superpowers/specs/2026-09-04-unified-zendesk-mcp-design.md)의
-첫 구현 단계로, Support·Guide·CSAT·Community 도구를 추가하기 전에 안전한 시작,
-명시적 인증 선택, 단일 HTTP transport를 마련합니다.
+Zendesk용 Model Context Protocol 서버이며,
+[통합 Zendesk MCP PRD](docs/superpowers/specs/2026-09-04-unified-zendesk-mcp-design.md)를
+단계적으로 구현합니다.
 
 ## 현재 상태
 
-현재 pre-release에서 제공하는 안전한 도구입니다.
+현재 pre-release는 다음의 guard된 도메인을 제공합니다.
 
 - `zendesk_get_connection_status`: 설정 여부만 알려줍니다. 네트워크 요청을 보내지
   않고 이메일, token, OAuth secret을 반환하지 않습니다.
-- `zendesk_list_tickets`, `zendesk_search_tickets`, `zendesk_count_tickets`,
-  `zendesk_get_ticket`, `zendesk_get_ticket_conversation`: 읽기 전용 Support
-  조회를 제공합니다. 검색은 항상 티켓 레코드로 한정됩니다.
-- `zendesk_create_ticket`, `zendesk_update_ticket`: 표준 쓰기 도구입니다.
-  `ZENDESK_WRITE_MODE=standard` 설정 전에는 사용할 수 없으며, 응답에 계정 자동화의 추가 부작용 가능성을
-  표시합니다.
-- `zendesk_post_internal_note`는 표준 쓰기입니다.
-  `zendesk_post_public_reply`는 기본적으로 쓰지 않는 preview를 반환합니다. 실제
-  공개 답변에는 `ZENDESK_ENABLE_PUBLIC_WRITES=true`를 켠 뒤,
-  `zendesk approve <approval_request_id>`로 로컬 승인하고 변경하지 않은 payload와
-  함께 반환된 token을 제출해야 합니다.
-- 읽기 전용 계정 metadata 도구는 사용자 검색, 그룹·그룹 구성원, 조직, 브랜드,
-  티켓 필드·폼, custom status를 제공합니다.
+- Support: 티켓 조회·검색·건수·export, guard된 수정, 댓글, 매크로 preview/apply,
+  metadata, 안전한 첨부 다운로드·검사를 제공합니다.
+- Guide·CSAT: locale, category, section, 문서 검색·export, 권한 metadata,
+  만족도, draft 문서·번역 workflow를 제공합니다.
+- Community: 게시물·댓글·topic, vote, subscription, content tag, badge,
+  안전한 user image/badge icon upload workflow를 제공합니다.
 
-서버는 기본 `read_only` 모드로 시작합니다. Help Center, CSAT, 첨부파일,
-Community 도구는 각 구현 단계가 끝날 때까지 의도적으로 노출하지 않습니다.
+서버는 기본 `read_only` 모드로 시작합니다. 표준 쓰기는
+`ZENDESK_WRITE_MODE=standard`가 필요하고, public·destructive·impersonation·external
+upload은 각각의 `ZENDESK_ENABLE_*` gate가 필요합니다. preview/apply 작업은 항상
+일회성 로컬 승인을 요구합니다.
+
+```bash
+zendesk approve <approval_request_id>
+```
+
+첨부 다운로드는 `ticket_id + attachment_id`로 소속과 악성코드 상태를 다시 확인하고
+server-managed cache에만 저장합니다. 캐시 위치는 `ZENDESK_ATTACHMENT_CACHE_ROOT`,
+안전한 로컬 image upload root는 `ZENDESK_UPLOAD_ROOT`로 설정할 수 있습니다.
 
 ## 설치와 설정
 
