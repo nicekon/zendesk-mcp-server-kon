@@ -2,153 +2,73 @@
 
 [한국어](README.ko.md)
 
-This project is a fork of [reminia/zendesk-mcp-server](https://github.com/reminia/zendesk-mcp-server) with modifications to support additional features and improvements.
-
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 
-A Model Context Protocol server for Zendesk.
+A Zendesk Model Context Protocol server. This branch is the first implementation
+stage of the [unified Zendesk MCP PRD](docs/superpowers/specs/2026-09-04-unified-zendesk-mcp-design.md).
+It establishes safe startup, explicit authentication selection, and one HTTP
+transport before Support, Guide, CSAT, and Community tools are added.
 
-This server provides a comprehensive integration with Zendesk. It offers:
+## Current status
 
-- Tools for retrieving and managing Zendesk tickets and comments
-- Tools for managing community posts, comments, and topics
-- Specialized prompts for ticket analysis and response drafting
-- Full access to the Zendesk Help Center articles as knowledge base
+The foundation exposes one safe tool:
+
+- `zendesk_get_connection_status` reports whether the server is configured. It
+  never sends a network request and never returns an email address, token, or
+  OAuth secret.
+
+The server starts in `read_only` mode. Ticket, Help Center, CSAT, attachment,
+and Community tools are intentionally not available until their corresponding
+implementation stages are complete.
 
 ## Setup
 
-1. Install the package:
+Install the package:
+
 ```bash
-uv venv && uv pip install -e .
+uv sync --group dev
 ```
 
-2. Configure in Claude desktop:
+The server can start with no Zendesk credentials. To configure API-token
+authentication, provide all three variables:
+
 ```json
 {
   "mcpServers": {
     "zendesk": {
       "command": "uv",
-      "args": [
-        "--directory",
-        "/path/to/zendesk-mcp-server-kon",
-        "run",
-        "zendesk"
-      ],
+      "args": ["--directory", "/path/to/zendesk-mcp-server-kon", "run", "zendesk"],
       "env": {
         "ZENDESK_SUBDOMAIN": "your-zendesk-subdomain",
         "ZENDESK_EMAIL": "your-zendesk-email",
-        "ZENDESK_API_KEY": "your-zendesk-api-key"
+        "ZENDESK_API_TOKEN": "your-zendesk-api-token"
       }
     }
   }
 }
 ```
 
-Replace the environment variables with your Zendesk credentials:
-- `ZENDESK_SUBDOMAIN`: Your Zendesk subdomain (e.g., if your Zendesk URL is `company.zendesk.com`, use `company`)
-- `ZENDESK_EMAIL`: Your Zendesk admin email address
-- `ZENDESK_API_KEY`: Your Zendesk API token
+`ZENDESK_API_KEY` is no longer accepted. Migrate it to
+`ZENDESK_API_TOKEN`; the server rejects the deprecated name instead of silently
+using it.
 
-### Quick Install (No Clone Required)
-
-If you have `uv` installed, you can skip step 1 and run this repository directly via `uvx`:
-
-```json
-{
-  "mcpServers": {
-    "zendesk": {
-      "command": "uvx",
-      "args": [
-        "--from",
-        "git+https://github.com/nicekon/zendesk-mcp-server-kon.git@4717ee6299539c653655ba1d579cdcde42a0757c",
-        "zendesk"
-      ],
-      "env": {
-        "ZENDESK_SUBDOMAIN": "your-zendesk-subdomain",
-        "ZENDESK_EMAIL": "your-zendesk-email",
-        "ZENDESK_API_KEY": "your-zendesk-api-key"
-      }
-    }
-  }
-}
-```
-
-Since `uvx` fetches and runs the package directly from GitHub, there's no need to manage a local clone or a `--directory` path.
-
-The URL above is pinned to a specific commit hash rather than a branch name. Because `uv` caches Git dependencies keyed by the fully resolved commit hash, pinning a commit makes this behave fully offline after the first install, just like the local clone method above. Pointing to a branch instead (e.g., `...git@main`) makes every run issue a network request to check that branch's `HEAD` on GitHub — it won't reinstall if the commit hasn't changed, but it needs internet access every time, and in exchange automatically picks up new commits. To keep this install method tracking the latest version, you'll need to manually update the pinned commit hash.
-
-## Resources
-
-- zendesk://knowledge-base, get access to the whole help center articles.
+`ZENDESK_AUTH_MODE` defaults to `auto`. It selects complete OAuth settings when
+present, otherwise a complete API-token configuration. A partial OAuth
+configuration is an error and never falls back to API token credentials.
 
 ## Prompts
 
-### analyze-ticket
+- `analyze-ticket(ticket_id)`
+- `draft-ticket-response(ticket_id)`
 
-Analyze a Zendesk ticket and provide a detailed analysis of the ticket.
+Prompts only generate guidance. They do not perform Zendesk writes.
 
-### draft-ticket-response
+## Development
 
-Draft a response to a Zendesk ticket.
+```bash
+uv run pytest -v
+uv build
+```
 
-## Tools
-
-### Ticket Management
-
-#### get_ticket
-Retrieve a Zendesk ticket by its ID
-- Input:
-  - `ticket_id` (integer): The ID of the ticket to retrieve
-
-#### get_ticket_comments
-Retrieve all comments for a Zendesk ticket by its ID
-- Input:
-  - `ticket_id` (integer): The ID of the ticket to get comments for
-
-#### create_ticket_comment
-Create a new comment on an existing Zendesk ticket
-- Input:
-  - `ticket_id` (integer): The ID of the ticket to comment on
-  - `comment` (string): The comment text/content to add
-  - `public` (boolean, optional): Whether the comment should be public (defaults to true)
-
-### Community Management
-
-#### get_community_posts
-Retrieve community posts with optional filtering and sorting
-- Input:
-  - `filter_by` (string, optional): Filter posts by status (planned, not_planned, completed, answered, none)
-  - `sort_by` (string, optional): Sort posts by criteria (created_at, edited_at, updated_at, recent_activity, votes, comments)
-
-#### get_community_post_comments
-Retrieve a community post and all its comments
-- Input:
-  - `post_id` (integer): The ID of the post to retrieve comments for
-
-#### create_community_post_comment
-Create a new comment on a community post
-- Input:
-  - `post_id` (integer): ID of the post to comment on
-  - `body` (string): Comment content
-  - `author_id` (integer, optional): Comment author ID (only available for Help Center administrators)
-  - `notify_subscribers` (boolean, optional): Whether to notify subscribers (defaults to true)
-
-#### update_community_post_comment
-Update a comment on a community post
-- Input:
-  - `post_id` (integer): ID of the post containing the comment
-  - `comment_id` (integer): ID of the comment to update
-  - `body` (string): Updated comment content
-
-#### update_community_post
-Update a community post
-- Input:
-  - `post_id` (integer): ID of the post to update
-  - `title` (string, optional): Post title
-  - `details` (string, optional): Post content (supports p, br, strong tags)
-  - `topic_id` (integer, optional): ID of the topic this post belongs to
-  - `status` (string, optional): Post status (planned, not_planned, answered, completed)
-
-#### get_community_topics
-Retrieve all community topics
-- Returns a list of topics with their details including name, description, follower count, etc.
+See the [foundation implementation plan](docs/superpowers/plans/2026-09-04-unified-zendesk-mcp-foundation.md)
+for the active scope and the PRD for the phased feature roadmap.
