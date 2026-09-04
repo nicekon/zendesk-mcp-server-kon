@@ -18,6 +18,9 @@ Zendesk용 Model Context Protocol 서버입니다. 이 브랜치는
 - `zendesk_list_tickets`, `zendesk_search_tickets`, `zendesk_count_tickets`,
   `zendesk_get_ticket`, `zendesk_get_ticket_conversation`: 읽기 전용 Support
   조회를 제공합니다. 검색은 항상 티켓 레코드로 한정됩니다.
+- `zendesk_create_ticket`: 표준 쓰기 도구입니다. `ZENDESK_WRITE_MODE=standard`
+  설정 전에는 사용할 수 없으며, 응답에 계정 자동화의 추가 부작용 가능성을
+  표시합니다.
 
 서버는 기본 `read_only` 모드로 시작합니다. Help Center, CSAT, 첨부파일,
 Community 도구는 각 구현 단계가 끝날 때까지 의도적으로 노출하지 않습니다.

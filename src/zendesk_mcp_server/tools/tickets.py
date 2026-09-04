@@ -4,16 +4,29 @@ from __future__ import annotations
 
 from typing import Protocol
 
+from ..config import Settings
 from ..contracts import ErrorCode, failure, success
+from ..write_policy import WriteRisk, check_write_permission
 
 
 class TicketClient(Protocol):
     def get(self, path: str, *, params: dict[str, str] | None = None) -> dict[str, object]: ...
 
 
+class TicketMutationClient(TicketClient, Protocol):
+    def request(
+        self,
+        method: str,
+        path: str,
+        *,
+        json_body: dict[str, object] | None = None,
+    ) -> dict[str, object]: ...
+
+
 class TicketTools:
-    def __init__(self, client: TicketClient | None) -> None:
+    def __init__(self, client: TicketClient | None, settings: Settings | None = None) -> None:
         self._client = client
+        self._settings = settings
 
     def get_ticket(self, ticket_id: int) -> dict[str, object]:
         if not _valid_ticket_id(ticket_id):
@@ -101,10 +114,51 @@ class TicketTools:
             return failure(ErrorCode.UPSTREAM_ERROR, "Zendesk returned an invalid ticket count")
         return success({"count": count["value"], "refreshed_at": count.get("refreshed_at")})
 
+    def create_ticket(
+        self,
+        *,
+        requester_id: int,
+        subject: str,
+        description: str,
+        tags: list[str] | None = None,
+        priority: str | None = None,
+        ticket_type: str | None = None,
+    ) -> dict[str, object]:
+        payload = _create_ticket_payload(
+            requester_id=requester_id,
+            subject=subject,
+            description=description,
+            tags=tags,
+            priority=priority,
+            ticket_type=ticket_type,
+        )
+        if isinstance(payload, dict) and "error" in payload:
+            return payload
+        permitted = self._write_permitted(WriteRisk.STANDARD)
+        if permitted is not None:
+            return permitted
+        client = self._configured_mutation_client()
+        if isinstance(client, dict):
+            return client
+        return _with_automation_notice(client.request("POST", "/api/v2/tickets.json", json_body={"ticket": payload}))
+
     def _configured_client(self) -> TicketClient | dict[str, object]:
         if self._client is None:
             return failure(ErrorCode.NOT_CONFIGURED, "Zendesk is not configured")
         return self._client
+
+    def _configured_mutation_client(self) -> TicketMutationClient | dict[str, object]:
+        client = self._configured_client()
+        if isinstance(client, dict):
+            return client
+        if not hasattr(client, "request"):
+            return failure(ErrorCode.NOT_CONFIGURED, "Zendesk write client is not configured")
+        return client
+
+    def _write_permitted(self, risk: WriteRisk) -> dict[str, object] | None:
+        if self._settings is None:
+            return failure(ErrorCode.WRITE_DISABLED, "Zendesk writes require configured write policy")
+        return check_write_permission(self._settings, risk)
 
 
 def _valid_ticket_id(ticket_id: int) -> bool:
@@ -121,3 +175,51 @@ def _page_size(limit: int) -> int | None:
     if not isinstance(limit, int) or isinstance(limit, bool):
         return None
     return max(1, min(limit, 100))
+
+
+def _create_ticket_payload(
+    *,
+    requester_id: int,
+    subject: str,
+    description: str,
+    tags: list[str] | None,
+    priority: str | None,
+    ticket_type: str | None,
+) -> dict[str, object]:
+    if not _valid_ticket_id(requester_id):
+        return failure(ErrorCode.VALIDATION_ERROR, "requester_id must be a positive integer")
+    if not _valid_text(subject) or not _valid_text(description):
+        return failure(ErrorCode.VALIDATION_ERROR, "subject and description must be non-empty strings")
+    payload: dict[str, object] = {
+        "requester_id": requester_id,
+        "subject": subject.strip(),
+        "comment": {"body": description.strip()},
+    }
+    if tags is not None:
+        if not isinstance(tags, list) or any(not _valid_tag(tag) for tag in tags):
+            return failure(ErrorCode.VALIDATION_ERROR, "tags must be non-empty strings without spaces")
+        payload["tags"] = tags
+    if priority is not None:
+        if priority not in {"low", "normal", "high", "urgent"}:
+            return failure(ErrorCode.VALIDATION_ERROR, "priority is invalid")
+        payload["priority"] = priority
+    if ticket_type is not None:
+        if ticket_type not in {"question", "incident", "problem", "task"}:
+            return failure(ErrorCode.VALIDATION_ERROR, "ticket_type is invalid")
+        payload["type"] = ticket_type
+    return payload
+
+
+def _valid_text(value: object) -> bool:
+    return isinstance(value, str) and bool(value.strip())
+
+
+def _valid_tag(value: object) -> bool:
+    return _valid_text(value) and " " not in value
+
+
+def _with_automation_notice(result: dict[str, object]) -> dict[str, object]:
+    data = result.get("data")
+    if result.get("ok") and isinstance(data, dict):
+        data["account_automation_side_effects_possible"] = True
+    return result

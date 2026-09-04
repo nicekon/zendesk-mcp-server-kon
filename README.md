@@ -19,6 +19,9 @@ The current pre-release exposes these safe tools:
 - `zendesk_list_tickets`, `zendesk_search_tickets`, `zendesk_count_tickets`,
   `zendesk_get_ticket`, and `zendesk_get_ticket_conversation` provide
   read-only Support access. Search is always limited to ticket records.
+- `zendesk_create_ticket` is a standard write. It is unavailable until
+  `ZENDESK_WRITE_MODE=standard` is set, and its response notes that account
+  automations can have additional side effects.
 
 The server starts in `read_only` mode. Help Center, CSAT, attachment, and
 Community tools are intentionally not available until their corresponding

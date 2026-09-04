@@ -62,6 +62,22 @@ def build_tools() -> list[types.Tool]:
             inputSchema={"type": "object", "properties": {"ticket_id": {"type": "integer", "minimum": 1}}, "required": ["ticket_id"]},
         ),
         types.Tool(
+            name="zendesk_create_ticket",
+            description="Create a Zendesk Support ticket. Requires standard write mode and may trigger account automations.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "requester_id": {"type": "integer", "minimum": 1},
+                    "subject": {"type": "string", "minLength": 1},
+                    "description": {"type": "string", "minLength": 1},
+                    "tags": {"type": "array", "items": {"type": "string"}},
+                    "priority": {"type": "string", "enum": ["low", "normal", "high", "urgent"]},
+                    "ticket_type": {"type": "string", "enum": ["question", "incident", "problem", "task"]},
+                },
+                "required": ["requester_id", "subject", "description"],
+            },
+        ),
+        types.Tool(
             name="zendesk_get_ticket_conversation",
             description="Retrieve a ticket conversation without making changes.",
             inputSchema={"type": "object", "properties": {"ticket_id": {"type": "integer", "minimum": 1}}, "required": ["ticket_id"]},
@@ -84,7 +100,7 @@ def build_ticket_tools(environ: Mapping[str, str]) -> TicketTools | dict[str, ob
         return failure(ErrorCode.VALIDATION_ERROR, str(error))
     if authorization is None:
         return failure(ErrorCode.NOT_CONFIGURED, "Zendesk is not configured")
-    return TicketTools(ZendeskClient(settings, authorization))
+    return TicketTools(ZendeskClient(settings, authorization), settings)
 
 
 def create_server(environ: Mapping[str, str] | None = None) -> Server:
@@ -159,6 +175,7 @@ def create_server(environ: Mapping[str, str] | None = None) -> Server:
             "zendesk_search_tickets",
             "zendesk_count_tickets",
             "zendesk_get_ticket",
+            "zendesk_create_ticket",
             "zendesk_get_ticket_conversation",
         }:
             tools = build_ticket_tools(environment)
@@ -173,6 +190,16 @@ def create_server(environ: Mapping[str, str] | None = None) -> Server:
                 result = tools.search_tickets(query, limit) if isinstance(limit, int) and not isinstance(limit, bool) else failure(ErrorCode.VALIDATION_ERROR, "limit must be an integer")
             elif name == "zendesk_count_tickets":
                 result = tools.count_tickets((arguments or {}).get("query"))
+            elif name == "zendesk_create_ticket":
+                values = arguments or {}
+                result = tools.create_ticket(
+                    requester_id=values.get("requester_id"),
+                    subject=values.get("subject"),
+                    description=values.get("description"),
+                    tags=values.get("tags"),
+                    priority=values.get("priority"),
+                    ticket_type=values.get("ticket_type"),
+                )
             else:
                 ticket_id = (arguments or {}).get("ticket_id")
                 if not isinstance(ticket_id, int) or isinstance(ticket_id, bool):

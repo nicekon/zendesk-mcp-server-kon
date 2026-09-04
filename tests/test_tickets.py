@@ -1,4 +1,5 @@
 from zendesk_mcp_server.contracts import success
+from zendesk_mcp_server.config import Settings
 from zendesk_mcp_server.tools.tickets import TicketTools
 
 
@@ -10,6 +11,15 @@ class StubClient:
     def get(self, path, *, params=None):
         self.paths.append((path, params))
         return self.responses[path]
+
+
+class MutationStub:
+    def __init__(self):
+        self.calls = []
+
+    def request(self, method, path, *, json_body=None):
+        self.calls.append((method, path, json_body))
+        return success({"ticket": {"id": 9}})
 
 
 def test_get_ticket_rejects_zero_without_a_client():
@@ -71,3 +81,43 @@ def test_search_rejects_blank_query_and_non_integer_limit_without_a_client():
 
     assert tools.search_tickets("", 10)["error"]["code"] == "validation_error"
     assert tools.search_tickets("status:open", True)["error"]["code"] == "validation_error"
+
+
+def test_create_ticket_requires_write_mode_before_a_client_is_used():
+    result = TicketTools(None, Settings.load({})).create_ticket(
+        requester_id=7,
+        subject="Need help",
+        description="Details",
+    )
+
+    assert result["error"]["code"] == "write_disabled"
+
+
+def test_create_ticket_uses_a_validated_standard_write_payload():
+    client = MutationStub()
+    settings = Settings.load({"ZENDESK_WRITE_MODE": "standard"})
+
+    result = TicketTools(client, settings).create_ticket(
+        requester_id=7,
+        subject="Need help",
+        description="Details",
+        tags=["billing", "priority"],
+        priority="high",
+    )
+
+    assert result["data"]["ticket"]["id"] == 9
+    assert client.calls == [
+        (
+            "POST",
+            "/api/v2/tickets.json",
+            {
+                "ticket": {
+                    "requester_id": 7,
+                    "subject": "Need help",
+                    "comment": {"body": "Details"},
+                    "tags": ["billing", "priority"],
+                    "priority": "high",
+                }
+            },
+        )
+    ]
