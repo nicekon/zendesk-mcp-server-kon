@@ -27,6 +27,11 @@ class MetadataTools:
     def list_ticket_fields(self) -> dict[str, object]: return self._get("/api/v2/ticket_fields.json")
     def list_ticket_forms(self) -> dict[str, object]: return self._get("/api/v2/ticket_forms.json")
     def list_custom_statuses(self) -> dict[str, object]: return self._get("/api/v2/custom_statuses.json")
+    def list_views(self) -> dict[str, object]: return self._get("/api/v2/views.json")
+    def get_view(self, view_id: int) -> dict[str, object]: return self._by_id("/api/v2/views/{id}.json", view_id, "view_id")
+    def list_view_tickets(self, view_id: int) -> dict[str, object]: return self._by_id("/api/v2/views/{id}/tickets.json", view_id, "view_id")
+    def list_macros(self) -> dict[str, object]: return self._get("/api/v2/macros.json")
+    def list_triggers(self) -> dict[str, object]: return self._get("/api/v2/triggers.json")
 
     def _by_id(self, template: str, value: int, name: str) -> dict[str, object]:
         if not isinstance(value, int) or isinstance(value, bool) or value < 1:
