@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import base64
 import fcntl
+import hmac
 import json
 import os
+import secrets
 import stat
 import tempfile
 import time
@@ -14,6 +16,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Protocol
 from collections.abc import Callable
+from urllib.parse import urlencode, urlsplit
 
 import httpx
 
@@ -69,6 +72,22 @@ def oauth_tokens_from_refresh_response(value: object, *, now: int, previous_refr
 
 def oauth_refresh_payload(client_id: str, client_secret: str, refresh_token: str) -> dict[str, str]:
     return {"grant_type": "refresh_token", "client_id": client_id, "client_secret": client_secret, "refresh_token": refresh_token}
+
+
+def create_oauth_authorization_request(subdomain: str, client_id: str, redirect_uri: str, scopes: tuple[str, ...], state_store: "OAuthStateStore", *, now: int) -> dict[str, str]:
+    _validate_authorization_inputs(subdomain, client_id, redirect_uri, scopes)
+    state = state_store.create(redirect_uri, scopes, now=now)
+    query = urlencode({"response_type": "code", "client_id": client_id, "redirect_uri": redirect_uri, "scope": " ".join(scopes), "state": state})
+    return {"state": state, "authorization_url": f"https://{subdomain}.zendesk.com/oauth/authorizations/new?{query}"}
+
+
+def exchange_oauth_authorization_code(request: Callable[[dict[str, str]], object], client_id: str, client_secret: str, code: str, state: str, redirect_uri: str, scopes: tuple[str, ...], state_store: "OAuthStateStore", token_store: "OAuthTokenStore", *, now: int) -> OAuthTokens:
+    if not isinstance(client_secret, str) or not client_secret or not isinstance(code, str) or not code:
+        raise ConfigurationError("invalid_oauth_authorization", "OAuth authorization response is invalid")
+    state_store.consume(state, redirect_uri, scopes, now=now)
+    tokens = oauth_tokens_from_refresh_response(request({"grant_type": "authorization_code", "code": code, "client_id": client_id, "client_secret": client_secret, "redirect_uri": redirect_uri, "scope": " ".join(scopes)}), now=now)
+    token_store.save(tokens)
+    return tokens
 
 
 def refresh_oauth_tokens(request: Callable[[dict[str, str]], object], client_id: str, client_secret: str, refresh_token: str, *, now: int) -> OAuthTokens:
@@ -152,6 +171,60 @@ class OAuthTokenStore:
                 "unsafe_oauth_permissions",
                 "OAuth token file permissions must be user-only",
             )
+
+
+class OAuthStateStore:
+    def __init__(self, path: Path) -> None: self.path = path
+
+    def create(self, redirect_uri: str, scopes: tuple[str, ...], *, now: int) -> str:
+        state = secrets.token_urlsafe(32)
+        with self._lock():
+            values = self._load()
+            values[state] = {"redirect_uri": redirect_uri, "scopes": list(scopes), "expires_at": now + 600}
+            self._save(values)
+        return state
+
+    def consume(self, state: str, redirect_uri: str, scopes: tuple[str, ...], *, now: int) -> None:
+        if not isinstance(state, str) or not state:
+            raise ConfigurationError("invalid_oauth_state", "OAuth state is invalid")
+        with self._lock():
+            values = self._load(); key = next((value for value in values if hmac.compare_digest(value, state)), None); record = values.pop(key, None) if key else None
+            self._save(values)
+        if not isinstance(record, dict) or record.get("expires_at", 0) < now or not hmac.compare_digest(str(record.get("redirect_uri", "")), redirect_uri) or record.get("scopes") != list(scopes):
+            raise ConfigurationError("invalid_oauth_state", "OAuth state, redirect URI, or scopes are invalid")
+
+    @contextmanager
+    def _lock(self):
+        self.path.parent.mkdir(parents=True, exist_ok=True); descriptor = os.open(self.path.with_name(f".{self.path.name}.lock"), os.O_RDWR | os.O_CREAT, 0o600)
+        try:
+            os.chmod(descriptor, 0o600); fcntl.flock(descriptor, fcntl.LOCK_EX); yield
+        finally:
+            fcntl.flock(descriptor, fcntl.LOCK_UN); os.close(descriptor)
+
+    def _load(self) -> dict[str, object]:
+        if not self.path.exists(): return {}
+        try:
+            if stat.S_IMODE(self.path.stat().st_mode) & 0o077: raise ConfigurationError("unsafe_oauth_permissions", "OAuth state file permissions must be user-only")
+            value = json.loads(self.path.read_text(encoding="utf-8")); return value.get("states", {}) if isinstance(value, dict) and isinstance(value.get("states", {}), dict) else {}
+        except ConfigurationError:
+            raise
+        except (OSError, ValueError, json.JSONDecodeError) as error:
+            raise ConfigurationError("invalid_oauth_state", "OAuth state file is invalid") from error
+
+    def _save(self, values: dict[str, object]) -> None:
+        temporary = self.path.with_name(f".{self.path.name}.{secrets.token_hex(8)}.tmp")
+        try:
+            with open(temporary, "w", encoding="utf-8") as stream:
+                os.chmod(temporary, 0o600); json.dump({"states": values}, stream, separators=(",", ":")); stream.flush(); os.fsync(stream.fileno())
+            temporary.replace(self.path)
+        finally:
+            temporary.unlink(missing_ok=True)
+
+
+def _validate_authorization_inputs(subdomain: object, client_id: object, redirect_uri: object, scopes: object) -> None:
+    parsed = urlsplit(redirect_uri) if isinstance(redirect_uri, str) else None
+    if not isinstance(subdomain, str) or not subdomain or not isinstance(client_id, str) or not client_id or parsed is None or parsed.scheme != "https" or not parsed.netloc or parsed.username or parsed.password or not isinstance(scopes, tuple) or not scopes or any(not isinstance(scope, str) or not scope for scope in scopes):
+        raise ConfigurationError("invalid_oauth_authorization", "OAuth authorization configuration is invalid")
 
 
 def build_authorization(settings: Settings, *, oauth_requester: Callable[[dict[str, str]], object] | None = None, now: int | None = None) -> AuthorizationProvider | None:

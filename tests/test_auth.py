@@ -1,4 +1,5 @@
 from pathlib import Path
+from urllib.parse import parse_qs, urlsplit
 
 import pytest
 
@@ -81,6 +82,29 @@ def test_refresh_reuses_a_concurrently_rotated_token(tmp_path: Path):
 
     assert first.access_token == second.access_token == "new"
     assert calls == 1
+
+
+def test_oauth_authorization_code_state_is_single_use_and_binds_redirect(tmp_path: Path):
+    from zendesk_mcp_server.auth import OAuthStateStore, create_oauth_authorization_request, exchange_oauth_authorization_code
+    state_store = OAuthStateStore(tmp_path / "oauth-state.json"); token_store = OAuthTokenStore(tmp_path / "oauth.json")
+    request = create_oauth_authorization_request("acme", "client", "https://app.example.test/callback", ("tickets:read",), state_store, now=100)
+    query = parse_qs(urlsplit(request["authorization_url"]).query)
+
+    assert query["state"] == [request["state"]]
+    tokens = exchange_oauth_authorization_code(lambda payload: {"access_token": "access", "refresh_token": "refresh", "expires_in": 300}, "client", "secret", "code", request["state"], "https://app.example.test/callback", ("tickets:read",), state_store, token_store, now=101)
+    assert tokens.access_token == "access"
+    with pytest.raises(ConfigurationError, match="state"):
+        exchange_oauth_authorization_code(lambda _: pytest.fail("unexpected exchange"), "client", "secret", "code", request["state"], "https://app.example.test/callback", ("tickets:read",), state_store, token_store, now=102)
+
+
+def test_oauth_state_store_rejects_group_readable_file(tmp_path: Path):
+    from zendesk_mcp_server.auth import OAuthStateStore
+    store = OAuthStateStore(tmp_path / "oauth-state.json")
+    store.create("https://app.example.test/callback", ("tickets:read",), now=1)
+    store.path.chmod(0o644)
+
+    with pytest.raises(ConfigurationError, match="permissions"):
+        store.create("https://app.example.test/callback", ("tickets:read",), now=2)
 
 
 def test_build_authorization_refreshes_expired_oauth_tokens(tmp_path: Path):
