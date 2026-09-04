@@ -6,6 +6,7 @@ import io
 import os
 import time
 import zipfile
+from pathlib import Path
 from pypdf import PdfWriter
 
 
@@ -269,6 +270,28 @@ def test_ticket_export_projection_selects_requested_ticket_fields():
     result = TicketTools(client).export_tickets("status:open", projection={"fields": ["subject"]})
 
     assert result["data"]["items"] == [{"subject": "Login"}]
+
+
+def test_ticket_export_writes_a_json_artifact_to_its_managed_cache(tmp_path):
+    settings = Settings.load({"ZENDESK_ATTACHMENT_CACHE_ROOT": str(tmp_path / "attachments")})
+    client = StubClient({"/api/v2/search/export.json": success({"results": [{"id": 1, "subject": "Login"}], "meta": {"has_more": False}})})
+
+    result = TicketTools(client, settings).export_tickets("status:open", output_format="json")
+
+    artifact = result["data"]
+    assert artifact["format"] == "json"
+    assert artifact["item_count"] == 1
+    assert "items" not in artifact
+    assert Path(artifact["cache_path"]).read_text() == '[{"id":1,"subject":"Login"}]'
+
+
+def test_ticket_export_flattens_custom_objects_into_csv_columns(tmp_path):
+    settings = Settings.load({"ZENDESK_ATTACHMENT_CACHE_ROOT": str(tmp_path / "attachments")})
+    client = StubClient({"/api/v2/search/export.json": success({"results": [{"id": 1, "subject": "Login", "custom_objects": {"asset": [{"id": "9", "name": "Mac"}]}}], "meta": {"has_more": False}})})
+
+    result = TicketTools(client, settings).export_tickets("status:open", output_format="csv")
+
+    assert Path(result["data"]["cache_path"]).read_text() == "id,subject,asset.id,asset.name\n1,Login,9,Mac\n"
 
 
 def test_custom_object_projection_nests_ticket_lookup_records():

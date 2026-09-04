@@ -37,6 +37,18 @@ def test_attachment_image_result_uses_image_content():
     assert content[1].mimeType == "image/png"
 
 
+def test_ticket_export_result_includes_a_resource_link_without_its_cache_path():
+    from zendesk_mcp_server.server import ticket_export_content
+
+    content = ticket_export_content({"ok": True, "data": {"format": "csv", "cache_path": "/private/cache/exports/tickets.csv", "item_count": 2, "truncated": False}})
+
+    assert isinstance(content[0], types.TextContent)
+    assert "cache_path" not in str(content[0].text)
+    assert isinstance(content[1], types.ResourceLink)
+    assert str(content[1].uri) == "file:///private/cache/exports/tickets.csv"
+    assert content[1].mimeType == "text/csv"
+
+
 def test_ticket_search_tools_accept_the_shared_structured_filter():
     from zendesk_mcp_server.server import build_tools
 

@@ -98,7 +98,7 @@ def build_tools() -> list[types.Tool]:
             description="Count Zendesk Support tickets matching a search query without making changes.",
             inputSchema={"type": "object", "properties": {"query": TICKET_QUERY_SCHEMA}, "required": ["query"]},
         ),
-        types.Tool(name="zendesk_export_tickets", description="Export one cursor-paginated ticket-only Search Export page without making changes.", inputSchema={"type": "object", "properties": {"query": TICKET_QUERY_SCHEMA, "projection": TICKET_PROJECTION_SCHEMA, "cursor": {"type": "string", "minLength": 1}, "limit": {"type": "integer", "minimum": 1, "maximum": 1000, "default": 100}}, "required": ["query"]}),
+        types.Tool(name="zendesk_export_tickets", description="Export one cursor-paginated ticket-only Search Export page without making changes.", inputSchema={"type": "object", "properties": {"query": TICKET_QUERY_SCHEMA, "projection": TICKET_PROJECTION_SCHEMA, "cursor": {"type": "string", "minLength": 1}, "limit": {"type": "integer", "minimum": 1, "maximum": 1000, "default": 100}, "format": {"type": "string", "enum": ["json", "csv"], "default": "json"}}, "required": ["query"]}),
         types.Tool(name="zendesk_apply_ticket_macro", description="Preview or apply a ticket macro through the unified ticket update path. Apply requires local approval; public macro comments also require the public-write gate.", inputSchema={"type": "object", "properties": {"ticket_id": {"type": "integer", "minimum": 1}, "macro_id": {"type": "integer", "minimum": 1}, "execution_mode": {"type": "string", "enum": ["preview", "apply"], "default": "preview"}, "approval_request_id": {"type": "string"}, "approval_token": {"type": "string"}}, "required": ["ticket_id", "macro_id"]}),
         types.Tool(
             name="zendesk_get_ticket",
@@ -330,6 +330,20 @@ def attachment_download_content(result: dict[str, object]) -> list[object]:
             uri=path.as_uri(),
             mimeType=content_type,
         ),
+    ]
+
+
+def ticket_export_content(result: dict[str, object]) -> list[object]:
+    data = result.get("data")
+    if not result.get("ok") or not isinstance(data, dict) or not isinstance(data.get("cache_path"), str):
+        return [types.TextContent(type="text", text=json.dumps(result))]
+    path = Path(data["cache_path"])
+    if not path.is_absolute(): return [types.TextContent(type="text", text=json.dumps(result))]
+    output_format = data.get("format") if isinstance(data.get("format"), str) else "json"
+    summary = {key: value for key, value in data.items() if key != "cache_path"}
+    return [
+        types.TextContent(type="text", text=json.dumps({**result, "data": summary})),
+        types.ResourceLink(type="resource_link", name=f"Zendesk ticket export ({output_format})", uri=path.as_uri(), mimeType={"json": "application/json", "csv": "text/csv"}.get(output_format)),
     ]
 
 
@@ -577,7 +591,7 @@ def create_server(environ: Mapping[str, str] | None = None) -> Server:
             elif name == "zendesk_count_tickets":
                 result = tools.count_tickets((arguments or {}).get("query"))
             elif name == "zendesk_export_tickets":
-                values = arguments or {}; result = tools.export_tickets(values.get("query"), cursor=values.get("cursor"), limit=values.get("limit", 100), projection=values.get("projection"))
+                values = arguments or {}; result = tools.export_tickets(values.get("query"), cursor=values.get("cursor"), limit=values.get("limit", 100), projection=values.get("projection"), output_format=values.get("format", "json"))
             elif name == "zendesk_apply_ticket_macro":
                 values = arguments or {}
                 result = tools.apply_macro(values.get("ticket_id"), values.get("macro_id"), execution_mode=values.get("execution_mode", "preview"), approval_request_id=values.get("approval_request_id"), approval_token=values.get("approval_token"))
@@ -662,6 +676,7 @@ def create_server(environ: Mapping[str, str] | None = None) -> Server:
             result = failure(ErrorCode.NOT_FOUND, f"Unknown tool: {name}")
         if name == "zendesk_download_ticket_attachment": return attachment_download_content(result)
         if name == "zendesk_inspect_ticket_attachment": return attachment_inspection_content(result)
+        if name == "zendesk_export_tickets": return ticket_export_content(result)
         return [types.TextContent(type="text", text=json.dumps(result))]
 
     return server
