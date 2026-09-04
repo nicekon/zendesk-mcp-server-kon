@@ -10,6 +10,7 @@ import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Protocol
+from collections.abc import Callable
 
 from .config import AuthMode, ConfigurationError, Settings
 
@@ -56,6 +57,10 @@ def oauth_tokens_from_refresh_response(value: object, *, now: int) -> OAuthToken
 
 def oauth_refresh_payload(client_id: str, client_secret: str, refresh_token: str) -> dict[str, str]:
     return {"grant_type": "refresh_token", "client_id": client_id, "client_secret": client_secret, "refresh_token": refresh_token}
+
+
+def refresh_oauth_tokens(request: Callable[[dict[str, str]], object], client_id: str, client_secret: str, refresh_token: str, *, now: int) -> OAuthTokens:
+    return oauth_tokens_from_refresh_response(request(oauth_refresh_payload(client_id, client_secret, refresh_token)), now=now)
 
 
 class OAuthTokenStore:

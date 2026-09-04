@@ -53,3 +53,8 @@ def test_oauth_refresh_payload_uses_refresh_token_grant():
     from zendesk_mcp_server.auth import oauth_refresh_payload
 
     assert oauth_refresh_payload("client", "secret", "refresh") == {"grant_type": "refresh_token", "client_id": "client", "client_secret": "secret", "refresh_token": "refresh"}
+
+
+def test_refresh_oauth_tokens_uses_injected_requester():
+    from zendesk_mcp_server.auth import refresh_oauth_tokens
+    assert refresh_oauth_tokens(lambda payload: {"access_token": "new", "refresh_token": payload["refresh_token"], "expires_in": 100}, "id", "secret", "refresh", now=1).access_token == "new"
