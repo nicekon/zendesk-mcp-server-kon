@@ -207,6 +207,17 @@ def test_custom_object_projection_validates_its_keys():
     assert TicketTools(None).search_tickets("status:open", projection={"include_custom_objects": []})["error"]["code"] == "validation_error"
 
 
+def test_custom_object_projection_nests_ticket_lookup_records():
+    settings = Settings.load({"ZENDESK_CAPABILITIES": "support,custom_objects"})
+    client = StubClient({
+        "/api/v2/search.json": success({"results": [{"id": 1, "custom_fields": [{"id": 10, "value": "99"}]}], "next_page": None}),
+        "/api/v2/ticket_fields.json": success({"ticket_fields": [{"id": 10, "relationship_target_type": "zen:custom_object:asset"}]}),
+        "/api/v2/custom_objects/asset/records/99.json": success({"custom_object_record": {"id": "99"}}),
+    })
+    result = TicketTools(client, settings).search_tickets("status:open", projection={"include_custom_objects": ["asset"]})
+    assert result["items"][0]["custom_objects"] == {"asset": [{"id": "99"}]}
+
+
 def test_ticket_export_uses_dedicated_export_type_filter():
     client = StubClient({"/api/v2/search/export.json": success({"results": [{"id": 1}], "meta": {"has_more": True, "after_cursor": "next"}})})
 

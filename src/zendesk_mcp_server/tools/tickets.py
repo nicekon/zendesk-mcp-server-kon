@@ -218,7 +218,12 @@ class TicketTools:
         if not isinstance(data, dict) or not isinstance(data.get("results", []), list):
             return failure(ErrorCode.UPSTREAM_ERROR, "Zendesk returned an invalid ticket search")
         has_more = bool(data.get("next_page"))
-        return {"ok": True, "items": data["results"], "has_more": has_more, "next_cursor": None, "truncated": has_more}
+        items = data["results"]
+        if projection is not None:
+            projected = self._project_custom_objects(items, projection["include_custom_objects"])
+            if isinstance(projected, dict): return projected
+            items = projected
+        return {"ok": True, "items": items, "has_more": has_more, "next_cursor": None, "truncated": has_more}
 
     def count_tickets(self, query: object) -> dict[str, object]:
         ticket_query = self._resolve_ticket_query(query)
@@ -459,6 +464,30 @@ class TicketTools:
         if self._client is None:
             return failure(ErrorCode.NOT_CONFIGURED, "Zendesk is not configured")
         return self._client
+
+    def _project_custom_objects(self, items: list[object], keys: list[object]) -> list[dict[str, object]] | dict[str, object]:
+        client = self._configured_client()
+        if isinstance(client, dict): return client
+        fields_result = client.get("/api/v2/ticket_fields.json")
+        if not fields_result.get("ok"): return fields_result
+        field_data = fields_result.get("data"); fields = field_data.get("ticket_fields") if isinstance(field_data, dict) else None
+        lookup = {key: field["id"] for key in keys for field in fields if isinstance(field, dict) and field.get("relationship_target_type") == f"zen:custom_object:{key}" and _valid_ticket_id(field.get("id"))} if isinstance(fields, list) else {}
+        if set(lookup) != set(keys): return failure(ErrorCode.VALIDATION_ERROR, "requested custom object key has no ticket lookup field")
+        projected: list[dict[str, object]] = []
+        for item in items:
+            if not isinstance(item, dict): continue
+            values = {field.get("id"): field.get("value") for field in item.get("custom_fields", []) if isinstance(field, dict)}
+            objects: dict[str, list[object]] = {}
+            for key, field_id in lookup.items():
+                record_id = values.get(field_id)
+                if record_id is None: objects[key] = []; continue
+                record = client.get(f"/api/v2/custom_objects/{key}/records/{record_id}.json")
+                if not record.get("ok"): return record
+                payload = record.get("data"); value = payload.get("custom_object_record") if isinstance(payload, dict) else None
+                if not isinstance(value, dict): return failure(ErrorCode.UPSTREAM_ERROR, "Zendesk returned an invalid custom object record")
+                objects[key] = [value]
+            projected.append({**item, "custom_objects": objects})
+        return projected
 
     def _resolve_ticket_query(self, query: object, *, include_type: bool = True) -> str | dict[str, object] | None:
         if not isinstance(query, Mapping): return _ticket_query(query, include_type=include_type)
