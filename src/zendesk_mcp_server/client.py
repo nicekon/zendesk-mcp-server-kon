@@ -10,7 +10,7 @@ from urllib.parse import urlsplit
 import httpx
 
 from .auth import AuthorizationProvider
-from .config import Settings
+from .config import ConfigurationError, Settings
 from .contracts import ErrorCode, failure, success
 
 
@@ -57,6 +57,7 @@ class ZendeskClient:
 
         read_request = method in {"GET", "HEAD"}
         attempts = 3 if read_request else 1
+        refreshed = False
         for attempt in range(attempts):
             try:
                 response = self._client.request(
@@ -89,6 +90,17 @@ class ZendeskClient:
 
             if response.is_success:
                 return success(_response_data(response), request_id=_request_id(response))
+
+            if response.status_code == 401 and not refreshed:
+                refresh = getattr(self._authorization, "refresh", None)
+                if callable(refresh):
+                    try:
+                        refresh()
+                    except ConfigurationError:
+                        return failure(ErrorCode.AUTHENTICATION_FAILED, "Zendesk authentication refresh failed")
+                    refreshed = True
+                    if read_request: continue
+                    return failure(ErrorCode.AUTHENTICATION_RETRY_REQUIRED, "Zendesk authentication refreshed; retry the write", retryable=True, operation_state="not_applied", request_id=_request_id(response))
 
             code = _error_code(response.status_code)
             retry_after = _retry_after(response)

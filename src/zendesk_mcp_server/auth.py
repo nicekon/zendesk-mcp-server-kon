@@ -44,12 +44,17 @@ class OAuthTokens:
         return self.expires_at <= now + 60
 
 
-@dataclass(frozen=True)
+@dataclass
 class OAuthAuthorization:
     access_token: str = field(repr=False)
+    refresher: Callable[[], str] | None = field(default=None, repr=False)
 
     def headers(self) -> dict[str, str]:
         return {"Authorization": f"Bearer {self.access_token}"}
+
+    def refresh(self) -> None:
+        if self.refresher is None: raise ConfigurationError("oauth_refresh_unavailable", "OAuth refresh is unavailable")
+        self.access_token = self.refresher()
 
 
 def oauth_tokens_from_refresh_response(value: object, *, now: int, previous_refresh_token: str | None = None) -> OAuthTokens:
@@ -142,10 +147,13 @@ def build_authorization(settings: Settings, *, oauth_requester: Callable[[dict[s
     store = OAuthTokenStore(settings.oauth.token_store_path)
     tokens = store.load()
     current_time = int(time.time()) if now is None else now
-    if tokens.is_expired(now=current_time):
-        requester = oauth_requester or _oauth_refresh_requester(settings.subdomain or "")
-        tokens = refresh_and_store_oauth_tokens(store, requester, settings.oauth.client_id, settings.oauth.client_secret, now=current_time)
-    return OAuthAuthorization(tokens.access_token)
+    requester = oauth_requester or _oauth_refresh_requester(settings.subdomain or "")
+    if tokens.is_expired(now=current_time): tokens = refresh_and_store_oauth_tokens(store, requester, settings.oauth.client_id, settings.oauth.client_secret, now=current_time)
+
+    def refresh() -> str:
+        return refresh_and_store_oauth_tokens(store, requester, settings.oauth.client_id, settings.oauth.client_secret, now=int(time.time())).access_token
+
+    return OAuthAuthorization(tokens.access_token, refresh)
 
 
 def _oauth_refresh_requester(subdomain: str) -> Callable[[dict[str, str]], object]:

@@ -92,3 +92,41 @@ def test_client_rejects_an_absolute_or_foreign_path(settings, authorization):
     result = client.get("https://other.example/api/v2/users/me.json")
 
     assert result["error"]["code"] == "validation_error"
+
+
+class RefreshingAuthorization:
+    def __init__(self): self.token, self.refreshes = "old", 0
+    def headers(self): return {"Authorization": f"Bearer {self.token}"}
+    def refresh(self): self.token = "new"; self.refreshes += 1
+
+
+def test_read_401_refreshes_and_replays_once(settings):
+    authorization = RefreshingAuthorization(); calls = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        return httpx.Response(401 if request.headers["Authorization"] == "Bearer old" else 200, json={"users": []}, request=request)
+
+    client = ZendeskClient(settings, authorization, transport=httpx.MockTransport(handler))
+
+    assert client.get("/api/v2/users/me.json")["ok"] is True
+    assert authorization.refreshes == 1
+    assert calls == 2
+
+
+def test_write_401_refreshes_without_replaying(settings):
+    authorization = RefreshingAuthorization(); calls = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        return httpx.Response(401, request=request)
+
+    client = ZendeskClient(settings, authorization, transport=httpx.MockTransport(handler))
+    result = client.request("POST", "/api/v2/tickets.json", json_body={})
+
+    assert result["error"]["code"] == "authentication_retry_required"
+    assert result["error"]["operation_state"] == "not_applied"
+    assert authorization.refreshes == 1
+    assert calls == 1
