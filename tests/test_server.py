@@ -53,6 +53,7 @@ def test_support_read_tools_are_registered():
         "zendesk_list_tickets",
         "zendesk_search_tickets",
         "zendesk_count_tickets",
+        "zendesk_export_tickets",
         "zendesk_get_ticket",
         "zendesk_create_ticket",
         "zendesk_update_ticket",

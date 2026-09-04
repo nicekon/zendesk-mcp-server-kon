@@ -60,6 +60,7 @@ def build_tools() -> list[types.Tool]:
             description="Count Zendesk Support tickets matching a search query without making changes.",
             inputSchema={"type": "object", "properties": {"query": {"type": "string", "minLength": 1}}, "required": ["query"]},
         ),
+        types.Tool(name="zendesk_export_tickets", description="Start a ticket-only Zendesk Search Export without making changes.", inputSchema={"type": "object", "properties": {"query": {"type": "string", "minLength": 1}}, "required": ["query"]}),
         types.Tool(
             name="zendesk_get_ticket",
             description="Retrieve a Zendesk ticket by ID without making changes.",
@@ -321,6 +322,7 @@ def create_server(environ: Mapping[str, str] | None = None) -> Server:
             "zendesk_list_tickets",
             "zendesk_search_tickets",
             "zendesk_count_tickets",
+            "zendesk_export_tickets",
             "zendesk_get_ticket",
             "zendesk_create_ticket",
             "zendesk_update_ticket",
@@ -346,6 +348,8 @@ def create_server(environ: Mapping[str, str] | None = None) -> Server:
                 result = tools.search_tickets(query, limit) if isinstance(limit, int) and not isinstance(limit, bool) else failure(ErrorCode.VALIDATION_ERROR, "limit must be an integer")
             elif name == "zendesk_count_tickets":
                 result = tools.count_tickets((arguments or {}).get("query"))
+            elif name == "zendesk_export_tickets":
+                result = tools.export_tickets((arguments or {}).get("query"))
             elif name == "zendesk_create_ticket":
                 values = arguments or {}
                 result = tools.create_ticket(
