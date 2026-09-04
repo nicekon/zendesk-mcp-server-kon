@@ -187,6 +187,14 @@ def test_structured_ticket_filter_resolves_organization_name_exactly():
     ]
 
 
+def test_structured_ticket_filter_serializes_brand_group_and_form_ids():
+    client = StubClient({"/api/v2/search.json": success({"results": [], "next_page": None})})
+
+    TicketTools(client).search_tickets({"brand": {"kind": "id", "value": 2}, "group": {"kind": "id", "value": 3}, "form": {"kind": "id", "value": 4}})
+
+    assert client.paths == [("/api/v2/search.json", {"query": "type:ticket brand:2 group:3 form:4", "page[size]": "100"})]
+
+
 def test_ticket_export_uses_dedicated_export_type_filter():
     client = StubClient({"/api/v2/search/export.json": success({"results": [{"id": 1}], "meta": {"has_more": True, "after_cursor": "next"}})})
 

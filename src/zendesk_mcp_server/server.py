@@ -50,6 +50,9 @@ TICKET_QUERY_SCHEMA = {
             "assignee": {"type": "object", "properties": {"kind": {"type": "string", "enum": ["me", "none", "id", "name", "email", "phone"]}, "value": {"oneOf": [{"type": "integer", "minimum": 1}, {"type": "string", "minLength": 1}]}}, "required": ["kind"], "additionalProperties": False},
             "requester": {"type": "object", "properties": {"kind": {"type": "string", "enum": ["me", "none", "id", "name", "email", "phone"]}, "value": {"oneOf": [{"type": "integer", "minimum": 1}, {"type": "string", "minLength": 1}]}}, "required": ["kind"], "additionalProperties": False},
             "organization": {"type": "object", "properties": {"kind": {"type": "string", "enum": ["none", "id", "name"]}, "value": {"oneOf": [{"type": "integer", "minimum": 1}, {"type": "string", "minLength": 1}]}}, "required": ["kind"], "additionalProperties": False},
+            "brand": {"type": "object", "properties": {"kind": {"const": "id"}, "value": {"type": "integer", "minimum": 1}}, "required": ["kind", "value"], "additionalProperties": False},
+            "group": {"type": "object", "properties": {"kind": {"const": "id"}, "value": {"type": "integer", "minimum": 1}}, "required": ["kind", "value"], "additionalProperties": False},
+            "form": {"type": "object", "properties": {"kind": {"const": "id"}, "value": {"type": "integer", "minimum": 1}}, "required": ["kind", "value"], "additionalProperties": False},
         }, "additionalProperties": False},
     ]
 }

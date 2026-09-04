@@ -541,7 +541,7 @@ def _ticket_query(query: object, *, include_type: bool = True) -> str | None:
     if isinstance(query, str):
         if not (cleaned := query.strip()): return None
         return f"type:ticket {cleaned}" if include_type else cleaned
-    if not isinstance(query, Mapping) or not set(query) <= {"status", "priority", "tags", "assignee", "requester", "organization"}: return None
+    if not isinstance(query, Mapping) or not set(query) <= {"status", "priority", "tags", "assignee", "requester", "organization", "brand", "group", "form"}: return None
     fragments: list[str] = []
     for key, allowed in (("status", {"new", "open", "pending", "hold", "solved", "closed"}), ("priority", {"low", "normal", "high", "urgent"})):
         value = query.get(key)
@@ -567,6 +567,11 @@ def _ticket_query(query: object, *, include_type: bool = True) -> str | None:
         if organization.get("kind") == "none" and set(organization) == {"kind"}: fragments.append("organization:none")
         elif organization.get("kind") == "id" and set(organization) == {"kind", "value"} and _valid_ticket_id(organization.get("value")): fragments.append(f"organization:{organization['value']}")
         else: return None
+    for field in ("brand", "group", "form"):
+        value = query.get(field)
+        if value is not None:
+            if not isinstance(value, Mapping) or value.get("kind") != "id" or set(value) != {"kind", "value"} or not _valid_ticket_id(value.get("value")): return None
+            fragments.append(f"{field}:{value['value']}")
     if not fragments: return None
     return " ".join((["type:ticket"] if include_type else []) + fragments)
 
