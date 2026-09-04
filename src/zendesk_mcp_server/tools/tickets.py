@@ -242,7 +242,9 @@ class TicketTools:
             return failure(ErrorCode.UPSTREAM_ERROR, "Zendesk returned an invalid ticket count")
         return success({"count": count["value"], "refreshed_at": count.get("refreshed_at")})
 
-    def export_tickets(self, query: object, *, cursor: str | None = None, limit: int = 100) -> dict[str, object]:
+    def export_tickets(self, query: object, *, cursor: str | None = None, limit: int = 100, projection: Mapping[str, object] | None = None) -> dict[str, object]:
+        if projection is not None and (set(projection) != {"include_custom_objects"} or not isinstance(projection.get("include_custom_objects"), list) or not projection["include_custom_objects"] or not all(isinstance(value, str) and value for value in projection["include_custom_objects"])): return failure(ErrorCode.VALIDATION_ERROR, "projection must contain include_custom_objects string array")
+        if projection is not None and (self._settings is None or not self._settings.has_capability("custom_objects")): return failure(ErrorCode.UNSUPPORTED, "custom object projection is not enabled")
         ticket_query = self._resolve_ticket_query(query, include_type=False)
         if isinstance(ticket_query, dict): return ticket_query
         if ticket_query is None:
@@ -257,6 +259,10 @@ class TicketTools:
         if not result.get("ok"): return result
         data = result.get("data"); items = data.get("results") if isinstance(data, dict) else None; meta = data.get("meta") if isinstance(data, dict) else None
         if not isinstance(items, list) or not isinstance(meta, dict): return failure(ErrorCode.UPSTREAM_ERROR, "Zendesk returned an invalid ticket export page")
+        if projection is not None:
+            projected = self._project_custom_objects(items, projection["include_custom_objects"])
+            if isinstance(projected, dict): return projected
+            items = projected
         return success({"items": items, "has_more": bool(meta.get("has_more")), "next_cursor": meta.get("after_cursor") if isinstance(meta.get("after_cursor"), str) else None, "truncated": False})
 
     def apply_macro(
