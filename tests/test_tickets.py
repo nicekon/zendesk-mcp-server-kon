@@ -124,11 +124,12 @@ def test_search_and_count_use_ticket_query():
 
 
 def test_ticket_export_uses_dedicated_export_type_filter():
-    client = StubClient({"/api/v2/search/export.json": success({"results": []})})
+    client = StubClient({"/api/v2/search/export.json": success({"results": [{"id": 1}], "meta": {"has_more": True, "after_cursor": "next"}})})
 
-    TicketTools(client).export_tickets("status:open")
+    result = TicketTools(client).export_tickets("status:open", cursor="before", limit=50)
 
-    assert client.paths == [("/api/v2/search/export.json", {"filter[type]": "ticket", "query": "status:open"})]
+    assert result["data"] == {"items": [{"id": 1}], "has_more": True, "next_cursor": "next", "truncated": False}
+    assert client.paths == [("/api/v2/search/export.json", {"filter[type]": "ticket", "query": "status:open", "page[size]": "50", "page[after]": "before"})]
 
 
 def test_search_rejects_blank_query_and_non_integer_limit_without_a_client():

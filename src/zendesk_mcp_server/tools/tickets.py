@@ -222,12 +222,20 @@ class TicketTools:
             return failure(ErrorCode.UPSTREAM_ERROR, "Zendesk returned an invalid ticket count")
         return success({"count": count["value"], "refreshed_at": count.get("refreshed_at")})
 
-    def export_tickets(self, query: str) -> dict[str, object]:
+    def export_tickets(self, query: str, *, cursor: str | None = None, limit: int = 100) -> dict[str, object]:
         if not isinstance(query, str) or not query.strip():
             return failure(ErrorCode.VALIDATION_ERROR, "query must be a non-empty string")
+        if cursor is not None and (not isinstance(cursor, str) or not cursor): return failure(ErrorCode.VALIDATION_ERROR, "cursor must be a non-empty string")
+        if not isinstance(limit, int) or isinstance(limit, bool) or not 1 <= limit <= 1000: return failure(ErrorCode.VALIDATION_ERROR, "limit must be an integer from 1 to 1000")
         client = self._configured_client()
         if isinstance(client, dict): return client
-        return client.get("/api/v2/search/export.json", params={"filter[type]": "ticket", "query": query.strip()})
+        params = {"filter[type]": "ticket", "query": query.strip(), "page[size]": str(limit)}
+        if cursor is not None: params["page[after]"] = cursor
+        result = client.get("/api/v2/search/export.json", params=params)
+        if not result.get("ok"): return result
+        data = result.get("data"); items = data.get("results") if isinstance(data, dict) else None; meta = data.get("meta") if isinstance(data, dict) else None
+        if not isinstance(items, list) or not isinstance(meta, dict): return failure(ErrorCode.UPSTREAM_ERROR, "Zendesk returned an invalid ticket export page")
+        return success({"items": items, "has_more": bool(meta.get("has_more")), "next_cursor": meta.get("after_cursor") if isinstance(meta.get("after_cursor"), str) else None, "truncated": False})
 
     def apply_macro(
         self,

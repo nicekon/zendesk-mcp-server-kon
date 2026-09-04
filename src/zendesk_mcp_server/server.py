@@ -61,7 +61,7 @@ def build_tools() -> list[types.Tool]:
             description="Count Zendesk Support tickets matching a search query without making changes.",
             inputSchema={"type": "object", "properties": {"query": {"type": "string", "minLength": 1}}, "required": ["query"]},
         ),
-        types.Tool(name="zendesk_export_tickets", description="Start a ticket-only Zendesk Search Export without making changes.", inputSchema={"type": "object", "properties": {"query": {"type": "string", "minLength": 1}}, "required": ["query"]}),
+        types.Tool(name="zendesk_export_tickets", description="Export one cursor-paginated ticket-only Search Export page without making changes.", inputSchema={"type": "object", "properties": {"query": {"type": "string", "minLength": 1}, "cursor": {"type": "string", "minLength": 1}, "limit": {"type": "integer", "minimum": 1, "maximum": 1000, "default": 100}}, "required": ["query"]}),
         types.Tool(name="zendesk_apply_ticket_macro", description="Preview or apply a ticket macro through the unified ticket update path. Apply requires local approval; public macro comments also require the public-write gate.", inputSchema={"type": "object", "properties": {"ticket_id": {"type": "integer", "minimum": 1}, "macro_id": {"type": "integer", "minimum": 1}, "execution_mode": {"type": "string", "enum": ["preview", "apply"], "default": "preview"}, "approval_request_id": {"type": "string"}, "approval_token": {"type": "string"}}, "required": ["ticket_id", "macro_id"]}),
         types.Tool(
             name="zendesk_get_ticket",
@@ -503,7 +503,7 @@ def create_server(environ: Mapping[str, str] | None = None) -> Server:
             elif name == "zendesk_count_tickets":
                 result = tools.count_tickets((arguments or {}).get("query"))
             elif name == "zendesk_export_tickets":
-                result = tools.export_tickets((arguments or {}).get("query"))
+                values = arguments or {}; result = tools.export_tickets(values.get("query"), cursor=values.get("cursor"), limit=values.get("limit", 100))
             elif name == "zendesk_apply_ticket_macro":
                 values = arguments or {}
                 result = tools.apply_macro(values.get("ticket_id"), values.get("macro_id"), execution_mode=values.get("execution_mode", "preview"), approval_request_id=values.get("approval_request_id"), approval_token=values.get("approval_token"))
