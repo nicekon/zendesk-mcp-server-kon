@@ -164,6 +164,9 @@ class Settings:
             gates.append("external_upload")
         return gates
 
+    def has_capability(self, name: str) -> bool:
+        return name in self.capabilities
+
 
 def _parse_auth_mode(value: str) -> AuthMode:
     try:

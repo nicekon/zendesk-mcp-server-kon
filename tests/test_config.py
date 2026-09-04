@@ -64,6 +64,7 @@ def test_empty_environment_is_unconfigured_not_an_import_error():
 
 def test_capabilities_default_and_reject_unknown_values():
     assert Settings.load({}).capabilities == frozenset({"support", "operations", "guide", "community"})
+    assert Settings.load({"ZENDESK_CAPABILITIES": "support,custom_objects"}).has_capability("custom_objects") is True
     with pytest.raises(ConfigurationError, match="capabilities"):
         Settings.load({"ZENDESK_CAPABILITIES": "support,unknown"})
 
