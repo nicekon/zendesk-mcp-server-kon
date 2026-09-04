@@ -38,6 +38,24 @@ def test_guide_and_csat_reads_use_fixed_endpoints():
     ]
 
 
+def test_article_export_uses_locale_cursor_pagination():
+    class ExportClient:
+        def __init__(self): self.paths = []
+        def get(self, path, *, params=None):
+            self.paths.append((path, params))
+            if params and params.get("page[after]") == "next": return success({"articles": [{"id": 2}], "meta": {"has_more": False}})
+            return success({"articles": [{"id": 1}], "meta": {"has_more": True, "after_cursor": "next"}})
+
+    client = ExportClient()
+    result = GuideTools(client).export_articles("en-us")
+
+    assert result["data"] == {"articles": [{"id": 1}, {"id": 2}], "truncated": False}
+    assert client.paths == [
+        ("/api/v2/help_center/en-us/articles.json", {"page[size]": "100"}),
+        ("/api/v2/help_center/en-us/articles.json", {"page[size]": "100", "page[after]": "next"}),
+    ]
+
+
 def test_draft_article_create_validates_locale_and_requires_local_approval(tmp_path):
     client = StubClient(); store = ApprovalStore(tmp_path / "approvals.json")
     tools = GuideTools(client, Settings.load({"ZENDESK_WRITE_MODE": "standard"}), store)

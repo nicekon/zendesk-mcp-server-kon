@@ -31,6 +31,22 @@ class GuideTools:
     def search_articles(self, query: str) -> dict[str, object]:
         if not isinstance(query, str) or not query.strip(): return failure(ErrorCode.VALIDATION_ERROR, "query must be a non-empty string")
         return self._get("/api/v2/help_center/articles/search.json", {"query": query.strip()})
+    def export_articles(self, locale: str, max_articles: int = 100000) -> dict[str, object]:
+        if not isinstance(locale, str) or not _LOCALE.fullmatch(locale) or not isinstance(max_articles, int) or isinstance(max_articles, bool) or not 1 <= max_articles <= 100000: return failure(ErrorCode.VALIDATION_ERROR, "locale and max_articles must be valid")
+        articles: list[object] = []; cursor: str | None = None; seen: set[str] = set()
+        while len(articles) < max_articles:
+            params = {"page[size]": str(min(100, max_articles - len(articles)))}
+            if cursor is not None: params["page[after]"] = cursor
+            result = self._get(f"/api/v2/help_center/{locale}/articles.json", params)
+            if not result.get("ok"): return result
+            data = result.get("data"); page = data.get("articles") if isinstance(data, dict) else None; meta = data.get("meta") if isinstance(data, dict) else None
+            if not isinstance(page, list) or not isinstance(meta, dict): return failure(ErrorCode.UPSTREAM_ERROR, "Zendesk returned an invalid article export page")
+            articles.extend(page)
+            if not meta.get("has_more"): return success({"articles": articles, "truncated": False})
+            cursor = meta.get("after_cursor")
+            if not isinstance(cursor, str) or not cursor or cursor in seen: return failure(ErrorCode.UPSTREAM_ERROR, "Zendesk returned an invalid article export cursor")
+            seen.add(cursor)
+        return success({"articles": articles, "truncated": True})
     def get_article(self, article_id: int) -> dict[str, object]:
         if not self._valid_id(article_id): return failure(ErrorCode.VALIDATION_ERROR, "article_id must be a positive integer")
         return self._get(f"/api/v2/help_center/articles/{article_id}.json")

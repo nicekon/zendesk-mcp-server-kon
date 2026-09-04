@@ -85,6 +85,7 @@ def test_support_read_tools_are_registered():
         "zendesk_list_help_center_categories",
         "zendesk_list_help_center_sections",
         "zendesk_search_help_center_articles",
+        "zendesk_export_help_center_articles",
         "zendesk_get_help_center_article",
         "zendesk_get_satisfaction_ratings",
         "zendesk_list_guide_permission_groups",

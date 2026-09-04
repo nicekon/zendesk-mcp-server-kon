@@ -158,6 +158,7 @@ def build_tools() -> list[types.Tool]:
         types.Tool(name="zendesk_list_help_center_categories", description="List Help Center categories without making changes.", inputSchema={"type": "object", "properties": {}}),
         types.Tool(name="zendesk_list_help_center_sections", description="List Help Center sections without making changes.", inputSchema={"type": "object", "properties": {}}),
         types.Tool(name="zendesk_search_help_center_articles", description="Search Help Center articles without making changes.", inputSchema={"type": "object", "properties": {"query": {"type": "string", "minLength": 1}}, "required": ["query"]}),
+        types.Tool(name="zendesk_export_help_center_articles", description="Export Help Center articles for one locale with cursor pagination, up to a bounded total.", inputSchema={"type": "object", "properties": {"locale": {"type": "string", "minLength": 2}, "max_articles": {"type": "integer", "minimum": 1, "maximum": 100000}}, "required": ["locale"]}),
         types.Tool(name="zendesk_get_help_center_article", description="Get a Help Center article without making changes.", inputSchema={"type": "object", "properties": {"article_id": {"type": "integer", "minimum": 1}}, "required": ["article_id"]}),
         types.Tool(name="zendesk_get_satisfaction_ratings", description="List Zendesk satisfaction ratings without making changes.", inputSchema={"type": "object", "properties": {}}),
         types.Tool(name="zendesk_list_guide_permission_groups", description="List Guide management permission groups without making changes.", inputSchema={"type": "object", "properties": {}}),
@@ -421,13 +422,15 @@ def create_server(environ: Mapping[str, str] | None = None) -> Server:
             elif name == "zendesk_upload_badge_icon":
                 values = arguments or {}; result = tools.upload_badge_icon(values.get("image_path"), values.get("content_type"), execution_mode=values.get("execution_mode", "preview"), approval_request_id=values.get("approval_request_id"), approval_token=values.get("approval_token"))
             else: result = tools.get_post((arguments or {}).get("post_id"))
-        elif name in {"zendesk_list_help_center_locales", "zendesk_list_help_center_categories", "zendesk_list_help_center_sections", "zendesk_search_help_center_articles", "zendesk_get_help_center_article", "zendesk_get_satisfaction_ratings", "zendesk_list_guide_permission_groups", "zendesk_list_guide_user_segments", "zendesk_create_help_center_article", "zendesk_upsert_article_translation", "zendesk_replace_article_translation_body", "zendesk_publish_help_center_article"}:
+        elif name in {"zendesk_list_help_center_locales", "zendesk_list_help_center_categories", "zendesk_list_help_center_sections", "zendesk_search_help_center_articles", "zendesk_export_help_center_articles", "zendesk_get_help_center_article", "zendesk_get_satisfaction_ratings", "zendesk_list_guide_permission_groups", "zendesk_list_guide_user_segments", "zendesk_create_help_center_article", "zendesk_upsert_article_translation", "zendesk_replace_article_translation_body", "zendesk_publish_help_center_article"}:
             tools = build_guide_tools(environment)
             if isinstance(tools, dict): result = tools
             elif name == "zendesk_list_help_center_locales": result = tools.list_locales()
             elif name == "zendesk_list_help_center_categories": result = tools.list_categories()
             elif name == "zendesk_list_help_center_sections": result = tools.list_sections()
             elif name == "zendesk_search_help_center_articles": result = tools.search_articles((arguments or {}).get("query"))
+            elif name == "zendesk_export_help_center_articles":
+                values = arguments or {}; result = tools.export_articles(values.get("locale"), values.get("max_articles", 100000))
             elif name == "zendesk_get_help_center_article": result = tools.get_article((arguments or {}).get("article_id"))
             elif name == "zendesk_list_guide_permission_groups": result = tools.list_permission_groups()
             elif name == "zendesk_list_guide_user_segments":
