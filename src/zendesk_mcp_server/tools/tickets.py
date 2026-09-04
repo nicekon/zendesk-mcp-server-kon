@@ -524,6 +524,18 @@ class TicketTools:
             matches = [item for item in organizations if isinstance(item, dict) and isinstance(item.get("name"), str) and item["name"].casefold() == value.casefold() and _valid_ticket_id(item.get("id"))] if isinstance(organizations, list) else []
             if len(matches) != 1: return failure(ErrorCode.VALIDATION_ERROR, "organization name must match exactly one organization", details={"candidate_ids": [item["id"] for item in matches]})
             resolved["organization"] = {"kind": "id", "value": matches[0]["id"]}
+        brand = resolved.get("brand")
+        if isinstance(brand, Mapping) and brand.get("kind") == "name":
+            value = brand.get("value")
+            if not isinstance(value, str) or not value.strip(): return None
+            client = self._configured_client()
+            if isinstance(client, dict): return client
+            result = client.get("/api/v2/brands.json", params={"page[size]": "100"})
+            if not result.get("ok"): return result
+            data = result.get("data"); brands = data.get("brands") if isinstance(data, dict) else None
+            matches = [item for item in brands if isinstance(item, dict) and isinstance(item.get("name"), str) and item["name"].casefold() == value.casefold() and _valid_ticket_id(item.get("id"))] if isinstance(brands, list) else []
+            if len(matches) != 1: return failure(ErrorCode.VALIDATION_ERROR, "brand name must match exactly one brand", details={"candidate_ids": [item["id"] for item in matches]})
+            resolved["brand"] = {"kind": "id", "value": matches[0]["id"]}
         return _ticket_query(resolved, include_type=include_type)
 
     def _configured_mutation_client(self) -> TicketMutationClient | dict[str, object]:
