@@ -48,6 +48,12 @@ class OAuthAuthorization:
         return {"Authorization": f"Bearer {self.access_token}"}
 
 
+def oauth_tokens_from_refresh_response(value: object, *, now: int) -> OAuthTokens:
+    if not isinstance(value, dict) or not isinstance(value.get("access_token"), str) or not isinstance(value.get("refresh_token"), str) or not isinstance(value.get("expires_in"), int) or value["expires_in"] <= 0:
+        raise ConfigurationError("invalid_oauth_refresh", "OAuth refresh response is invalid")
+    return OAuthTokens(value["access_token"], value["refresh_token"], now + value["expires_in"])
+
+
 class OAuthTokenStore:
     def __init__(self, path: Path) -> None:
         self.path = path

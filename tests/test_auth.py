@@ -41,3 +41,9 @@ def test_api_token_header_uses_basic_auth_not_a_bearer_token():
 def test_oauth_tokens_expire_with_a_safety_margin():
     assert OAuthTokens("access", "refresh", 1059).is_expired(now=1000) is True
     assert OAuthTokens("access", "refresh", 1061).is_expired(now=1000) is False
+
+
+def test_oauth_refresh_response_rotates_tokens():
+    from zendesk_mcp_server.auth import oauth_tokens_from_refresh_response
+
+    assert oauth_tokens_from_refresh_response({"access_token": "new", "refresh_token": "rotated", "expires_in": 3600}, now=100) == OAuthTokens("new", "rotated", 3700)
