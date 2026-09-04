@@ -20,7 +20,12 @@ def test_connection_status_is_available_without_configuration():
 
     assert build_connection_status({}) == {
         "ok": True,
-        "data": {"configured": False, "auth_mode": None, "write_mode": "read_only"},
+        "data": {
+            "configured": False,
+            "auth_mode": None,
+            "write_mode": "read_only",
+            "active_write_gates": [],
+        },
     }
 
 

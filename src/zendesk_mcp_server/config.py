@@ -38,6 +38,10 @@ class Settings:
     subdomain: str | None
     auth_mode: AuthMode | None
     write_mode: str
+    public_writes_enabled: bool = False
+    destructive_writes_enabled: bool = False
+    impersonation_enabled: bool = False
+    external_uploads_enabled: bool = False
     email: str | None = None
     api_token: str | None = None
     oauth: OAuthConfig | None = None
@@ -58,6 +62,10 @@ class Settings:
         write_mode = environ.get("ZENDESK_WRITE_MODE", "read_only")
         if write_mode not in {"read_only", "standard"}:
             raise ConfigurationError("invalid_write_mode", "ZENDESK_WRITE_MODE is invalid")
+        public_writes_enabled = _parse_bool(environ, "ZENDESK_ENABLE_PUBLIC_WRITES")
+        destructive_writes_enabled = _parse_bool(environ, "ZENDESK_ENABLE_DESTRUCTIVE_WRITES")
+        impersonation_enabled = _parse_bool(environ, "ZENDESK_ENABLE_IMPERSONATION")
+        external_uploads_enabled = _parse_bool(environ, "ZENDESK_ENABLE_EXTERNAL_UPLOADS")
 
         subdomain = environ.get("ZENDESK_SUBDOMAIN")
         if subdomain is not None:
@@ -105,6 +113,10 @@ class Settings:
             subdomain=subdomain,
             auth_mode=selected_mode,
             write_mode=write_mode,
+            public_writes_enabled=public_writes_enabled,
+            destructive_writes_enabled=destructive_writes_enabled,
+            impersonation_enabled=impersonation_enabled,
+            external_uploads_enabled=external_uploads_enabled,
             email=email if selected_mode is AuthMode.API_TOKEN else None,
             api_token=api_token if selected_mode is AuthMode.API_TOKEN else None,
             oauth=oauth if selected_mode is AuthMode.OAUTH else None,
@@ -116,14 +128,28 @@ class Settings:
                 "configured": False,
                 "auth_mode": None,
                 "write_mode": self.write_mode,
+                "active_write_gates": self.active_write_gates(),
             }
 
         return {
             "configured": True,
             "auth_mode": self.auth_mode.value,
             "write_mode": self.write_mode,
+            "active_write_gates": self.active_write_gates(),
             "subdomain": self.subdomain,
         }
+
+    def active_write_gates(self) -> list[str]:
+        gates = ["standard"] if self.write_mode == "standard" else []
+        if self.public_writes_enabled:
+            gates.append("public")
+        if self.destructive_writes_enabled:
+            gates.append("destructive")
+        if self.impersonation_enabled:
+            gates.append("impersonation")
+        if self.external_uploads_enabled:
+            gates.append("external_upload")
+        return gates
 
 
 def _parse_auth_mode(value: str) -> AuthMode:
@@ -155,3 +181,12 @@ def _select_auth_mode(
         "missing_credentials",
         f"{requested_mode.value} authentication is not fully configured",
     )
+
+
+def _parse_bool(environ: Mapping[str, str], name: str) -> bool:
+    value = environ.get(name, "false").strip().lower()
+    if value in {"true", "1"}:
+        return True
+    if value in {"false", "0"}:
+        return False
+    raise ConfigurationError("invalid_boolean", f"{name} must be true or false")

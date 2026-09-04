@@ -17,6 +17,7 @@ def test_auto_uses_api_token_when_no_oauth_settings_exist():
         "configured": True,
         "auth_mode": "api_token",
         "write_mode": "read_only",
+        "active_write_gates": [],
         "subdomain": "acme",
     }
     assert "secret" not in repr(settings.connection_status())
@@ -55,6 +56,7 @@ def test_empty_environment_is_unconfigured_not_an_import_error():
         "configured": False,
         "auth_mode": None,
         "write_mode": "read_only",
+        "active_write_gates": [],
     }
 
 
@@ -67,3 +69,19 @@ def test_deprecated_api_key_requires_explicit_migration():
                 "ZENDESK_API_KEY": "old-secret",
             }
         )
+
+
+def test_write_gates_are_disabled_by_default_and_redacted_in_status():
+    settings = Settings.load(
+        {
+            "ZENDESK_SUBDOMAIN": "acme",
+            "ZENDESK_EMAIL": "agent@example.test",
+            "ZENDESK_API_TOKEN": "secret",
+            "ZENDESK_WRITE_MODE": "standard",
+            "ZENDESK_ENABLE_PUBLIC_WRITES": "true",
+        }
+    )
+
+    assert settings.public_writes_enabled is True
+    assert settings.destructive_writes_enabled is False
+    assert settings.connection_status()["active_write_gates"] == ["standard", "public"]
