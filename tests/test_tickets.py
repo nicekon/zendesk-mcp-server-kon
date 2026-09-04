@@ -66,6 +66,14 @@ def test_conversation_marks_customer_text_untrusted():
     assert result["data"]["comments"][0]["untrusted_user_content"] is True
 
 
+def test_ticket_attachment_metadata_is_extracted_from_comments():
+    client = StubClient({"/api/v2/tickets/7/comments.json": success({"comments": [{"id": 3, "attachments": [{"id": 5, "file_name": "log.txt", "size": 12, "malware_scan_result": "malware_not_found"}]}]})})
+
+    result = TicketTools(client).list_attachments(7)
+
+    assert result["data"]["attachments"] == [{"id": 5, "file_name": "log.txt", "size": 12, "malware_scan_result": "malware_not_found", "ticket_id": 7, "comment_id": 3, "untrusted_user_content": True}]
+
+
 def test_search_and_count_use_ticket_query():
     client = StubClient(
         {

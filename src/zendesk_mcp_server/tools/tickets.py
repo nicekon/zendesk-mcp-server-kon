@@ -83,6 +83,23 @@ class TicketTools:
         marked = [{**comment, "untrusted_user_content": True} for comment in comments if isinstance(comment, dict)]
         return success({"comments": marked})
 
+    def list_attachments(self, ticket_id: int) -> dict[str, object]:
+        conversation = self.get_conversation(ticket_id)
+        if not conversation.get("ok"):
+            return conversation
+        data = conversation.get("data", {})
+        comments = data.get("comments") if isinstance(data, dict) else None
+        if not isinstance(comments, list):
+            return failure(ErrorCode.UPSTREAM_ERROR, "Zendesk returned invalid comments")
+        attachments: list[dict[str, object]] = []
+        for comment in comments:
+            if not isinstance(comment, dict) or not isinstance(comment.get("attachments", []), list):
+                continue
+            for attachment in comment["attachments"]:
+                if isinstance(attachment, dict):
+                    attachments.append({**attachment, "ticket_id": ticket_id, "comment_id": comment.get("id"), "untrusted_user_content": True})
+        return success({"attachments": attachments})
+
     def search_tickets(self, query: str, limit: int = 100) -> dict[str, object]:
         ticket_query = _ticket_query(query)
         if ticket_query is None:
