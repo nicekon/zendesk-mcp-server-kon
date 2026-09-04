@@ -119,4 +119,8 @@ def test_support_read_tools_are_registered():
         "zendesk_list_user_subscriptions",
         "zendesk_upsert_user_subscription",
         "zendesk_delete_user_subscription",
+        "zendesk_list_badge_categories",
+        "zendesk_get_badge_category",
+        "zendesk_create_badge_category",
+        "zendesk_delete_badge_category",
     ]

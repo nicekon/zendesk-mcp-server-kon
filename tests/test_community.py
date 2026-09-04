@@ -201,3 +201,22 @@ def test_other_user_subscription_requires_public_and_impersonation_gates(tmp_pat
     result = tools.upsert_user_subscription(6, 7, execution_mode="apply", approval_request_id=preview["data"]["approval_request_id"], approval_token=token)
     assert result["error"]["code"] == "write_disabled"
     assert client.paths == []
+
+
+def test_badge_category_reads_and_mutations_use_fixed_paths_and_approvals(tmp_path):
+    client = StubClient(); store = ApprovalStore(tmp_path / "approvals.json")
+    tools = CommunityTools(client, Settings.load({"ZENDESK_WRITE_MODE": "standard", "ZENDESK_ENABLE_PUBLIC_WRITES": "true"}), store)
+    tools.list_badge_categories(4); tools.get_badge_category("category-1")
+    preview = tools.create_badge_category(4, "Achievements", "achievements")
+    token = store.approve(preview["data"]["approval_request_id"])
+    tools.create_badge_category(4, "Achievements", "achievements", execution_mode="apply", approval_request_id=preview["data"]["approval_request_id"], approval_token=token)
+    assert client.paths[-3:] == [("/api/v2/gather/badge_categories.json", {"brand_id": "4"}), ("/api/v2/gather/badge_categories/category-1.json", None), ("POST", "/api/v2/gather/badge_categories.json", {"badge_category": {"brand_id": 4, "name": "Achievements", "slug": "achievements"}})]
+
+
+def test_badge_category_delete_requires_local_destructive_approval(tmp_path):
+    client = StubClient(); store = ApprovalStore(tmp_path / "approvals.json")
+    tools = CommunityTools(client, Settings.load({"ZENDESK_WRITE_MODE": "standard", "ZENDESK_ENABLE_DESTRUCTIVE_WRITES": "true"}), store)
+    preview = tools.delete_badge_category("category-1")
+    token = store.approve(preview["data"]["approval_request_id"])
+    tools.delete_badge_category("category-1", execution_mode="apply", approval_request_id=preview["data"]["approval_request_id"], approval_token=token)
+    assert client.paths[-1] == ("DELETE", "/api/v2/gather/badge_categories/category-1.json", None)

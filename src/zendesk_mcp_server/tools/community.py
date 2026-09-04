@@ -126,6 +126,19 @@ class CommunityTools:
         if path is None: return failure(ErrorCode.VALIDATION_ERROR, "valid user_id and subscription_id are required")
         risk: WriteRisk | tuple[WriteRisk, ...] = WriteRisk.DESTRUCTIVE if user_id == "me" else (WriteRisk.DESTRUCTIVE, WriteRisk.IMPERSONATION)
         return self._approved_request("zendesk_delete_user_subscription", {"user_id": user_id, "subscription_id": subscription_id}, "DELETE", path, None, risk, execution_mode, approval_request_id, approval_token)
+    def list_badge_categories(self, brand_id: int | None = None) -> dict[str, object]:
+        if brand_id is not None and not self._valid_id(brand_id, "brand_id"): return failure(ErrorCode.VALIDATION_ERROR, "brand_id must be a positive integer")
+        return self._get("/api/v2/gather/badge_categories.json", {"brand_id": str(brand_id)} if brand_id is not None else None)
+    def get_badge_category(self, category_id: str) -> dict[str, object]:
+        if not self._valid_tag_id(category_id): return failure(ErrorCode.VALIDATION_ERROR, "category_id must be a non-empty path-safe string")
+        return self._get(f"/api/v2/gather/badge_categories/{category_id}.json")
+    def create_badge_category(self, brand_id: int, name: str, slug: str, *, execution_mode: str = "preview", approval_request_id: str | None = None, approval_token: str | None = None) -> dict[str, object]:
+        if not self._valid_id(brand_id, "brand_id") or not isinstance(name, str) or not name.strip() or not self._valid_tag_id(slug): return failure(ErrorCode.VALIDATION_ERROR, "valid brand_id, name, and slug are required")
+        payload = {"badge_category": {"brand_id": brand_id, "name": name.strip(), "slug": slug}}
+        return self._approved_request("zendesk_create_badge_category", payload, "POST", "/api/v2/gather/badge_categories.json", payload, WriteRisk.PUBLIC, execution_mode, approval_request_id, approval_token)
+    def delete_badge_category(self, category_id: str, *, execution_mode: str = "preview", approval_request_id: str | None = None, approval_token: str | None = None) -> dict[str, object]:
+        if not self._valid_tag_id(category_id): return failure(ErrorCode.VALIDATION_ERROR, "category_id must be a non-empty path-safe string")
+        return self._approved_request("zendesk_delete_badge_category", {"category_id": category_id}, "DELETE", f"/api/v2/gather/badge_categories/{category_id}.json", None, WriteRisk.DESTRUCTIVE, execution_mode, approval_request_id, approval_token)
     def search_content_tags(self, prefix: str) -> dict[str, object]:
         if not isinstance(prefix, str): return failure(ErrorCode.VALIDATION_ERROR, "prefix must be a string")
         return self._get("/api/v2/guide/content_tags.json", {"filter[name_prefix]": prefix})
