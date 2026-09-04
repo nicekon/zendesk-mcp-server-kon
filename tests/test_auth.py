@@ -58,3 +58,11 @@ def test_oauth_refresh_payload_uses_refresh_token_grant():
 def test_refresh_oauth_tokens_uses_injected_requester():
     from zendesk_mcp_server.auth import refresh_oauth_tokens
     assert refresh_oauth_tokens(lambda payload: {"access_token": "new", "refresh_token": payload["refresh_token"], "expires_in": 100}, "id", "secret", "refresh", now=1).access_token == "new"
+
+
+def test_refresh_and_store_rotates_the_token_file(tmp_path: Path):
+    from zendesk_mcp_server.auth import refresh_and_store_oauth_tokens
+    store = OAuthTokenStore(tmp_path / "oauth.json")
+    store.save(OAuthTokens("old", "refresh", 1))
+    assert refresh_and_store_oauth_tokens(store, lambda _: {"access_token": "new", "refresh_token": "rotated", "expires_in": 100}, "id", "secret", now=1).access_token == "new"
+    assert store.load().refresh_token == "rotated"

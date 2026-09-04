@@ -63,6 +63,13 @@ def refresh_oauth_tokens(request: Callable[[dict[str, str]], object], client_id:
     return oauth_tokens_from_refresh_response(request(oauth_refresh_payload(client_id, client_secret, refresh_token)), now=now)
 
 
+def refresh_and_store_oauth_tokens(store: OAuthTokenStore, request: Callable[[dict[str, str]], object], client_id: str, client_secret: str, *, now: int) -> OAuthTokens:
+    current = store.load()
+    refreshed = refresh_oauth_tokens(request, client_id, client_secret, current.refresh_token, now=now)
+    store.save(refreshed)
+    return refreshed
+
+
 class OAuthTokenStore:
     def __init__(self, path: Path) -> None:
         self.path = path
