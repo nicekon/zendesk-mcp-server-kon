@@ -150,3 +150,29 @@ def test_presigned_upload_rejects_private_hosts(settings, authorization):
     client = ZendeskClient(settings, authorization, transport=httpx.MockTransport(lambda request: None))
 
     assert client.upload_presigned("https://127.0.0.1/upload", {"Content-Type": "image/png"}, b"image")["error"]["code"] == "validation_error"
+
+
+def test_attachment_download_removes_authorization_before_cdn_redirect(settings, authorization, monkeypatch):
+    monkeypatch.setattr("zendesk_mcp_server.client.socket.getaddrinfo", lambda *args, **kwargs: [(0, 0, 0, "", ("8.8.8.8", 443))])
+    calls = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(request)
+        if request.url.host == "acme.zendesk.com":
+            assert request.headers["Authorization"].startswith("Basic ")
+            return httpx.Response(302, headers={"Location": "https://cdn.example.test/file"}, request=request)
+        assert request.headers.get("Authorization") is None
+        return httpx.Response(200, content=b"attachment", headers={"Content-Type": "text/plain"}, request=request)
+
+    client = ZendeskClient(settings, authorization, transport=httpx.MockTransport(handler))
+    result = client.download_attachment("https://acme.zendesk.com/attachments/token/file", max_bytes=20)
+
+    assert result["data"]["content"] == b"attachment"
+    assert result["data"]["content_type"] == "text/plain"
+    assert len(calls) == 2
+
+
+def test_attachment_download_rejects_non_https_tenant_url(settings, authorization):
+    client = ZendeskClient(settings, authorization, transport=httpx.MockTransport(lambda request: None))
+
+    assert client.download_attachment("http://acme.zendesk.com/attachments/token/file", max_bytes=20)["error"]["code"] == "validation_error"

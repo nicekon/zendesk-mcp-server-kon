@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+import os
+import secrets
+import stat
+from pathlib import Path
 from typing import Protocol
 
 from ..approvals import ApprovalStore
@@ -22,6 +26,10 @@ class TicketMutationClient(TicketClient, Protocol):
         *,
         json_body: dict[str, object] | None = None,
     ) -> dict[str, object]: ...
+
+
+class TicketAttachmentClient(TicketClient, Protocol):
+    def download_attachment(self, content_url: str, *, max_bytes: int) -> dict[str, object]: ...
 
 
 class TicketTools:
@@ -99,6 +107,35 @@ class TicketTools:
                 if isinstance(attachment, dict):
                     attachments.append({**attachment, "ticket_id": ticket_id, "comment_id": comment.get("id"), "untrusted_user_content": True})
         return success({"attachments": attachments})
+
+    def download_attachment(self, ticket_id: int, attachment_id: int) -> dict[str, object]:
+        if not _valid_ticket_id(ticket_id) or not _valid_ticket_id(attachment_id):
+            return failure(ErrorCode.VALIDATION_ERROR, "ticket_id and attachment_id must be positive integers")
+        listed = self.list_attachments(ticket_id)
+        if not listed.get("ok"):
+            return listed
+        data = listed.get("data")
+        attachments = data.get("attachments") if isinstance(data, dict) else None
+        attachment = next((value for value in attachments if isinstance(value, dict) and value.get("id") == attachment_id), None) if isinstance(attachments, list) else None
+        if attachment is None:
+            return failure(ErrorCode.NOT_FOUND, "attachment does not belong to this ticket")
+        if not self.attachment_is_safe_to_download(attachment):
+            return failure(ErrorCode.PERMISSION_DENIED, "attachment is deleted, unscanned, unsafe, or exceeds the size limit")
+        content_url = attachment.get("content_url")
+        client = self._configured_client()
+        if not isinstance(content_url, str) or not hasattr(client, "download_attachment"):
+            return failure(ErrorCode.NOT_CONFIGURED, "Zendesk attachment download client is not configured")
+        downloaded = client.download_attachment(content_url, max_bytes=20 * 1024 * 1024)
+        if not downloaded.get("ok"):
+            return downloaded
+        response_data = downloaded.get("data")
+        content = response_data.get("content") if isinstance(response_data, dict) else None
+        if not isinstance(content, bytes) or self._settings is None or self._settings.attachment_cache_root is None:
+            return failure(ErrorCode.UPSTREAM_ERROR, "Zendesk returned an invalid attachment download")
+        cached = _cache_attachment(self._settings.attachment_cache_root, attachment_id, content)
+        if not cached.get("ok"):
+            return cached
+        return success({"ticket_id": ticket_id, "attachment_id": attachment_id, "cache_path": cached["data"]["cache_path"], "cache_hit": cached["data"]["cache_hit"], "content_type": response_data.get("content_type")})
 
     def ticket_to_issue_context(self, ticket_id: int) -> dict[str, object]:
         ticket = self.get_ticket(ticket_id)
@@ -520,3 +557,35 @@ def _update_ticket_payload(**values: object) -> dict[str, object]:
     if not payload:
         return failure(ErrorCode.VALIDATION_ERROR, "at least one ticket field is required")
     return payload
+
+
+def _cache_attachment(root: Path, attachment_id: int, content: bytes) -> dict[str, object]:
+    try:
+        for directory in (root, root / str(os.getuid()), root / str(os.getuid()) / str(attachment_id)):
+            directory.mkdir(mode=0o700, exist_ok=True)
+            info = directory.lstat()
+            if stat.S_ISLNK(info.st_mode) or not stat.S_ISDIR(info.st_mode):
+                return failure(ErrorCode.VALIDATION_ERROR, "attachment cache path is unsafe")
+            os.chmod(directory, 0o700)
+        destination = root / str(os.getuid()) / str(attachment_id) / "attachment"
+        if destination.exists():
+            info = destination.lstat()
+            if stat.S_ISLNK(info.st_mode) or not stat.S_ISREG(info.st_mode):
+                return failure(ErrorCode.VALIDATION_ERROR, "attachment cache file is unsafe")
+            return success({"cache_path": str(destination), "cache_hit": True})
+        temporary = destination.with_name(f".{secrets.token_hex(16)}.tmp")
+        descriptor = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0), 0o600)
+        try:
+            with os.fdopen(descriptor, "wb") as stream:
+                stream.write(content)
+                stream.flush()
+                os.fsync(stream.fileno())
+            try:
+                os.link(temporary, destination)
+            except FileExistsError:
+                return success({"cache_path": str(destination), "cache_hit": True})
+            return success({"cache_path": str(destination), "cache_hit": False})
+        finally:
+            temporary.unlink(missing_ok=True)
+    except OSError:
+        return failure(ErrorCode.UPSTREAM_ERROR, "attachment cache could not be written")

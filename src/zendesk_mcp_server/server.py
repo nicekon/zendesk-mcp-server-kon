@@ -130,6 +130,7 @@ def build_tools() -> list[types.Tool]:
             inputSchema={"type": "object", "properties": {"ticket_id": {"type": "integer", "minimum": 1}}, "required": ["ticket_id"]},
         ),
         types.Tool(name="zendesk_list_ticket_attachments", description="List attachment metadata for a Zendesk ticket without downloading content.", inputSchema={"type": "object", "properties": {"ticket_id": {"type": "integer", "minimum": 1}}, "required": ["ticket_id"]}),
+        types.Tool(name="zendesk_download_ticket_attachment", description="Safely download a scanned ticket attachment by ticket and attachment ID into the server-managed cache.", inputSchema={"type": "object", "properties": {"ticket_id": {"type": "integer", "minimum": 1}, "attachment_id": {"type": "integer", "minimum": 1}}, "required": ["ticket_id", "attachment_id"]}),
         types.Tool(name="zendesk_ticket_to_issue_context", description="Convert a ticket and its plain-text conversation into Markdown issue context.", inputSchema={"type": "object", "properties": {"ticket_id": {"type": "integer", "minimum": 1}}, "required": ["ticket_id"]}),
         types.Tool(
             name="zendesk_post_public_reply",
@@ -472,6 +473,7 @@ def create_server(environ: Mapping[str, str] | None = None) -> Server:
             "zendesk_remove_ticket_tag",
             "zendesk_get_ticket_conversation",
             "zendesk_list_ticket_attachments",
+            "zendesk_download_ticket_attachment",
             "zendesk_ticket_to_issue_context",
             "zendesk_post_public_reply",
             "zendesk_post_internal_note",
@@ -547,6 +549,9 @@ def create_server(environ: Mapping[str, str] | None = None) -> Server:
                 result = tools.post_internal_note(values.get("ticket_id"), values.get("body"))
             elif name == "zendesk_list_ticket_attachments":
                 result = tools.list_attachments((arguments or {}).get("ticket_id"))
+            elif name == "zendesk_download_ticket_attachment":
+                values = arguments or {}
+                result = tools.download_attachment(values.get("ticket_id"), values.get("attachment_id"))
             elif name == "zendesk_ticket_to_issue_context":
                 result = tools.ticket_to_issue_context((arguments or {}).get("ticket_id"))
             else:

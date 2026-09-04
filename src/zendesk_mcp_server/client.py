@@ -7,7 +7,7 @@ import random
 import socket
 import time
 from collections.abc import Callable, Mapping
-from urllib.parse import urlsplit
+from urllib.parse import urljoin, urlsplit
 
 import httpx
 
@@ -140,6 +140,40 @@ class ZendeskClient:
             return success({}, request_id=_request_id(response))
         return failure(_error_code(response.status_code), f"Zendesk upload failed with HTTP {response.status_code}", operation_state="unknown", request_id=_request_id(response))
 
+    def download_attachment(self, content_url: str, *, max_bytes: int) -> dict[str, object]:
+        if not isinstance(max_bytes, int) or isinstance(max_bytes, bool) or max_bytes < 1 or not self._is_attachment_url(content_url):
+            return failure(ErrorCode.VALIDATION_ERROR, "attachment URL or size limit is unsafe")
+        url = content_url
+        for _ in range(3):
+            headers = self._authorization.headers() if urlsplit(url).hostname == urlsplit(self._base_url).hostname else {}
+            try:
+                with self._client.stream("GET", url, headers=headers) as response:
+                    if response.is_redirect:
+                        location = response.headers.get("Location")
+                        url = urljoin(url, location) if location else ""
+                        if not self._is_attachment_url(url):
+                            return failure(ErrorCode.VALIDATION_ERROR, "attachment redirect URL is unsafe")
+                        continue
+                    if not response.is_success:
+                        return failure(_error_code(response.status_code), f"Zendesk attachment download failed with HTTP {response.status_code}", retryable=response.status_code >= 500, request_id=_request_id(response))
+                    try:
+                        declared_size = int(response.headers.get("Content-Length", "0"))
+                    except ValueError:
+                        declared_size = 0
+                    if declared_size > max_bytes:
+                        return failure(ErrorCode.VALIDATION_ERROR, "attachment exceeds the download size limit")
+                    content = bytearray()
+                    for chunk in response.iter_bytes():
+                        content.extend(chunk)
+                        if len(content) > max_bytes:
+                            return failure(ErrorCode.VALIDATION_ERROR, "attachment exceeds the download size limit")
+                    return success({"content": bytes(content), "content_type": response.headers.get("Content-Type") or "application/octet-stream", "size": len(content)}, request_id=_request_id(response))
+            except httpx.TimeoutException:
+                return failure(ErrorCode.TIMEOUT, "Zendesk attachment download timed out", retryable=True)
+            except httpx.HTTPError:
+                return failure(ErrorCode.UPSTREAM_ERROR, "Zendesk attachment download could not be completed", retryable=True)
+        return failure(ErrorCode.UPSTREAM_ERROR, "Zendesk attachment redirected too many times")
+
     def _build_url(self, path: str) -> str | None:
         parsed = urlsplit(path)
         if (
@@ -151,6 +185,10 @@ class ZendeskClient:
         ):
             return None
         return f"{self._base_url}{parsed.path}"
+
+    def _is_attachment_url(self, value: str) -> bool:
+        parsed = urlsplit(value)
+        return parsed.scheme == "https" and not parsed.username and not parsed.password and (parsed.hostname == urlsplit(self._base_url).hostname or _is_public_https_url(value))
 
     @staticmethod
     def _retry_delay(attempt: int) -> float:

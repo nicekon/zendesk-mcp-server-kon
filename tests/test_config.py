@@ -93,3 +93,11 @@ def test_external_upload_root_is_local_configuration_not_status_data(tmp_path):
 
     assert settings.upload_root == root
     assert "uploads" not in repr(settings.connection_status())
+
+
+def test_attachment_cache_root_is_local_configuration_not_status_data(tmp_path):
+    root = tmp_path / "attachments"
+    settings = Settings.load({"ZENDESK_ATTACHMENT_CACHE_ROOT": str(root)})
+
+    assert settings.attachment_cache_root == root
+    assert "attachments" not in repr(settings.connection_status())

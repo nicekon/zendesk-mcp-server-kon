@@ -43,6 +43,7 @@ class Settings:
     impersonation_enabled: bool = False
     external_uploads_enabled: bool = False
     upload_root: Path | None = None
+    attachment_cache_root: Path | None = None
     email: str | None = None
     api_token: str | None = None
     oauth: OAuthConfig | None = None
@@ -68,6 +69,7 @@ class Settings:
         impersonation_enabled = _parse_bool(environ, "ZENDESK_ENABLE_IMPERSONATION")
         external_uploads_enabled = _parse_bool(environ, "ZENDESK_ENABLE_EXTERNAL_UPLOADS")
         upload_root = environ.get("ZENDESK_UPLOAD_ROOT")
+        attachment_cache_root = environ.get("ZENDESK_ATTACHMENT_CACHE_ROOT")
 
         subdomain = environ.get("ZENDESK_SUBDOMAIN")
         if subdomain is not None:
@@ -120,6 +122,7 @@ class Settings:
             impersonation_enabled=impersonation_enabled,
             external_uploads_enabled=external_uploads_enabled,
             upload_root=Path(upload_root).expanduser() if upload_root else None,
+            attachment_cache_root=Path(attachment_cache_root).expanduser() if attachment_cache_root else Path.home() / ".cache" / "zendesk-mcp-server" / "attachments",
             email=email if selected_mode is AuthMode.API_TOKEN else None,
             api_token=api_token if selected_mode is AuthMode.API_TOKEN else None,
             oauth=oauth if selected_mode is AuthMode.OAUTH else None,

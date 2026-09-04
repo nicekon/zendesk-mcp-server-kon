@@ -34,6 +34,15 @@ class MacroStub(MutationStub):
         return success({"result": {"ticket": {"status": "pending", "comment": {"body": "We are checking", "public": True}}}})
 
 
+class AttachmentDownloadStub:
+    def __init__(self): self.downloads = []
+    def get(self, path, *, params=None):
+        return success({"comments": [{"id": 3, "attachments": [{"id": 5, "file_name": "log.txt", "size": 12, "content_url": "https://acme.zendesk.com/attachments/token/log", "malware_scan_result": "malware_not_found"}]}]})
+    def download_attachment(self, content_url, *, max_bytes):
+        self.downloads.append((content_url, max_bytes))
+        return success({"content": b"hello world", "content_type": "text/plain", "size": 11})
+
+
 def test_get_ticket_rejects_zero_without_a_client():
     result = TicketTools(None).get_ticket(0)
 
@@ -275,3 +284,15 @@ def test_ticket_macro_preview_requires_approval_and_reuses_ticket_update(tmp_pat
     ]
     assert client.calls == [("PUT", "/api/v2/tickets/9.json", {"ticket": {"status": "pending", "comment": {"body": "We are checking", "public": True}}})]
     assert result["data"]["ticket"]["id"] == 9
+
+
+def test_attachment_download_revalidates_ownership_and_uses_fixed_cache(tmp_path):
+    client = AttachmentDownloadStub()
+    settings = Settings.load({"ZENDESK_ATTACHMENT_CACHE_ROOT": str(tmp_path / "cache")})
+
+    result = TicketTools(client, settings).download_attachment(7, 5)
+
+    assert client.downloads == [("https://acme.zendesk.com/attachments/token/log", 20 * 1024 * 1024)]
+    assert result["data"]["attachment_id"] == 5
+    assert result["data"]["cache_path"].endswith("/5/attachment")
+    assert open(result["data"]["cache_path"], "rb").read() == b"hello world"
