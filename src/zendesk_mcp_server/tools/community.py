@@ -1,13 +1,17 @@
 """Read-only Zendesk Community tools."""
 from __future__ import annotations
 from typing import Protocol
+from ..approvals import ApprovalStore
+from ..config import Settings
 from ..contracts import ErrorCode, failure
+from ..contracts import success
+from ..write_policy import WriteRisk, check_write_permission
 
 class CommunityClient(Protocol):
     def get(self, path: str, *, params: dict[str, str] | None = None) -> dict[str, object]: ...
 
 class CommunityTools:
-    def __init__(self, client: CommunityClient | None) -> None: self._client = client
+    def __init__(self, client: CommunityClient | None, settings: Settings | None = None, approvals: ApprovalStore | None = None) -> None: self._client, self._settings, self._approvals = client, settings, approvals
     def list_posts(self) -> dict[str, object]: return self._get("/api/v2/community/posts.json")
     def search_posts(self, query: str) -> dict[str, object]:
         if not isinstance(query, str) or not query.strip(): return failure(ErrorCode.VALIDATION_ERROR, "query must be a non-empty string")
@@ -15,6 +19,17 @@ class CommunityTools:
     def get_post(self, post_id: int) -> dict[str, object]:
         if not isinstance(post_id, int) or isinstance(post_id, bool) or post_id < 1: return failure(ErrorCode.VALIDATION_ERROR, "post_id must be a positive integer")
         return self._get(f"/api/v2/community/posts/{post_id}.json")
+    def create_post(self, topic_id: int, title: str, details: str, *, execution_mode: str = "preview", approval_request_id: str | None = None, approval_token: str | None = None) -> dict[str, object]:
+        if not isinstance(topic_id, int) or topic_id < 1 or not isinstance(title, str) or not title.strip() or not isinstance(details, str) or not details.strip(): return failure(ErrorCode.VALIDATION_ERROR, "topic_id, title, and details are required")
+        payload = {"post": {"topic_id": topic_id, "title": title.strip(), "details": details.strip()}}
+        if execution_mode == "preview":
+            if self._approvals is None: return failure(ErrorCode.NOT_CONFIGURED, "Zendesk approval store is not configured")
+            return success({"approval_request_id": self._approvals.create("zendesk_create_community_post", payload), "execution_mode": "preview", "public": True, "outbound_write": False})
+        if execution_mode != "apply": return failure(ErrorCode.VALIDATION_ERROR, "execution_mode must be preview or apply")
+        if self._settings is None or (blocked := check_write_permission(self._settings, WriteRisk.PUBLIC)) is not None: return blocked or failure(ErrorCode.WRITE_DISABLED, "Zendesk public writes are disabled")
+        if self._approvals is None or not isinstance(approval_request_id, str) or not isinstance(approval_token, str) or not self._approvals.consume(approval_request_id, "zendesk_create_community_post", payload, approval_token): return failure(ErrorCode.APPROVAL_REQUIRED, "a matching local approval is required")
+        if self._client is None or not hasattr(self._client, "request"): return failure(ErrorCode.NOT_CONFIGURED, "Zendesk write client is not configured")
+        return self._client.request("POST", "/api/v2/community/posts.json", json_body=payload)
     def list_comments(self, post_id: int) -> dict[str, object]: return self._by_id("/api/v2/community/posts/{id}/comments.json", post_id, "post_id")
     def get_comment(self, comment_id: int) -> dict[str, object]: return self._by_id("/api/v2/community/comments/{id}.json", comment_id, "comment_id")
     def list_topics(self) -> dict[str, object]: return self._get("/api/v2/community/topics.json")

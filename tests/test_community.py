@@ -1,4 +1,6 @@
 from zendesk_mcp_server.contracts import success
+from zendesk_mcp_server.approvals import ApprovalStore
+from zendesk_mcp_server.config import Settings
 from zendesk_mcp_server.tools.community import CommunityTools
 
 
@@ -6,6 +8,9 @@ class StubClient:
     def __init__(self): self.paths = []
     def get(self, path, *, params=None):
         self.paths.append((path, params)); return success({"posts": [{"id": 2}]})
+
+    def request(self, method, path, *, json_body=None):
+        self.paths.append((method, path, json_body)); return success({"post": {"id": 2}})
 
 
 def test_community_post_reads_use_fixed_endpoints():
@@ -24,3 +29,12 @@ def test_subscription_and_content_tag_reads_use_official_endpoints():
     client = StubClient(); tools = CommunityTools(client)
     tools.list_post_subscriptions(2); tools.list_topic_subscriptions(4); tools.search_content_tags("bill"); tools.count_content_tags(); tools.get_content_tag("tag-1")
     assert client.paths == [("/api/v2/community/posts/2/subscriptions.json", None), ("/api/v2/community/topics/4/subscriptions.json", None), ("/api/v2/guide/content_tags.json", {"prefix": "bill"}), ("/api/v2/guide/content_tags/count.json", None), ("/api/v2/guide/content_tags/tag-1.json", None)]
+
+
+def test_community_post_create_requires_local_public_approval(tmp_path):
+    client = StubClient(); store = ApprovalStore(tmp_path / "approvals.json")
+    tools = CommunityTools(client, Settings.load({"ZENDESK_WRITE_MODE": "standard", "ZENDESK_ENABLE_PUBLIC_WRITES": "true"}), store)
+    preview = tools.create_post(4, "Title", "Body")
+    token = store.approve(preview["data"]["approval_request_id"])
+    result = tools.create_post(4, "Title", "Body", execution_mode="apply", approval_request_id=preview["data"]["approval_request_id"], approval_token=token)
+    assert result["data"]["post"]["id"] == 2
