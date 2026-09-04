@@ -151,6 +151,34 @@ def test_structured_ticket_filter_uses_the_same_serializer_for_search_count_and_
     ]
 
 
+def test_structured_ticket_filter_serializes_documented_ticket_ranges_and_custom_fields():
+    client = StubClient({"/api/v2/search.json": success({"results": [], "next_page": None})})
+
+    TicketTools(client).search_tickets({
+        "text": "billing outage",
+        "type": "incident",
+        "has_attachment": True,
+        "created": {"after": "2026-09-01T00:00:00Z", "before": "2026-09-02T00:00:00Z"},
+        "updated": {"after": "2026-09-01"},
+        "solved": {"before": "2026-09-03"},
+        "custom_fields": [{"id": 10, "value": "enterprise"}],
+    })
+
+    assert client.paths == [(
+        "/api/v2/search.json",
+        {"query": 'type:ticket "billing outage" type:incident has_attachment:true created>2026-09-01T00:00:00Z created<2026-09-02T00:00:00Z updated>2026-09-01 solved<2026-09-03 custom_field_10:enterprise', "page[size]": "100"},
+    )]
+
+
+def test_structured_ticket_filter_rejects_a_naive_datetime_without_a_request():
+    client = StubClient({})
+
+    result = TicketTools(client).search_tickets({"created": {"after": "2026-09-01T00:00:00"}})
+
+    assert result["error"]["code"] == "validation_error"
+    assert client.paths == []
+
+
 def test_structured_ticket_filter_resolves_an_exact_user_email_before_searching():
     client = StubClient({
         "/api/v2/users/search.json": success({"users": [{"id": 8, "email": "agent@example.test"}]}),

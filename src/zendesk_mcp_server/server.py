@@ -44,8 +44,15 @@ TICKET_QUERY_SCHEMA = {
     "oneOf": [
         {"type": "string", "minLength": 1},
         {"type": "object", "properties": {
+            "text": {"type": "string", "minLength": 1},
             "status": {"type": "string", "enum": ["new", "open", "pending", "hold", "solved", "closed"]},
             "priority": {"type": "string", "enum": ["low", "normal", "high", "urgent"]},
+            "type": {"type": "string", "enum": ["question", "incident", "problem", "task"]},
+            "has_attachment": {"type": "boolean"},
+            "created": {"type": "object", "properties": {"after": {"type": "string", "minLength": 10}, "before": {"type": "string", "minLength": 10}}, "additionalProperties": False},
+            "updated": {"type": "object", "properties": {"after": {"type": "string", "minLength": 10}, "before": {"type": "string", "minLength": 10}}, "additionalProperties": False},
+            "solved": {"type": "object", "properties": {"after": {"type": "string", "minLength": 10}, "before": {"type": "string", "minLength": 10}}, "additionalProperties": False},
+            "custom_fields": {"type": "array", "items": {"type": "object", "properties": {"id": {"type": "integer", "minimum": 1}, "value": {"oneOf": [{"type": "string", "minLength": 1}, {"type": "integer"}]}}, "required": ["id", "value"], "additionalProperties": False}},
             "tags": {"type": "object", "properties": {"include": {"type": "array", "items": {"type": "string"}}, "exclude": {"type": "array", "items": {"type": "string"}}}, "additionalProperties": False},
             "assignee": {"type": "object", "properties": {"kind": {"type": "string", "enum": ["me", "none", "id", "name", "email", "phone"]}, "value": {"oneOf": [{"type": "integer", "minimum": 1}, {"type": "string", "minLength": 1}]}}, "required": ["kind"], "additionalProperties": False},
             "requester": {"type": "object", "properties": {"kind": {"type": "string", "enum": ["me", "none", "id", "name", "email", "phone"]}, "value": {"oneOf": [{"type": "integer", "minimum": 1}, {"type": "string", "minLength": 1}]}}, "required": ["kind"], "additionalProperties": False},

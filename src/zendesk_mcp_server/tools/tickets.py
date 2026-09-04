@@ -676,13 +676,34 @@ def _ticket_query(query: object, *, include_type: bool = True) -> str | None:
     if isinstance(query, str):
         if not (cleaned := query.strip()): return None
         return f"type:ticket {cleaned}" if include_type else cleaned
-    if not isinstance(query, Mapping) or not set(query) <= {"status", "priority", "tags", "assignee", "requester", "organization", "brand", "group", "form"}: return None
+    if not isinstance(query, Mapping) or not set(query) <= {"text", "status", "priority", "type", "has_attachment", "created", "updated", "solved", "custom_fields", "tags", "assignee", "requester", "organization", "brand", "group", "form"}: return None
     fragments: list[str] = []
+    text = query.get("text")
+    if text is not None:
+        if not isinstance(text, str) or not text.strip(): return None
+        fragments.append(_query_phrase(text))
     for key, allowed in (("status", {"new", "open", "pending", "hold", "solved", "closed"}), ("priority", {"low", "normal", "high", "urgent"})):
         value = query.get(key)
         if value is not None:
             if not isinstance(value, str) or value not in allowed: return None
             fragments.append(f"{key}:{value}")
+    ticket_type = query.get("type")
+    if ticket_type is not None:
+        if not isinstance(ticket_type, str) or ticket_type not in {"question", "incident", "problem", "task"}: return None
+        fragments.append(f"type:{ticket_type}")
+    has_attachment = query.get("has_attachment")
+    if has_attachment is not None:
+        if not isinstance(has_attachment, bool): return None
+        fragments.append(f"has_attachment:{str(has_attachment).lower()}")
+    for field in ("created", "updated", "solved"):
+        if (range_fragment := _ticket_date_range(field, query.get(field))) is None and query.get(field) is not None: return None
+        if range_fragment is not None: fragments.extend(range_fragment)
+    custom_fields = query.get("custom_fields")
+    if custom_fields is not None:
+        if not isinstance(custom_fields, list) or not custom_fields: return None
+        for field in custom_fields:
+            if not isinstance(field, Mapping) or set(field) != {"id", "value"} or not _valid_ticket_id(field.get("id")) or not isinstance(field.get("value"), (str, int)) or isinstance(field.get("value"), bool) or (isinstance(field.get("value"), str) and not field["value"].strip()): return None
+            fragments.append(f"custom_field_{field['id']}:{_query_phrase(str(field['value']))}")
     tags = query.get("tags")
     if tags is not None:
         if not isinstance(tags, Mapping) or not set(tags) <= {"include", "exclude"}: return None
@@ -709,6 +730,30 @@ def _ticket_query(query: object, *, include_type: bool = True) -> str | None:
             fragments.append(f"{field}:{value['value']}")
     if not fragments: return None
     return " ".join((["type:ticket"] if include_type else []) + fragments)
+
+
+def _ticket_date_range(field: str, value: object) -> list[str] | None:
+    if not isinstance(value, Mapping) or not value or not set(value) <= {"after", "before"}: return None
+    fragments = []
+    for key, operator in (("after", ">"), ("before", "<")):
+        date = value.get(key)
+        if date is not None:
+            if not _valid_ticket_search_date(date): return None
+            fragments.append(f"{field}{operator}{date}")
+    return fragments or None
+
+
+def _valid_ticket_search_date(value: object) -> bool:
+    if not isinstance(value, str): return False
+    try:
+        if len(value) == 10: datetime.strptime(value, "%Y-%m-%d")
+        else: return datetime.fromisoformat(value.replace("Z", "+00:00")).tzinfo is not None
+    except ValueError: return False
+    return True
+
+
+def _query_phrase(value: str) -> str:
+    return f'"{value.strip().replace("\\\\", "\\\\\\\\").replace(chr(34), "\\\\\"")}"' if any(character.isspace() or character == '"' for character in value) else value.strip()
 
 
 def _ticket_user_reference(field: str, value: object) -> str | None:
