@@ -47,6 +47,16 @@ def build_tools() -> list[types.Tool]:
             inputSchema={"type": "object", "properties": {"limit": {"type": "integer", "minimum": 1, "maximum": 100}}},
         ),
         types.Tool(
+            name="zendesk_search_tickets",
+            description="Search Zendesk Support tickets without making changes.",
+            inputSchema={"type": "object", "properties": {"query": {"type": "string", "minLength": 1}, "limit": {"type": "integer", "minimum": 1, "maximum": 100}}, "required": ["query"]},
+        ),
+        types.Tool(
+            name="zendesk_count_tickets",
+            description="Count Zendesk Support tickets matching a search query without making changes.",
+            inputSchema={"type": "object", "properties": {"query": {"type": "string", "minLength": 1}}, "required": ["query"]},
+        ),
+        types.Tool(
             name="zendesk_get_ticket",
             description="Retrieve a Zendesk ticket by ID without making changes.",
             inputSchema={"type": "object", "properties": {"ticket_id": {"type": "integer", "minimum": 1}}, "required": ["ticket_id"]},
@@ -144,12 +154,25 @@ def create_server(environ: Mapping[str, str] | None = None) -> Server:
     ) -> list[types.TextContent]:
         if name == "zendesk_get_connection_status":
             result = build_connection_status(environment)
-        elif name in {"zendesk_list_tickets", "zendesk_get_ticket", "zendesk_get_ticket_conversation"}:
+        elif name in {
+            "zendesk_list_tickets",
+            "zendesk_search_tickets",
+            "zendesk_count_tickets",
+            "zendesk_get_ticket",
+            "zendesk_get_ticket_conversation",
+        }:
             tools = build_ticket_tools(environment)
             if isinstance(tools, dict):
                 result = tools
             elif name == "zendesk_list_tickets":
-                result = tools.list_tickets(int((arguments or {}).get("limit", 100)))
+                limit = (arguments or {}).get("limit", 100)
+                result = tools.list_tickets(limit) if isinstance(limit, int) and not isinstance(limit, bool) else failure(ErrorCode.VALIDATION_ERROR, "limit must be an integer")
+            elif name == "zendesk_search_tickets":
+                query = (arguments or {}).get("query")
+                limit = (arguments or {}).get("limit", 100)
+                result = tools.search_tickets(query, limit) if isinstance(limit, int) and not isinstance(limit, bool) else failure(ErrorCode.VALIDATION_ERROR, "limit must be an integer")
+            elif name == "zendesk_count_tickets":
+                result = tools.count_tickets((arguments or {}).get("query"))
             else:
                 ticket_id = (arguments or {}).get("ticket_id")
                 if not isinstance(ticket_id, int) or isinstance(ticket_id, bool):

@@ -16,8 +16,9 @@ The current pre-release exposes these safe tools:
 - `zendesk_get_connection_status` reports whether the server is configured. It
   never sends a network request and never returns an email address, token, or
   OAuth secret.
-- `zendesk_list_tickets`, `zendesk_get_ticket`, and
-  `zendesk_get_ticket_conversation` provide read-only Support access.
+- `zendesk_list_tickets`, `zendesk_search_tickets`, `zendesk_count_tickets`,
+  `zendesk_get_ticket`, and `zendesk_get_ticket_conversation` provide
+  read-only Support access. Search is always limited to ticket records.
 
 The server starts in `read_only` mode. Help Center, CSAT, attachment, and
 Community tools are intentionally not available until their corresponding

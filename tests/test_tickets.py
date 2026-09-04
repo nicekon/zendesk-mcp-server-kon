@@ -48,3 +48,26 @@ def test_conversation_marks_customer_text_untrusted():
     result = TicketTools(client).get_conversation(7)
 
     assert result["data"]["comments"][0]["untrusted_user_content"] is True
+
+
+def test_search_and_count_use_ticket_query():
+    client = StubClient(
+        {
+            "/api/v2/search.json": success({"results": [{"id": 2}], "next_page": None}),
+            "/api/v2/search/count.json": success({"count": {"value": 1, "refreshed_at": "now"}}),
+        }
+    )
+
+    assert TicketTools(client).search_tickets("status:open")["items"] == [{"id": 2}]
+    assert TicketTools(client).count_tickets("status:open")["data"]["count"] == 1
+    assert client.paths == [
+        ("/api/v2/search.json", {"query": "type:ticket status:open", "page[size]": "100"}),
+        ("/api/v2/search/count.json", {"query": "type:ticket status:open"}),
+    ]
+
+
+def test_search_rejects_blank_query_and_non_integer_limit_without_a_client():
+    tools = TicketTools(None)
+
+    assert tools.search_tickets("", 10)["error"]["code"] == "validation_error"
+    assert tools.search_tickets("status:open", True)["error"]["code"] == "validation_error"

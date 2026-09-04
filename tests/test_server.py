@@ -46,6 +46,8 @@ def test_support_read_tools_are_registered():
     assert [tool.name for tool in build_tools()] == [
         "zendesk_get_connection_status",
         "zendesk_list_tickets",
+        "zendesk_search_tickets",
+        "zendesk_count_tickets",
         "zendesk_get_ticket",
         "zendesk_get_ticket_conversation",
     ]
