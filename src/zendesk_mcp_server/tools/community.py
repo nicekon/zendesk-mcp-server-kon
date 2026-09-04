@@ -110,6 +110,22 @@ class CommunityTools:
         path = self._subscription_path(content_type, content_id, subscription_id)
         if path is None: return failure(ErrorCode.VALIDATION_ERROR, "valid content_type, content_id, and subscription_id are required")
         return self._approved_request("zendesk_delete_content_subscription", {"content_type": content_type, "content_id": content_id, "subscription_id": subscription_id}, "DELETE", path, None, WriteRisk.DESTRUCTIVE, execution_mode, approval_request_id, approval_token)
+    def list_user_subscriptions(self, user_id: int | str, direction: str = "followers") -> dict[str, object]:
+        path = self._user_subscription_path(user_id)
+        if path is None or direction not in {"followers", "followings"}: return failure(ErrorCode.VALIDATION_ERROR, "valid user_id and direction are required")
+        return self._get(path, {"type": direction})
+    def upsert_user_subscription(self, user_id: int | str, followed_id: int, *, include_comments: bool = False, execution_mode: str = "preview", approval_request_id: str | None = None, approval_token: str | None = None) -> dict[str, object]:
+        path = self._user_subscription_path(user_id)
+        if path is None or not self._valid_id(followed_id, "followed_id") or not isinstance(include_comments, bool): return failure(ErrorCode.VALIDATION_ERROR, "valid user subscription fields are required")
+        payload = {"user_id": user_id, "followed_id": followed_id, "include_comments": include_comments}
+        body = {"user_subscription": {"followed_id": followed_id, "include_comments": include_comments}}
+        risk: WriteRisk | tuple[WriteRisk, ...] = WriteRisk.PUBLIC if user_id == "me" else (WriteRisk.PUBLIC, WriteRisk.IMPERSONATION)
+        return self._approved_request("zendesk_upsert_user_subscription", payload, "POST", path, body, risk, execution_mode, approval_request_id, approval_token)
+    def delete_user_subscription(self, user_id: int | str, subscription_id: int, *, execution_mode: str = "preview", approval_request_id: str | None = None, approval_token: str | None = None) -> dict[str, object]:
+        path = self._user_subscription_path(user_id, subscription_id)
+        if path is None: return failure(ErrorCode.VALIDATION_ERROR, "valid user_id and subscription_id are required")
+        risk: WriteRisk | tuple[WriteRisk, ...] = WriteRisk.DESTRUCTIVE if user_id == "me" else (WriteRisk.DESTRUCTIVE, WriteRisk.IMPERSONATION)
+        return self._approved_request("zendesk_delete_user_subscription", {"user_id": user_id, "subscription_id": subscription_id}, "DELETE", path, None, risk, execution_mode, approval_request_id, approval_token)
     def search_content_tags(self, prefix: str) -> dict[str, object]:
         if not isinstance(prefix, str): return failure(ErrorCode.VALIDATION_ERROR, "prefix must be a string")
         return self._get("/api/v2/guide/content_tags.json", {"filter[name_prefix]": prefix})
@@ -144,6 +160,11 @@ class CommunityTools:
         if content_type not in {"post", "topic"} or not self._valid_id(content_id, "content_id") or (subscription_id is not None and not self._valid_id(subscription_id, "subscription_id")): return None
         path = f"/api/v2/community/{content_type}s/{content_id}/subscriptions"
         return f"{path}/{subscription_id}.json" if subscription_id is not None else f"{path}.json"
+    def _user_subscription_path(self, user_id: int | str, subscription_id: int | None = None) -> str | None:
+        if user_id != "me" and not self._valid_id(user_id, "user_id"): return None
+        if subscription_id is not None and not self._valid_id(subscription_id, "subscription_id"): return None
+        path = f"/api/v2/help_center/users/{user_id}/user_subscriptions"
+        return f"{path}/{subscription_id}.json" if subscription_id is not None else f"{path}.json"
     def _post_payload(self, post: dict[str, object]) -> dict[str, object] | None:
         if not isinstance(post, dict) or not post or set(post) - {"title", "details", "topic_id", "status", "closed", "featured", "pinned", "content_tag_ids"}: return None
         normalized = dict(post)
@@ -176,12 +197,15 @@ class CommunityTools:
     def _content_tag_payload(name: object) -> dict[str, object] | None:
         if not isinstance(name, str) or not name.strip(): return None
         return {"content_tag": {"name": name.strip()}}
-    def _approved_request(self, tool: str, approval_payload: dict[str, object], method: str, path: str, json_body: dict[str, object] | None, risk: WriteRisk, execution_mode: str, approval_request_id: str | None, approval_token: str | None) -> dict[str, object]:
+    def _approved_request(self, tool: str, approval_payload: dict[str, object], method: str, path: str, json_body: dict[str, object] | None, risk: WriteRisk | tuple[WriteRisk, ...], execution_mode: str, approval_request_id: str | None, approval_token: str | None) -> dict[str, object]:
+        risks = risk if isinstance(risk, tuple) else (risk,)
         if execution_mode == "preview":
             if self._approvals is None: return failure(ErrorCode.NOT_CONFIGURED, "Zendesk approval store is not configured")
-            return success({"approval_request_id": self._approvals.create(tool, approval_payload), "execution_mode": "preview", risk.value: True, "outbound_write": False})
+            return success({"approval_request_id": self._approvals.create(tool, approval_payload), "execution_mode": "preview", **{item.value: True for item in risks}, "outbound_write": False})
         if execution_mode != "apply": return failure(ErrorCode.VALIDATION_ERROR, "execution_mode must be preview or apply")
-        if self._settings is None or (blocked := check_write_permission(self._settings, risk)) is not None: return blocked or failure(ErrorCode.WRITE_DISABLED, f"Zendesk {risk.value} writes are disabled")
+        if self._settings is None: return failure(ErrorCode.WRITE_DISABLED, "Zendesk writes are disabled")
+        for item in risks:
+            if (blocked := check_write_permission(self._settings, item)) is not None: return blocked
         if self._approvals is None or not isinstance(approval_request_id, str) or not isinstance(approval_token, str) or not self._approvals.consume(approval_request_id, tool, approval_payload, approval_token): return failure(ErrorCode.APPROVAL_REQUIRED, "a matching local approval is required")
         if self._client is None: return failure(ErrorCode.NOT_CONFIGURED, "Zendesk write client is not configured")
         return self._client.request(method, path, json_body=json_body)

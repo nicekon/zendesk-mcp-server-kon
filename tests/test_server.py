@@ -116,4 +116,7 @@ def test_support_read_tools_are_registered():
         "zendesk_create_content_tag",
         "zendesk_update_content_tag",
         "zendesk_delete_content_tag",
+        "zendesk_list_user_subscriptions",
+        "zendesk_upsert_user_subscription",
+        "zendesk_delete_user_subscription",
     ]

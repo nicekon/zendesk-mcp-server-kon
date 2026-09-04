@@ -172,3 +172,32 @@ def test_content_tag_delete_requires_local_destructive_approval(tmp_path):
     token = store.approve(preview["data"]["approval_request_id"])
     tools.delete_content_tag("tag-1", execution_mode="apply", approval_request_id=preview["data"]["approval_request_id"], approval_token=token)
     assert client.paths[-1] == ("DELETE", "/api/v2/guide/content_tags/tag-1.json", None)
+
+
+def test_user_subscription_list_and_upsert_require_fixed_path_and_public_approval(tmp_path):
+    client = StubClient(); store = ApprovalStore(tmp_path / "approvals.json")
+    tools = CommunityTools(client, Settings.load({"ZENDESK_WRITE_MODE": "standard", "ZENDESK_ENABLE_PUBLIC_WRITES": "true"}), store)
+    tools.list_user_subscriptions("me", "followings")
+    preview = tools.upsert_user_subscription("me", 7, include_comments=False)
+    token = store.approve(preview["data"]["approval_request_id"])
+    tools.upsert_user_subscription("me", 7, include_comments=False, execution_mode="apply", approval_request_id=preview["data"]["approval_request_id"], approval_token=token)
+    assert client.paths[-2:] == [("/api/v2/help_center/users/me/user_subscriptions.json", {"type": "followings"}), ("POST", "/api/v2/help_center/users/me/user_subscriptions.json", {"user_subscription": {"followed_id": 7, "include_comments": False}})]
+
+
+def test_user_subscription_delete_requires_local_destructive_approval(tmp_path):
+    client = StubClient(); store = ApprovalStore(tmp_path / "approvals.json")
+    tools = CommunityTools(client, Settings.load({"ZENDESK_WRITE_MODE": "standard", "ZENDESK_ENABLE_DESTRUCTIVE_WRITES": "true"}), store)
+    preview = tools.delete_user_subscription("me", 5)
+    token = store.approve(preview["data"]["approval_request_id"])
+    tools.delete_user_subscription("me", 5, execution_mode="apply", approval_request_id=preview["data"]["approval_request_id"], approval_token=token)
+    assert client.paths[-1] == ("DELETE", "/api/v2/help_center/users/me/user_subscriptions/5.json", None)
+
+
+def test_other_user_subscription_requires_public_and_impersonation_gates(tmp_path):
+    client = StubClient(); store = ApprovalStore(tmp_path / "approvals.json")
+    tools = CommunityTools(client, Settings.load({"ZENDESK_WRITE_MODE": "standard", "ZENDESK_ENABLE_IMPERSONATION": "true"}), store)
+    preview = tools.upsert_user_subscription(6, 7)
+    token = store.approve(preview["data"]["approval_request_id"])
+    result = tools.upsert_user_subscription(6, 7, execution_mode="apply", approval_request_id=preview["data"]["approval_request_id"], approval_token=token)
+    assert result["error"]["code"] == "write_disabled"
+    assert client.paths == []
