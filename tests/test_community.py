@@ -28,7 +28,7 @@ def test_community_comment_topic_and_vote_reads_use_fixed_endpoints():
 def test_subscription_and_content_tag_reads_use_official_endpoints():
     client = StubClient(); tools = CommunityTools(client)
     tools.list_post_subscriptions(2); tools.list_topic_subscriptions(4); tools.search_content_tags("bill"); tools.count_content_tags(); tools.get_content_tag("tag-1")
-    assert client.paths == [("/api/v2/community/posts/2/subscriptions.json", None), ("/api/v2/community/topics/4/subscriptions.json", None), ("/api/v2/guide/content_tags.json", {"prefix": "bill"}), ("/api/v2/guide/content_tags/count.json", None), ("/api/v2/guide/content_tags/tag-1.json", None)]
+    assert client.paths == [("/api/v2/community/posts/2/subscriptions.json", None), ("/api/v2/community/topics/4/subscriptions.json", None), ("/api/v2/guide/content_tags.json", {"filter[name_prefix]": "bill"}), ("/api/v2/guide/content_tags/count.json", None), ("/api/v2/guide/content_tags/tag-1.json", None)]
 
 
 def test_community_post_create_requires_local_public_approval(tmp_path):
@@ -151,3 +151,24 @@ def test_community_topic_subscription_update_and_delete_require_approvals(tmp_pa
     token = store.approve(preview["data"]["approval_request_id"])
     delete_tools.delete_subscription("topic", 4, 5, execution_mode="apply", approval_request_id=preview["data"]["approval_request_id"], approval_token=token)
     assert client.paths[-2:] == [("PUT", "/api/v2/community/topics/4/subscriptions/5.json", {"subscription": {"include_comments": True}}), ("DELETE", "/api/v2/community/topics/4/subscriptions/5.json", None)]
+
+
+def test_content_tag_create_and_update_require_local_public_approval(tmp_path):
+    client = StubClient(); store = ApprovalStore(tmp_path / "approvals.json")
+    tools = CommunityTools(client, Settings.load({"ZENDESK_WRITE_MODE": "standard", "ZENDESK_ENABLE_PUBLIC_WRITES": "true"}), store)
+    create = tools.create_content_tag("feature request")
+    token = store.approve(create["data"]["approval_request_id"])
+    tools.create_content_tag("feature request", execution_mode="apply", approval_request_id=create["data"]["approval_request_id"], approval_token=token)
+    update = tools.update_content_tag("tag-1", "need help")
+    token = store.approve(update["data"]["approval_request_id"])
+    tools.update_content_tag("tag-1", "need help", execution_mode="apply", approval_request_id=update["data"]["approval_request_id"], approval_token=token)
+    assert client.paths[-2:] == [("POST", "/api/v2/guide/content_tags.json", {"content_tag": {"name": "feature request"}}), ("PUT", "/api/v2/guide/content_tags/tag-1.json", {"content_tag": {"name": "need help"}})]
+
+
+def test_content_tag_delete_requires_local_destructive_approval(tmp_path):
+    client = StubClient(); store = ApprovalStore(tmp_path / "approvals.json")
+    tools = CommunityTools(client, Settings.load({"ZENDESK_WRITE_MODE": "standard", "ZENDESK_ENABLE_DESTRUCTIVE_WRITES": "true"}), store)
+    preview = tools.delete_content_tag("tag-1")
+    token = store.approve(preview["data"]["approval_request_id"])
+    tools.delete_content_tag("tag-1", execution_mode="apply", approval_request_id=preview["data"]["approval_request_id"], approval_token=token)
+    assert client.paths[-1] == ("DELETE", "/api/v2/guide/content_tags/tag-1.json", None)

@@ -186,6 +186,9 @@ def build_tools() -> list[types.Tool]:
         types.Tool(name="zendesk_search_content_tags", description="Search Community content tags without making changes.", inputSchema={"type": "object", "properties": {"prefix": {"type": "string", "default": ""}}}),
         types.Tool(name="zendesk_count_content_tags", description="Count Community content tags without making changes.", inputSchema={"type": "object", "properties": {}}),
         types.Tool(name="zendesk_get_content_tag", description="Get a Community content tag without making changes.", inputSchema={"type": "object", "properties": {"tag_id": {"type": "string", "minLength": 1}}, "required": ["tag_id"]}),
+        types.Tool(name="zendesk_create_content_tag", description="Preview or create a Community content tag. Apply requires public-write gate and local approval.", inputSchema={"type": "object", "properties": {"name": {"type": "string", "minLength": 1}, "execution_mode": {"type": "string", "enum": ["preview", "apply"], "default": "preview"}, "approval_request_id": {"type": "string"}, "approval_token": {"type": "string"}}, "required": ["name"]}),
+        types.Tool(name="zendesk_update_content_tag", description="Preview or update a Community content tag. Apply requires public-write gate and local approval.", inputSchema={"type": "object", "properties": {"tag_id": {"type": "string", "minLength": 1}, "name": {"type": "string", "minLength": 1}, "execution_mode": {"type": "string", "enum": ["preview", "apply"], "default": "preview"}, "approval_request_id": {"type": "string"}, "approval_token": {"type": "string"}}, "required": ["tag_id", "name"]}),
+        types.Tool(name="zendesk_delete_content_tag", description="Preview or delete a Community content tag. Apply requires destructive-write gate and local approval.", inputSchema={"type": "object", "properties": {"tag_id": {"type": "string", "minLength": 1}, "execution_mode": {"type": "string", "enum": ["preview", "apply"], "default": "preview"}, "approval_request_id": {"type": "string"}, "approval_token": {"type": "string"}}, "required": ["tag_id"]}),
     ]
 
 
@@ -304,7 +307,7 @@ def create_server(environ: Mapping[str, str] | None = None) -> Server:
     ) -> list[types.TextContent]:
         if name == "zendesk_get_connection_status":
             result = build_connection_status(environment)
-        elif name in {"zendesk_list_community_posts", "zendesk_search_community_posts", "zendesk_get_community_post", "zendesk_create_community_post", "zendesk_update_community_post", "zendesk_delete_community_post", "zendesk_create_community_comment", "zendesk_update_community_comment", "zendesk_delete_community_comment", "zendesk_create_community_topic", "zendesk_update_community_topic", "zendesk_delete_community_topic", "zendesk_list_community_votes", "zendesk_get_community_vote", "zendesk_upvote_community_content", "zendesk_downvote_community_content", "zendesk_remove_community_vote", "zendesk_list_content_subscriptions", "zendesk_get_content_subscription", "zendesk_create_content_subscription", "zendesk_update_content_subscription", "zendesk_delete_content_subscription", "zendesk_list_community_comments", "zendesk_get_community_comment", "zendesk_list_community_topics", "zendesk_get_community_topic", "zendesk_search_content_tags", "zendesk_count_content_tags", "zendesk_get_content_tag"}:
+        elif name in {"zendesk_list_community_posts", "zendesk_search_community_posts", "zendesk_get_community_post", "zendesk_create_community_post", "zendesk_update_community_post", "zendesk_delete_community_post", "zendesk_create_community_comment", "zendesk_update_community_comment", "zendesk_delete_community_comment", "zendesk_create_community_topic", "zendesk_update_community_topic", "zendesk_delete_community_topic", "zendesk_list_community_votes", "zendesk_get_community_vote", "zendesk_upvote_community_content", "zendesk_downvote_community_content", "zendesk_remove_community_vote", "zendesk_list_content_subscriptions", "zendesk_get_content_subscription", "zendesk_create_content_subscription", "zendesk_update_content_subscription", "zendesk_delete_content_subscription", "zendesk_list_community_comments", "zendesk_get_community_comment", "zendesk_list_community_topics", "zendesk_get_community_topic", "zendesk_search_content_tags", "zendesk_count_content_tags", "zendesk_get_content_tag", "zendesk_create_content_tag", "zendesk_update_content_tag", "zendesk_delete_content_tag"}:
             tools = build_community_tools(environment)
             if isinstance(tools, dict): result = tools
             elif name == "zendesk_list_community_posts": result = tools.list_posts()
@@ -353,6 +356,12 @@ def create_server(environ: Mapping[str, str] | None = None) -> Server:
             elif name == "zendesk_search_content_tags": result = tools.search_content_tags((arguments or {}).get("prefix", ""))
             elif name == "zendesk_count_content_tags": result = tools.count_content_tags()
             elif name == "zendesk_get_content_tag": result = tools.get_content_tag((arguments or {}).get("tag_id"))
+            elif name == "zendesk_create_content_tag":
+                values = arguments or {}; result = tools.create_content_tag(values.get("name"), execution_mode=values.get("execution_mode", "preview"), approval_request_id=values.get("approval_request_id"), approval_token=values.get("approval_token"))
+            elif name == "zendesk_update_content_tag":
+                values = arguments or {}; result = tools.update_content_tag(values.get("tag_id"), values.get("name"), execution_mode=values.get("execution_mode", "preview"), approval_request_id=values.get("approval_request_id"), approval_token=values.get("approval_token"))
+            elif name == "zendesk_delete_content_tag":
+                values = arguments or {}; result = tools.delete_content_tag(values.get("tag_id"), execution_mode=values.get("execution_mode", "preview"), approval_request_id=values.get("approval_request_id"), approval_token=values.get("approval_token"))
             else: result = tools.get_post((arguments or {}).get("post_id"))
         elif name in {"zendesk_list_help_center_categories", "zendesk_list_help_center_sections", "zendesk_search_help_center_articles", "zendesk_get_help_center_article", "zendesk_get_satisfaction_ratings"}:
             tools = build_guide_tools(environment)

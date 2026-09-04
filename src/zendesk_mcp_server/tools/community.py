@@ -112,16 +112,29 @@ class CommunityTools:
         return self._approved_request("zendesk_delete_content_subscription", {"content_type": content_type, "content_id": content_id, "subscription_id": subscription_id}, "DELETE", path, None, WriteRisk.DESTRUCTIVE, execution_mode, approval_request_id, approval_token)
     def search_content_tags(self, prefix: str) -> dict[str, object]:
         if not isinstance(prefix, str): return failure(ErrorCode.VALIDATION_ERROR, "prefix must be a string")
-        return self._get("/api/v2/guide/content_tags.json", {"prefix": prefix})
+        return self._get("/api/v2/guide/content_tags.json", {"filter[name_prefix]": prefix})
     def count_content_tags(self) -> dict[str, object]: return self._get("/api/v2/guide/content_tags/count.json")
     def get_content_tag(self, tag_id: str) -> dict[str, object]:
-        if not isinstance(tag_id, str) or not tag_id.strip(): return failure(ErrorCode.VALIDATION_ERROR, "tag_id must be a non-empty string")
+        if not self._valid_tag_id(tag_id): return failure(ErrorCode.VALIDATION_ERROR, "tag_id must be a non-empty path-safe string")
         return self._get(f"/api/v2/guide/content_tags/{tag_id}.json")
+    def create_content_tag(self, name: str, *, execution_mode: str = "preview", approval_request_id: str | None = None, approval_token: str | None = None) -> dict[str, object]:
+        payload = self._content_tag_payload(name)
+        if payload is None: return failure(ErrorCode.VALIDATION_ERROR, "name must be a non-empty string")
+        return self._approved_request("zendesk_create_content_tag", payload, "POST", "/api/v2/guide/content_tags.json", payload, WriteRisk.PUBLIC, execution_mode, approval_request_id, approval_token)
+    def update_content_tag(self, tag_id: str, name: str, *, execution_mode: str = "preview", approval_request_id: str | None = None, approval_token: str | None = None) -> dict[str, object]:
+        payload = self._content_tag_payload(name)
+        if not self._valid_tag_id(tag_id) or payload is None: return failure(ErrorCode.VALIDATION_ERROR, "tag_id and name must be valid")
+        return self._approved_request("zendesk_update_content_tag", {"tag_id": tag_id, **payload}, "PUT", f"/api/v2/guide/content_tags/{tag_id}.json", payload, WriteRisk.PUBLIC, execution_mode, approval_request_id, approval_token)
+    def delete_content_tag(self, tag_id: str, *, execution_mode: str = "preview", approval_request_id: str | None = None, approval_token: str | None = None) -> dict[str, object]:
+        if not self._valid_tag_id(tag_id): return failure(ErrorCode.VALIDATION_ERROR, "tag_id must be a non-empty path-safe string")
+        return self._approved_request("zendesk_delete_content_tag", {"tag_id": tag_id}, "DELETE", f"/api/v2/guide/content_tags/{tag_id}.json", None, WriteRisk.DESTRUCTIVE, execution_mode, approval_request_id, approval_token)
     def _by_id(self, template: str, value: int, name: str) -> dict[str, object]:
         if not self._valid_id(value, name): return failure(ErrorCode.VALIDATION_ERROR, f"{name} must be a positive integer")
         return self._get(template.format(id=value))
     @staticmethod
     def _valid_id(value: object, name: str) -> bool: return isinstance(value, int) and not isinstance(value, bool) and value > 0
+    @staticmethod
+    def _valid_tag_id(value: object) -> bool: return isinstance(value, str) and bool(value.strip()) and "/" not in value
     def _vote_path(self, content_type: str, post_id: int, comment_id: int | None, direction: str) -> str | None:
         if direction not in {"up", "down"} or not self._valid_id(post_id, "post_id"): return None
         if content_type == "post" and comment_id is None: return f"/api/v2/help_center/posts/{post_id}/{direction}.json"
@@ -159,6 +172,10 @@ class CommunityTools:
         if "position" in normalized and (not isinstance(normalized["position"], int) or isinstance(normalized["position"], bool) or normalized["position"] < 0): return None
         if "user_segment_id" in normalized and not self._valid_id(normalized["user_segment_id"], "user_segment_id"): return None
         return {"topic": normalized}
+    @staticmethod
+    def _content_tag_payload(name: object) -> dict[str, object] | None:
+        if not isinstance(name, str) or not name.strip(): return None
+        return {"content_tag": {"name": name.strip()}}
     def _approved_request(self, tool: str, approval_payload: dict[str, object], method: str, path: str, json_body: dict[str, object] | None, risk: WriteRisk, execution_mode: str, approval_request_id: str | None, approval_token: str | None) -> dict[str, object]:
         if execution_mode == "preview":
             if self._approvals is None: return failure(ErrorCode.NOT_CONFIGURED, "Zendesk approval store is not configured")

@@ -113,4 +113,7 @@ def test_support_read_tools_are_registered():
         "zendesk_search_content_tags",
         "zendesk_count_content_tags",
         "zendesk_get_content_tag",
+        "zendesk_create_content_tag",
+        "zendesk_update_content_tag",
+        "zendesk_delete_content_tag",
     ]
