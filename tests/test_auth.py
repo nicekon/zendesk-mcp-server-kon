@@ -66,3 +66,26 @@ def test_refresh_and_store_rotates_the_token_file(tmp_path: Path):
     store.save(OAuthTokens("old", "refresh", 1))
     assert refresh_and_store_oauth_tokens(store, lambda _: {"access_token": "new", "refresh_token": "rotated", "expires_in": 100}, "id", "secret", now=1).access_token == "new"
     assert store.load().refresh_token == "rotated"
+
+
+def test_build_authorization_refreshes_expired_oauth_tokens(tmp_path: Path):
+    from zendesk_mcp_server.auth import build_authorization
+    from zendesk_mcp_server.config import Settings
+
+    path = tmp_path / "oauth.json"; OAuthTokenStore(path).save(OAuthTokens("old", "refresh", 1))
+    settings = Settings.load({"ZENDESK_SUBDOMAIN": "acme", "ZENDESK_AUTH_MODE": "oauth", "ZENDESK_OAUTH_CLIENT_ID": "id", "ZENDESK_OAUTH_CLIENT_SECRET": "secret", "ZENDESK_OAUTH_TOKEN_STORE": str(path)})
+    authorization = build_authorization(settings, oauth_requester=lambda payload: {"access_token": "new", "refresh_token": "rotated", "expires_in": 300}, now=100)
+
+    assert authorization.headers() == {"Authorization": "Bearer new"}
+    assert OAuthTokenStore(path).load().refresh_token == "rotated"
+
+
+def test_build_authorization_keeps_unexpired_oauth_token(tmp_path: Path):
+    from zendesk_mcp_server.auth import build_authorization
+    from zendesk_mcp_server.config import Settings
+
+    path = tmp_path / "oauth.json"; OAuthTokenStore(path).save(OAuthTokens("current", "refresh", 1000))
+    settings = Settings.load({"ZENDESK_SUBDOMAIN": "acme", "ZENDESK_AUTH_MODE": "oauth", "ZENDESK_OAUTH_CLIENT_ID": "id", "ZENDESK_OAUTH_CLIENT_SECRET": "secret", "ZENDESK_OAUTH_TOKEN_STORE": str(path)})
+    authorization = build_authorization(settings, oauth_requester=lambda _: pytest.fail("unexpected refresh"), now=100)
+
+    assert authorization.headers() == {"Authorization": "Bearer current"}

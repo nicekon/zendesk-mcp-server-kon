@@ -7,10 +7,13 @@ import json
 import os
 import stat
 import tempfile
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Protocol
 from collections.abc import Callable
+
+import httpx
 
 from .config import AuthMode, ConfigurationError, Settings
 
@@ -49,10 +52,12 @@ class OAuthAuthorization:
         return {"Authorization": f"Bearer {self.access_token}"}
 
 
-def oauth_tokens_from_refresh_response(value: object, *, now: int) -> OAuthTokens:
-    if not isinstance(value, dict) or not isinstance(value.get("access_token"), str) or not isinstance(value.get("refresh_token"), str) or not isinstance(value.get("expires_in"), int) or value["expires_in"] <= 0:
+def oauth_tokens_from_refresh_response(value: object, *, now: int, previous_refresh_token: str | None = None) -> OAuthTokens:
+    if not isinstance(value, dict) or not isinstance(value.get("access_token"), str) or not isinstance(value.get("expires_in"), int) or value["expires_in"] <= 0:
         raise ConfigurationError("invalid_oauth_refresh", "OAuth refresh response is invalid")
-    return OAuthTokens(value["access_token"], value["refresh_token"], now + value["expires_in"])
+    refresh_token = value.get("refresh_token", previous_refresh_token)
+    if not isinstance(refresh_token, str): raise ConfigurationError("invalid_oauth_refresh", "OAuth refresh response is invalid")
+    return OAuthTokens(value["access_token"], refresh_token, now + value["expires_in"])
 
 
 def oauth_refresh_payload(client_id: str, client_secret: str, refresh_token: str) -> dict[str, str]:
@@ -60,7 +65,7 @@ def oauth_refresh_payload(client_id: str, client_secret: str, refresh_token: str
 
 
 def refresh_oauth_tokens(request: Callable[[dict[str, str]], object], client_id: str, client_secret: str, refresh_token: str, *, now: int) -> OAuthTokens:
-    return oauth_tokens_from_refresh_response(request(oauth_refresh_payload(client_id, client_secret, refresh_token)), now=now)
+    return oauth_tokens_from_refresh_response(request(oauth_refresh_payload(client_id, client_secret, refresh_token)), now=now, previous_refresh_token=refresh_token)
 
 
 def refresh_and_store_oauth_tokens(store: OAuthTokenStore, request: Callable[[dict[str, str]], object], client_id: str, client_secret: str, *, now: int) -> OAuthTokens:
@@ -127,12 +132,28 @@ class OAuthTokenStore:
             )
 
 
-def build_authorization(settings: Settings) -> AuthorizationProvider | None:
+def build_authorization(settings: Settings, *, oauth_requester: Callable[[dict[str, str]], object] | None = None, now: int | None = None) -> AuthorizationProvider | None:
     if settings.auth_mode is None:
         return None
     if settings.auth_mode is AuthMode.API_TOKEN:
         return ApiTokenAuthorization(email=settings.email or "", token=settings.api_token or "")
     if settings.oauth is None:
         raise ConfigurationError("missing_oauth", "OAuth configuration is missing")
-    tokens = OAuthTokenStore(settings.oauth.token_store_path).load()
+    store = OAuthTokenStore(settings.oauth.token_store_path)
+    tokens = store.load()
+    current_time = int(time.time()) if now is None else now
+    if tokens.is_expired(now=current_time):
+        requester = oauth_requester or _oauth_refresh_requester(settings.subdomain or "")
+        tokens = refresh_and_store_oauth_tokens(store, requester, settings.oauth.client_id, settings.oauth.client_secret, now=current_time)
     return OAuthAuthorization(tokens.access_token)
+
+
+def _oauth_refresh_requester(subdomain: str) -> Callable[[dict[str, str]], object]:
+    def request(payload: dict[str, str]) -> object:
+        try:
+            response = httpx.post(f"https://{subdomain}.zendesk.com/oauth/tokens", json=payload, timeout=httpx.Timeout(connect=5.0, read=30.0, write=30.0, pool=5.0))
+            response.raise_for_status()
+            return response.json()
+        except (httpx.HTTPError, ValueError) as error:
+            raise ConfigurationError("oauth_refresh_failed", "OAuth token refresh failed") from error
+    return request
