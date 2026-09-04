@@ -142,6 +142,11 @@ def build_tools() -> list[types.Tool]:
         types.Tool(name="zendesk_list_ticket_fields", description="List Zendesk ticket fields without making changes.", inputSchema={"type": "object", "properties": {}}),
         types.Tool(name="zendesk_list_ticket_forms", description="List Zendesk ticket forms without making changes.", inputSchema={"type": "object", "properties": {}}),
         types.Tool(name="zendesk_list_custom_statuses", description="List Zendesk custom statuses without making changes.", inputSchema={"type": "object", "properties": {}}),
+        types.Tool(name="zendesk_list_views", description="List Zendesk views without making changes.", inputSchema={"type": "object", "properties": {}}),
+        types.Tool(name="zendesk_get_view", description="Get a Zendesk view without making changes.", inputSchema={"type": "object", "properties": {"view_id": {"type": "integer", "minimum": 1}}, "required": ["view_id"]}),
+        types.Tool(name="zendesk_list_view_tickets", description="List tickets currently matching a Zendesk view without making changes.", inputSchema={"type": "object", "properties": {"view_id": {"type": "integer", "minimum": 1}}, "required": ["view_id"]}),
+        types.Tool(name="zendesk_list_macros", description="List Zendesk macros without making changes.", inputSchema={"type": "object", "properties": {}}),
+        types.Tool(name="zendesk_list_triggers", description="List Zendesk triggers without making changes.", inputSchema={"type": "object", "properties": {}}),
     ]
 
 
@@ -241,7 +246,7 @@ def create_server(environ: Mapping[str, str] | None = None) -> Server:
     ) -> list[types.TextContent]:
         if name == "zendesk_get_connection_status":
             result = build_connection_status(environment)
-        elif name in {"zendesk_search_users", "zendesk_list_groups", "zendesk_list_group_users", "zendesk_get_organization", "zendesk_list_brands", "zendesk_list_ticket_fields", "zendesk_list_ticket_forms", "zendesk_list_custom_statuses"}:
+        elif name in {"zendesk_search_users", "zendesk_list_groups", "zendesk_list_group_users", "zendesk_get_organization", "zendesk_list_brands", "zendesk_list_ticket_fields", "zendesk_list_ticket_forms", "zendesk_list_custom_statuses", "zendesk_list_views", "zendesk_get_view", "zendesk_list_view_tickets", "zendesk_list_macros", "zendesk_list_triggers"}:
             tools = build_metadata_tools(environment)
             if isinstance(tools, dict):
                 result = tools
@@ -252,7 +257,12 @@ def create_server(environ: Mapping[str, str] | None = None) -> Server:
             elif name == "zendesk_list_brands": result = tools.list_brands()
             elif name == "zendesk_list_ticket_fields": result = tools.list_ticket_fields()
             elif name == "zendesk_list_ticket_forms": result = tools.list_ticket_forms()
-            else: result = tools.list_custom_statuses()
+            elif name == "zendesk_list_custom_statuses": result = tools.list_custom_statuses()
+            elif name == "zendesk_list_views": result = tools.list_views()
+            elif name == "zendesk_get_view": result = tools.get_view((arguments or {}).get("view_id"))
+            elif name == "zendesk_list_view_tickets": result = tools.list_view_tickets((arguments or {}).get("view_id"))
+            elif name == "zendesk_list_macros": result = tools.list_macros()
+            else: result = tools.list_triggers()
         elif name in {
             "zendesk_list_tickets",
             "zendesk_search_tickets",

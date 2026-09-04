@@ -71,4 +71,9 @@ def test_support_read_tools_are_registered():
         "zendesk_list_ticket_fields",
         "zendesk_list_ticket_forms",
         "zendesk_list_custom_statuses",
+        "zendesk_list_views",
+        "zendesk_get_view",
+        "zendesk_list_view_tickets",
+        "zendesk_list_macros",
+        "zendesk_list_triggers",
     ]
