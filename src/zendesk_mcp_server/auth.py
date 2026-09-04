@@ -36,6 +36,9 @@ class OAuthTokens:
     refresh_token: str = field(repr=False)
     expires_at: int
 
+    def is_expired(self, *, now: int) -> bool:
+        return self.expires_at <= now + 60
+
 
 @dataclass(frozen=True)
 class OAuthAuthorization:

@@ -36,3 +36,8 @@ def test_api_token_header_uses_basic_auth_not_a_bearer_token():
     header = provider.headers()["Authorization"]
     assert header.startswith("Basic ")
     assert "token" not in header
+
+
+def test_oauth_tokens_expire_with_a_safety_margin():
+    assert OAuthTokens("access", "refresh", 1059).is_expired(now=1000) is True
+    assert OAuthTokens("access", "refresh", 1061).is_expired(now=1000) is False
