@@ -204,6 +204,7 @@ def test_custom_object_projection_requires_its_capability():
 def test_custom_object_projection_validates_its_keys():
     result = TicketTools(None).search_tickets("status:open", projection={"unknown": []})
     assert result["error"]["code"] == "validation_error"
+    assert TicketTools(None).search_tickets("status:open", projection={"include_custom_objects": []})["error"]["code"] == "validation_error"
 
 
 def test_ticket_export_uses_dedicated_export_type_filter():

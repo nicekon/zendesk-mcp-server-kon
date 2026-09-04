@@ -194,7 +194,7 @@ class TicketTools:
         )
 
     def search_tickets(self, query: object, limit: int = 100, *, projection: Mapping[str, object] | None = None) -> dict[str, object]:
-        if projection is not None and (set(projection) != {"include_custom_objects"} or not isinstance(projection.get("include_custom_objects"), list) or not all(isinstance(value, str) and value for value in projection["include_custom_objects"])):
+        if projection is not None and (set(projection) != {"include_custom_objects"} or not isinstance(projection.get("include_custom_objects"), list) or not projection["include_custom_objects"] or not all(isinstance(value, str) and value for value in projection["include_custom_objects"])):
             return failure(ErrorCode.VALIDATION_ERROR, "projection must contain include_custom_objects string array")
         if projection is not None and (self._settings is None or not self._settings.has_capability("custom_objects")):
             return failure(ErrorCode.UNSUPPORTED, "custom object projection is not enabled")
