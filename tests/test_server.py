@@ -163,3 +163,14 @@ def test_community_vote_tool_accepts_post_or_user_cursor_pagination():
         },
         "anyOf": [{"required": ["post_id"]}, {"required": ["user_id"]}],
     }
+
+
+def test_community_post_comment_and_topic_lists_expose_cursor_controls():
+    from zendesk_mcp_server.server import build_tools
+
+    tools = {tool.name: tool for tool in build_tools()}
+
+    for name in ("zendesk_list_community_posts", "zendesk_list_community_comments", "zendesk_list_community_topics"):
+        properties = tools[name].inputSchema["properties"]
+        assert properties["cursor"] == {"type": "string", "minLength": 1}
+        assert properties["limit"] == {"type": "integer", "minimum": 1, "maximum": 100, "default": 100}

@@ -59,11 +59,12 @@ class CommunityClient(Protocol):
 
 class CommunityTools:
     def __init__(self, client: CommunityClient | None, settings: Settings | None = None, approvals: ApprovalStore | None = None) -> None: self._client, self._settings, self._approvals = client, settings, approvals
-    def list_posts(self, *, topic_id: int | None = None, user_id: int | str | None = None, status: str | None = None, sort_by: str | None = None) -> dict[str, object]:
-        if (topic_id is not None and user_id is not None) or (topic_id is not None and not self._valid_id(topic_id, "topic_id")) or (user_id is not None and user_id != "me" and not self._valid_id(user_id, "user_id")) or (status is not None and status not in {"planned", "not_planned", "completed", "answered", "none"}) or (sort_by is not None and sort_by not in {"created_at", "edited_at", "updated_at", "recent_activity", "votes", "comments"}): return failure(ErrorCode.VALIDATION_ERROR, "valid post scope, status, and sort_by are required")
+    def list_posts(self, *, topic_id: int | None = None, user_id: int | str | None = None, status: str | None = None, sort_by: str | None = None, cursor: str | None = None, limit: int = 100) -> dict[str, object]:
+        if (topic_id is not None and user_id is not None) or (topic_id is not None and not self._valid_id(topic_id, "topic_id")) or (user_id is not None and user_id != "me" and not self._valid_id(user_id, "user_id")) or (status is not None and status not in {"planned", "not_planned", "completed", "answered", "none"}) or (sort_by is not None and sort_by not in {"created_at", "edited_at", "updated_at", "recent_activity", "votes", "comments"}) or not isinstance(limit, int) or isinstance(limit, bool) or not 1 <= limit <= 100 or (cursor is not None and (not isinstance(cursor, str) or not cursor)): return failure(ErrorCode.VALIDATION_ERROR, "valid post scope, filters, cursor, and limit are required")
         path = f"/api/v2/community/topics/{topic_id}/posts.json" if topic_id is not None else f"/api/v2/community/users/{user_id}/posts.json" if user_id is not None else "/api/v2/community/posts.json"
-        params = {name: value for name, value in {"filter_by": status, "sort_by": sort_by}.items() if value is not None}
-        return self._get(path, params or None)
+        params = {name: value for name, value in {"filter_by": status, "sort_by": sort_by}.items() if value is not None}; params["page[size]"] = str(limit)
+        if cursor is not None: params["page[after]"] = cursor
+        return self._cursor_page(path, params, "posts")
     def search_posts(self, query: str) -> dict[str, object]:
         if not isinstance(query, str) or not query.strip(): return failure(ErrorCode.VALIDATION_ERROR, "query must be a non-empty string")
         return self._get("/api/v2/community/posts/search.json", {"query": query.strip()})
@@ -120,13 +121,18 @@ class CommunityTools:
     def delete_topic(self, topic_id: int, *, execution_mode: str = "preview", approval_request_id: str | None = None, approval_token: str | None = None) -> dict[str, object]:
         if not self._valid_id(topic_id, "topic_id"): return failure(ErrorCode.VALIDATION_ERROR, "topic_id must be a positive integer")
         return self._approved_request("zendesk_delete_community_topic", {"topic_id": topic_id}, "DELETE", f"/api/v2/community/topics/{topic_id}.json", None, WriteRisk.DESTRUCTIVE, execution_mode, approval_request_id, approval_token)
-    def list_comments(self, post_id: int | None = None, *, user_id: int | str | None = None) -> dict[str, object]:
-        if (post_id is None) == (user_id is None): return failure(ErrorCode.VALIDATION_ERROR, "exactly one of post_id or user_id is required")
-        if post_id is not None: return self._by_id("/api/v2/community/posts/{id}/comments.json", post_id, "post_id")
-        if user_id != "me" and not self._valid_id(user_id, "user_id"): return failure(ErrorCode.VALIDATION_ERROR, "user_id must be a positive integer or me")
-        return self._get(f"/api/v2/community/users/{user_id}/comments.json")
+    def list_comments(self, post_id: int | None = None, *, user_id: int | str | None = None, cursor: str | None = None, limit: int = 100) -> dict[str, object]:
+        if (post_id is None) == (user_id is None) or (post_id is not None and not self._valid_id(post_id, "post_id")) or (user_id is not None and user_id != "me" and not self._valid_id(user_id, "user_id")) or not isinstance(limit, int) or isinstance(limit, bool) or not 1 <= limit <= 100 or (cursor is not None and (not isinstance(cursor, str) or not cursor)): return failure(ErrorCode.VALIDATION_ERROR, "exactly one valid post_id or user_id, cursor, and limit are required")
+        path = f"/api/v2/community/posts/{post_id}/comments.json" if post_id is not None else f"/api/v2/community/users/{user_id}/comments.json"
+        params = {"page[size]": str(limit)}
+        if cursor is not None: params["page[after]"] = cursor
+        return self._cursor_page(path, params, "comments")
     def get_comment(self, comment_id: int) -> dict[str, object]: return self._by_id("/api/v2/community/comments/{id}.json", comment_id, "comment_id")
-    def list_topics(self) -> dict[str, object]: return self._get("/api/v2/community/topics.json")
+    def list_topics(self, *, cursor: str | None = None, limit: int = 100) -> dict[str, object]:
+        if not isinstance(limit, int) or isinstance(limit, bool) or not 1 <= limit <= 100 or (cursor is not None and (not isinstance(cursor, str) or not cursor)): return failure(ErrorCode.VALIDATION_ERROR, "valid cursor and limit are required")
+        params = {"page[size]": str(limit)}
+        if cursor is not None: params["page[after]"] = cursor
+        return self._cursor_page("/api/v2/community/topics.json", params, "topics")
     def get_topic(self, topic_id: int) -> dict[str, object]: return self._by_id("/api/v2/community/topics/{id}.json", topic_id, "topic_id")
     def list_votes(self, post_id: int | None = None, *, user_id: int | str | None = None, cursor: str | None = None, limit: int = 100) -> dict[str, object]:
         if (post_id is None) == (user_id is None) or (post_id is not None and not self._valid_id(post_id, "post_id")) or (user_id is not None and user_id != "me" and not self._valid_id(user_id, "user_id")) or not isinstance(limit, int) or isinstance(limit, bool) or not 1 <= limit <= 100:

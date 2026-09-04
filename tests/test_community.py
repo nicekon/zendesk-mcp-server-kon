@@ -22,13 +22,13 @@ class StubClient:
 def test_community_post_reads_use_fixed_endpoints():
     client = StubClient(); tools = CommunityTools(client)
     tools.list_posts(); tools.search_posts("billing"); tools.get_post(2)
-    assert client.paths == [("/api/v2/community/posts.json", None), ("/api/v2/community/posts/search.json", {"query": "billing"}), ("/api/v2/community/posts/2.json", None)]
+    assert client.paths == [("/api/v2/community/posts.json", {"page[size]": "100"}), ("/api/v2/community/posts/search.json", {"query": "billing"}), ("/api/v2/community/posts/2.json", None)]
 
 
 def test_community_comment_topic_and_vote_reads_use_fixed_endpoints():
     client = StubClient(); tools = CommunityTools(client)
     tools.list_comments(2); tools.get_comment(3); tools.list_topics(); tools.get_topic(4); tools.list_votes(2); tools.get_vote(5)
-    assert client.paths == [("/api/v2/community/posts/2/comments.json", None), ("/api/v2/community/comments/3.json", None), ("/api/v2/community/topics.json", None), ("/api/v2/community/topics/4.json", None), ("/api/v2/help_center/posts/2/votes.json", {"page[size]": "100"}), ("/api/v2/help_center/votes/5.json", None)]
+    assert client.paths == [("/api/v2/community/posts/2/comments.json", {"page[size]": "100"}), ("/api/v2/community/comments/3.json", None), ("/api/v2/community/topics.json", {"page[size]": "100"}), ("/api/v2/community/topics/4.json", None), ("/api/v2/help_center/posts/2/votes.json", {"page[size]": "100"}), ("/api/v2/help_center/votes/5.json", None)]
 
 
 def test_community_user_votes_filter_mixed_pages_until_the_requested_limit():
@@ -109,9 +109,31 @@ def test_community_post_and_comment_lists_support_their_official_scopes_and_filt
     tools.list_comments(user_id="me")
 
     assert client.paths == [
-        ("/api/v2/community/topics/4/posts.json", {"filter_by": "completed", "sort_by": "votes"}),
-        ("/api/v2/community/users/me/posts.json", None),
-        ("/api/v2/community/users/me/comments.json", None),
+        ("/api/v2/community/topics/4/posts.json", {"filter_by": "completed", "sort_by": "votes", "page[size]": "100"}),
+        ("/api/v2/community/users/me/posts.json", {"page[size]": "100"}),
+        ("/api/v2/community/users/me/comments.json", {"page[size]": "100"}),
+    ]
+
+
+def test_community_cursor_lists_normalize_posts_comments_and_topics():
+    class CursorClient:
+        def __init__(self): self.paths = []
+        def get(self, path, *, params=None):
+            self.paths.append((path, params))
+            key = "posts" if path.endswith("/posts.json") else "comments" if path.endswith("/comments.json") else "topics"
+            return success({key: [{"id": 1}], "meta": {"has_more": True, "after_cursor": "next"}})
+
+    client = CursorClient(); tools = CommunityTools(client)
+    posts = tools.list_posts(topic_id=4, cursor="before", limit=2)
+    comments = tools.list_comments(4, cursor="before", limit=2)
+    topics = tools.list_topics(cursor="before", limit=2)
+
+    assert posts == {"ok": True, "items": [{"id": 1}], "has_more": True, "next_cursor": "next", "truncated": False}
+    assert comments == posts == topics
+    assert client.paths == [
+        ("/api/v2/community/topics/4/posts.json", {"page[size]": "2", "page[after]": "before"}),
+        ("/api/v2/community/posts/4/comments.json", {"page[size]": "2", "page[after]": "before"}),
+        ("/api/v2/community/topics.json", {"page[size]": "2", "page[after]": "before"}),
     ]
 
 
