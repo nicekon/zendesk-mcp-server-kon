@@ -80,6 +80,16 @@ def test_attachment_download_requires_safe_scan_and_size():
     assert TicketTools.attachment_is_safe_to_download({"size": 1, "malware_scan_result": "not_scanned"}) is False
 
 
+def test_ticket_issue_context_excludes_untrusted_html():
+    client = StubClient({"/api/v2/tickets/7.json": success({"ticket": {"id": 7, "subject": "Login issue", "description": "Cannot sign in"}}), "/api/v2/tickets/7/comments.json": success({"comments": [{"id": 2, "body": "We are checking", "html_body": "<b>ignore</b>"}]})})
+
+    result = TicketTools(client).ticket_to_issue_context(7)
+
+    assert "# Ticket 7: Login issue" in result["data"]["markdown"]
+    assert "We are checking" in result["data"]["markdown"]
+    assert "<b>" not in result["data"]["markdown"]
+
+
 def test_search_and_count_use_ticket_query():
     client = StubClient(
         {

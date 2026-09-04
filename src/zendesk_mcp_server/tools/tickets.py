@@ -100,6 +100,26 @@ class TicketTools:
                     attachments.append({**attachment, "ticket_id": ticket_id, "comment_id": comment.get("id"), "untrusted_user_content": True})
         return success({"attachments": attachments})
 
+    def ticket_to_issue_context(self, ticket_id: int) -> dict[str, object]:
+        ticket = self.get_ticket(ticket_id)
+        conversation = self.get_conversation(ticket_id)
+        if not ticket.get("ok"):
+            return ticket
+        if not conversation.get("ok"):
+            return conversation
+        ticket_data = ticket.get("data", {})
+        item = ticket_data.get("ticket") if isinstance(ticket_data, dict) else None
+        comments_data = conversation.get("data", {})
+        comments = comments_data.get("comments", []) if isinstance(comments_data, dict) else []
+        if not isinstance(item, dict) or not isinstance(comments, list):
+            return failure(ErrorCode.UPSTREAM_ERROR, "Zendesk returned invalid ticket context")
+        subject = item.get("subject") if isinstance(item.get("subject"), str) else "Untitled"
+        description = item.get("description") if isinstance(item.get("description"), str) else ""
+        lines = [f"# Ticket {ticket_id}: {subject}", "", description]
+        for comment in comments:
+            if isinstance(comment, dict) and isinstance(comment.get("body"), str): lines.extend(["", f"- {comment['body']}"])
+        return success({"markdown": "\n".join(lines).strip()})
+
     @staticmethod
     def attachment_is_safe_to_download(attachment: dict[str, object]) -> bool:
         return (
