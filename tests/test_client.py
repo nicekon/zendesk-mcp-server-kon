@@ -95,14 +95,19 @@ def test_client_rejects_an_absolute_or_foreign_path(settings, authorization):
 
 
 def test_client_can_scope_a_read_to_a_validated_brand_subdomain(settings, authorization):
+    methods = []
+
     def handler(request: httpx.Request) -> httpx.Response:
+        methods.append(request.method)
         assert str(request.url) == "https://brand-one.zendesk.com/api/v2/help_center/locales.json"
         return httpx.Response(200, json={"locales": ["en-us"]}, request=request)
 
     client = ZendeskClient(settings, authorization, transport=httpx.MockTransport(handler))
 
     assert client.get_for_subdomain("brand-one", "/api/v2/help_center/locales.json")["ok"] is True
+    assert client.request_for_subdomain("brand-one", "POST", "/api/v2/help_center/locales.json", json_body={})["ok"] is True
     assert client.get_for_subdomain("not/a-host", "/api/v2/help_center/locales.json")["error"]["code"] == "validation_error"
+    assert methods == ["GET", "POST"]
 
 
 class RefreshingAuthorization:

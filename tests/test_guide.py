@@ -165,6 +165,27 @@ def test_article_create_rejects_publishing_before_any_request(tmp_path):
     assert client.paths == []
 
 
+def test_article_create_binds_brand_to_approval_and_uses_its_subdomain(tmp_path):
+    class BrandClient:
+        def __init__(self): self.paths = []
+        def get(self, path, *, params=None):
+            self.paths.append((path, params))
+            return success({"brand": {"subdomain": "brand-one", "has_help_center": True}})
+        def get_for_subdomain(self, subdomain, path, *, params=None):
+            self.paths.append((subdomain, path, params)); return success({"locales": ["en-us"]})
+        def request_for_subdomain(self, subdomain, method, path, *, json_body=None):
+            self.paths.append((subdomain, method, path, json_body)); return success({"article": {"id": "guide-1"}})
+
+    client = BrandClient(); store = ApprovalStore(tmp_path / "approvals.json")
+    tools = GuideTools(client, Settings.load({"ZENDESK_WRITE_MODE": "standard"}), store)
+    preview = tools.create_article(3, "en-us", "Title", "Body", brand_id=7)
+    token = store.approve(preview["data"]["approval_request_id"])
+    result = tools.create_article(3, "en-us", "Title", "Body", brand_id=7, execution_mode="apply", approval_request_id=preview["data"]["approval_request_id"], approval_token=token)
+
+    assert result["data"]["article"]["id"] == "guide-1"
+    assert client.paths[-1] == ("brand-one", "POST", "/api/v2/help_center/sections/3/articles.json", {"article": {"title": "Title", "body": "Body", "locale": "en-us", "draft": True}, "notify_subscribers": False})
+
+
 class TranslationClient(StubClient):
     def __init__(self, existing): super().__init__(); self.existing, self.published = existing, False
     def get(self, path, *, params=None):

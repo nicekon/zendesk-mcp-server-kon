@@ -21,6 +21,7 @@ class GuideClient(Protocol):
     def get(self, path: str, *, params: dict[str, str] | None = None) -> dict[str, object]: ...
     def get_for_subdomain(self, subdomain: str, path: str, *, params: dict[str, str] | None = None) -> dict[str, object]: ...
     def request(self, method: str, path: str, *, json_body: dict[str, object] | None = None) -> dict[str, object]: ...
+    def request_for_subdomain(self, subdomain: str, method: str, path: str, *, json_body: dict[str, object] | None = None) -> dict[str, object]: ...
 
 
 class GuideTools:
@@ -102,9 +103,10 @@ class GuideTools:
         if isinstance(scoped, dict): return scoped
         if scoped is not self: return scoped.get_article(article_id)
         return self._get(f"/api/v2/help_center/articles/{identifier}.json")
-    def create_article(self, section_id: int, locale: str, title: str, body: str, *, labels: list[str] | None = None, position: int | None = None, permission_group_id: int | None = None, user_segment_id: int | None = None, draft: bool = True, notify_subscribers: bool = False, execution_mode: str = "preview", approval_request_id: str | None = None, approval_token: str | None = None) -> dict[str, object]:
+    def create_article(self, section_id: int, locale: str, title: str, body: str, *, brand_id: int | None = None, labels: list[str] | None = None, position: int | None = None, permission_group_id: int | None = None, user_segment_id: int | None = None, draft: bool = True, notify_subscribers: bool = False, execution_mode: str = "preview", approval_request_id: str | None = None, approval_token: str | None = None) -> dict[str, object]:
         payload = self._article_payload(section_id, locale, title, body, labels, position, permission_group_id, user_segment_id, draft, notify_subscribers)
-        if payload is None: return failure(ErrorCode.VALIDATION_ERROR, "valid draft article fields are required; publish with zendesk_publish_help_center_article")
+        if payload is None or (brand_id is not None and not self._valid_id(brand_id)): return failure(ErrorCode.VALIDATION_ERROR, "valid draft article fields are required; publish with zendesk_publish_help_center_article")
+        if brand_id is not None: payload["brand_id"] = brand_id
         risks = (WriteRisk.STANDARD, WriteRisk.PUBLIC) if notify_subscribers else (WriteRisk.STANDARD,)
         if execution_mode == "preview":
             if self._approvals is None: return failure(ErrorCode.NOT_CONFIGURED, "Zendesk approval store is not configured")
@@ -113,11 +115,12 @@ class GuideTools:
         if self._settings is None: return failure(ErrorCode.WRITE_DISABLED, "Zendesk writes are disabled")
         for risk in risks:
             if (blocked := check_write_permission(self._settings, risk)) is not None: return blocked
-        locale_check = self._validate_active_locale(locale)
+        scoped = self._for_brand(brand_id)
+        if isinstance(scoped, dict): return scoped
+        locale_check = scoped._validate_active_locale(locale)
         if locale_check is not None: return locale_check
         if self._approvals is None or not isinstance(approval_request_id, str) or not isinstance(approval_token, str) or not self._approvals.consume(approval_request_id, "zendesk_create_help_center_article", payload, approval_token): return failure(ErrorCode.APPROVAL_REQUIRED, "a matching local approval is required")
-        if self._client is None: return failure(ErrorCode.NOT_CONFIGURED, "Zendesk is not configured")
-        return self._client.request("POST", f"/api/v2/help_center/sections/{section_id}/articles.json", json_body={"article": payload["article"], "notify_subscribers": notify_subscribers})
+        return scoped._request("POST", f"/api/v2/help_center/sections/{section_id}/articles.json", {"article": payload["article"], "notify_subscribers": notify_subscribers})
     def upsert_article_translation(self, article_id: int, locale: str, *, title: str | None = None, body: str | None = None, draft: bool = True, execution_mode: str = "preview", approval_request_id: str | None = None, approval_token: str | None = None) -> dict[str, object]:
         if not self._valid_id(article_id) or not isinstance(locale, str) or not _LOCALE.fullmatch(locale) or not isinstance(draft, bool) or not draft or (title is not None and (not isinstance(title, str) or not title.strip())) or (body is not None and not isinstance(body, str)): return failure(ErrorCode.VALIDATION_ERROR, "valid draft translation fields are required; publish with zendesk_publish_help_center_article")
         current = self._get_translation(article_id, locale)
@@ -225,6 +228,13 @@ class GuideTools:
             if not callable(getter): return failure(ErrorCode.UNSUPPORTED, "Zendesk client does not support brand-scoped Help Center reads")
             return getter(self._brand_subdomain, path, params=params)
         return self._client.get(path, params=params)
+    def _request(self, method: str, path: str, json_body: dict[str, object]) -> dict[str, object]:
+        if self._client is None: return failure(ErrorCode.NOT_CONFIGURED, "Zendesk is not configured")
+        if self._brand_subdomain is not None:
+            requester = getattr(self._client, "request_for_subdomain", None)
+            if not callable(requester): return failure(ErrorCode.UNSUPPORTED, "Zendesk client does not support brand-scoped Help Center writes")
+            return requester(self._brand_subdomain, method, path, json_body=json_body)
+        return self._client.request(method, path, json_body=json_body)
 
 
 def _epoch(value: str | None, *, milliseconds: bool) -> int | None:

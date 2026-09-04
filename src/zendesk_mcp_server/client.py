@@ -57,6 +57,16 @@ class ZendeskClient:
     ) -> dict[str, object]:
         return self.request("GET", path, params=params, subdomain=subdomain)
 
+    def request_for_subdomain(
+        self,
+        subdomain: str,
+        method: str,
+        path: str,
+        *,
+        json_body: Mapping[str, object] | None = None,
+    ) -> dict[str, object]:
+        return self.request(method, path, json_body=json_body, subdomain=subdomain)
+
     def request(
         self,
         method: str,
