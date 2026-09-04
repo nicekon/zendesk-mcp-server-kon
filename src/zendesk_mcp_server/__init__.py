@@ -1,10 +1,10 @@
 import asyncio
 
-from . import server
-
 
 def main():
-    asyncio.run(server.main())
+    from .server import main as run_server
+
+    asyncio.run(run_server())
 
 
-__all__ = ["main", "server"]
+__all__ = ["main"]
