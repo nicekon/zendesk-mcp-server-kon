@@ -40,7 +40,12 @@ def test_connection_status_does_not_expose_credentials():
     assert "agent@example.test" not in repr(result)
 
 
-def test_foundation_registers_only_connection_status_tool():
+def test_support_read_tools_are_registered():
     from zendesk_mcp_server.server import build_tools
 
-    assert [tool.name for tool in build_tools()] == ["zendesk_get_connection_status"]
+    assert [tool.name for tool in build_tools()] == [
+        "zendesk_get_connection_status",
+        "zendesk_list_tickets",
+        "zendesk_get_ticket",
+        "zendesk_get_ticket_conversation",
+    ]

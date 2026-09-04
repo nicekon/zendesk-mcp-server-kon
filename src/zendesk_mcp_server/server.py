@@ -10,8 +10,11 @@ from collections.abc import Mapping
 from mcp.server import InitializationOptions, NotificationOptions, Server, types
 from mcp.server.stdio import stdio_server
 
+from .auth import build_authorization
+from .client import ZendeskClient
 from .config import ConfigurationError, Settings
 from .contracts import ErrorCode, failure, success
+from .tools.tickets import TicketTools
 
 
 TICKET_ANALYSIS_TEMPLATE = """
@@ -37,7 +40,22 @@ def build_tools() -> list[types.Tool]:
             name="zendesk_get_connection_status",
             description="Report Zendesk configuration without exposing credentials or making a network request.",
             inputSchema={"type": "object", "properties": {}},
-        )
+        ),
+        types.Tool(
+            name="zendesk_list_tickets",
+            description="List Zendesk tickets without making changes.",
+            inputSchema={"type": "object", "properties": {"limit": {"type": "integer", "minimum": 1, "maximum": 100}}},
+        ),
+        types.Tool(
+            name="zendesk_get_ticket",
+            description="Retrieve a Zendesk ticket by ID without making changes.",
+            inputSchema={"type": "object", "properties": {"ticket_id": {"type": "integer", "minimum": 1}}, "required": ["ticket_id"]},
+        ),
+        types.Tool(
+            name="zendesk_get_ticket_conversation",
+            description="Retrieve a ticket conversation without making changes.",
+            inputSchema={"type": "object", "properties": {"ticket_id": {"type": "integer", "minimum": 1}}, "required": ["ticket_id"]},
+        ),
     ]
 
 
@@ -46,6 +64,17 @@ def build_connection_status(environ: Mapping[str, str]) -> dict[str, object]:
         return success(Settings.load(environ).connection_status())
     except ConfigurationError as error:
         return failure(ErrorCode.VALIDATION_ERROR, str(error))
+
+
+def build_ticket_tools(environ: Mapping[str, str]) -> TicketTools | dict[str, object]:
+    try:
+        settings = Settings.load(environ)
+        authorization = build_authorization(settings)
+    except ConfigurationError as error:
+        return failure(ErrorCode.VALIDATION_ERROR, str(error))
+    if authorization is None:
+        return failure(ErrorCode.NOT_CONFIGURED, "Zendesk is not configured")
+    return TicketTools(ZendeskClient(settings, authorization))
 
 
 def create_server(environ: Mapping[str, str] | None = None) -> Server:
@@ -113,9 +142,22 @@ def create_server(environ: Mapping[str, str] | None = None) -> Server:
         name: str,
         arguments: dict[str, object] | None,
     ) -> list[types.TextContent]:
-        del arguments
         if name == "zendesk_get_connection_status":
             result = build_connection_status(environment)
+        elif name in {"zendesk_list_tickets", "zendesk_get_ticket", "zendesk_get_ticket_conversation"}:
+            tools = build_ticket_tools(environment)
+            if isinstance(tools, dict):
+                result = tools
+            elif name == "zendesk_list_tickets":
+                result = tools.list_tickets(int((arguments or {}).get("limit", 100)))
+            else:
+                ticket_id = (arguments or {}).get("ticket_id")
+                if not isinstance(ticket_id, int) or isinstance(ticket_id, bool):
+                    result = failure(ErrorCode.VALIDATION_ERROR, "ticket_id must be a positive integer")
+                elif name == "zendesk_get_ticket":
+                    result = tools.get_ticket(ticket_id)
+                else:
+                    result = tools.get_conversation(ticket_id)
         else:
             result = failure(ErrorCode.NOT_FOUND, f"Unknown tool: {name}")
         return [types.TextContent(type="text", text=json.dumps(result))]
