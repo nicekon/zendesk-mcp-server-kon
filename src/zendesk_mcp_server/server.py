@@ -18,6 +18,7 @@ from .contracts import ErrorCode, failure, success
 from .tools.tickets import TicketTools
 from .tools.metadata import MetadataTools
 from .tools.guide import GuideTools
+from .tools.community import CommunityTools
 
 
 TICKET_ANALYSIS_TEMPLATE = """
@@ -153,6 +154,9 @@ def build_tools() -> list[types.Tool]:
         types.Tool(name="zendesk_search_help_center_articles", description="Search Help Center articles without making changes.", inputSchema={"type": "object", "properties": {"query": {"type": "string", "minLength": 1}}, "required": ["query"]}),
         types.Tool(name="zendesk_get_help_center_article", description="Get a Help Center article without making changes.", inputSchema={"type": "object", "properties": {"article_id": {"type": "integer", "minimum": 1}}, "required": ["article_id"]}),
         types.Tool(name="zendesk_get_satisfaction_ratings", description="List Zendesk satisfaction ratings without making changes.", inputSchema={"type": "object", "properties": {}}),
+        types.Tool(name="zendesk_list_community_posts", description="List Community posts without making changes.", inputSchema={"type": "object", "properties": {}}),
+        types.Tool(name="zendesk_search_community_posts", description="Search Community posts without making changes.", inputSchema={"type": "object", "properties": {"query": {"type": "string", "minLength": 1}}, "required": ["query"]}),
+        types.Tool(name="zendesk_get_community_post", description="Get a Community post without making changes.", inputSchema={"type": "object", "properties": {"post_id": {"type": "integer", "minimum": 1}}, "required": ["post_id"]}),
     ]
 
 
@@ -194,6 +198,14 @@ def build_guide_tools(environ: Mapping[str, str]) -> GuideTools | dict[str, obje
     if authorization is None:
         return failure(ErrorCode.NOT_CONFIGURED, "Zendesk is not configured")
     return GuideTools(ZendeskClient(settings, authorization))
+
+
+def build_community_tools(environ: Mapping[str, str]) -> CommunityTools | dict[str, object]:
+    try:
+        settings = Settings.load(environ); authorization = build_authorization(settings)
+    except ConfigurationError as error: return failure(ErrorCode.VALIDATION_ERROR, str(error))
+    if authorization is None: return failure(ErrorCode.NOT_CONFIGURED, "Zendesk is not configured")
+    return CommunityTools(ZendeskClient(settings, authorization))
 
 
 def create_server(environ: Mapping[str, str] | None = None) -> Server:
@@ -263,6 +275,12 @@ def create_server(environ: Mapping[str, str] | None = None) -> Server:
     ) -> list[types.TextContent]:
         if name == "zendesk_get_connection_status":
             result = build_connection_status(environment)
+        elif name in {"zendesk_list_community_posts", "zendesk_search_community_posts", "zendesk_get_community_post"}:
+            tools = build_community_tools(environment)
+            if isinstance(tools, dict): result = tools
+            elif name == "zendesk_list_community_posts": result = tools.list_posts()
+            elif name == "zendesk_search_community_posts": result = tools.search_posts((arguments or {}).get("query"))
+            else: result = tools.get_post((arguments or {}).get("post_id"))
         elif name in {"zendesk_list_help_center_categories", "zendesk_list_help_center_sections", "zendesk_search_help_center_articles", "zendesk_get_help_center_article", "zendesk_get_satisfaction_ratings"}:
             tools = build_guide_tools(environment)
             if isinstance(tools, dict): result = tools
