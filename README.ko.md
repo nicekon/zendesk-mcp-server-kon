@@ -26,6 +26,8 @@ Zendesk용 Model Context Protocol 서버입니다. 이 브랜치는
   공개 답변에는 `ZENDESK_ENABLE_PUBLIC_WRITES=true`를 켠 뒤,
   `zendesk approve <approval_request_id>`로 로컬 승인하고 변경하지 않은 payload와
   함께 반환된 token을 제출해야 합니다.
+- 읽기 전용 계정 metadata 도구는 사용자 검색, 그룹·그룹 구성원, 조직, 브랜드,
+  티켓 필드·폼, custom status를 제공합니다.
 
 서버는 기본 `read_only` 모드로 시작합니다. Help Center, CSAT, 첨부파일,
 Community 도구는 각 구현 단계가 끝날 때까지 의도적으로 노출하지 않습니다.

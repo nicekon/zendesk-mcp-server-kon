@@ -16,6 +16,7 @@ from .client import ZendeskClient
 from .config import ConfigurationError, Settings
 from .contracts import ErrorCode, failure, success
 from .tools.tickets import TicketTools
+from .tools.metadata import MetadataTools
 
 
 TICKET_ANALYSIS_TEMPLATE = """
@@ -133,6 +134,14 @@ def build_tools() -> list[types.Tool]:
             description="Post a non-public internal ticket note. Requires standard write mode and may trigger account automations.",
             inputSchema={"type": "object", "properties": {"ticket_id": {"type": "integer", "minimum": 1}, "body": {"type": "string", "minLength": 1}}, "required": ["ticket_id", "body"]},
         ),
+        types.Tool(name="zendesk_search_users", description="Search Zendesk users without making changes.", inputSchema={"type": "object", "properties": {"query": {"type": "string", "minLength": 1}}, "required": ["query"]}),
+        types.Tool(name="zendesk_list_groups", description="List Zendesk groups without making changes.", inputSchema={"type": "object", "properties": {}}),
+        types.Tool(name="zendesk_list_group_users", description="List users in a Zendesk group without making changes.", inputSchema={"type": "object", "properties": {"group_id": {"type": "integer", "minimum": 1}}, "required": ["group_id"]}),
+        types.Tool(name="zendesk_get_organization", description="Get a Zendesk organization without making changes.", inputSchema={"type": "object", "properties": {"organization_id": {"type": "integer", "minimum": 1}}, "required": ["organization_id"]}),
+        types.Tool(name="zendesk_list_brands", description="List Zendesk brands without making changes.", inputSchema={"type": "object", "properties": {}}),
+        types.Tool(name="zendesk_list_ticket_fields", description="List Zendesk ticket fields without making changes.", inputSchema={"type": "object", "properties": {}}),
+        types.Tool(name="zendesk_list_ticket_forms", description="List Zendesk ticket forms without making changes.", inputSchema={"type": "object", "properties": {}}),
+        types.Tool(name="zendesk_list_custom_statuses", description="List Zendesk custom statuses without making changes.", inputSchema={"type": "object", "properties": {}}),
     ]
 
 
@@ -152,6 +161,17 @@ def build_ticket_tools(environ: Mapping[str, str]) -> TicketTools | dict[str, ob
     if authorization is None:
         return failure(ErrorCode.NOT_CONFIGURED, "Zendesk is not configured")
     return TicketTools(ZendeskClient(settings, authorization), settings, ApprovalStore.from_environment(environ))
+
+
+def build_metadata_tools(environ: Mapping[str, str]) -> MetadataTools | dict[str, object]:
+    try:
+        settings = Settings.load(environ)
+        authorization = build_authorization(settings)
+    except ConfigurationError as error:
+        return failure(ErrorCode.VALIDATION_ERROR, str(error))
+    if authorization is None:
+        return failure(ErrorCode.NOT_CONFIGURED, "Zendesk is not configured")
+    return MetadataTools(ZendeskClient(settings, authorization))
 
 
 def create_server(environ: Mapping[str, str] | None = None) -> Server:
@@ -221,6 +241,18 @@ def create_server(environ: Mapping[str, str] | None = None) -> Server:
     ) -> list[types.TextContent]:
         if name == "zendesk_get_connection_status":
             result = build_connection_status(environment)
+        elif name in {"zendesk_search_users", "zendesk_list_groups", "zendesk_list_group_users", "zendesk_get_organization", "zendesk_list_brands", "zendesk_list_ticket_fields", "zendesk_list_ticket_forms", "zendesk_list_custom_statuses"}:
+            tools = build_metadata_tools(environment)
+            if isinstance(tools, dict):
+                result = tools
+            elif name == "zendesk_search_users": result = tools.search_users((arguments or {}).get("query"))
+            elif name == "zendesk_list_groups": result = tools.list_groups()
+            elif name == "zendesk_list_group_users": result = tools.list_group_users((arguments or {}).get("group_id"))
+            elif name == "zendesk_get_organization": result = tools.get_organization((arguments or {}).get("organization_id"))
+            elif name == "zendesk_list_brands": result = tools.list_brands()
+            elif name == "zendesk_list_ticket_fields": result = tools.list_ticket_fields()
+            elif name == "zendesk_list_ticket_forms": result = tools.list_ticket_forms()
+            else: result = tools.list_custom_statuses()
         elif name in {
             "zendesk_list_tickets",
             "zendesk_search_tickets",

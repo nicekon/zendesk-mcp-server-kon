@@ -28,6 +28,8 @@ The current pre-release exposes these safe tools:
   `ZENDESK_ENABLE_PUBLIC_WRITES=true`, inspect and approve its request locally
   with `zendesk approve <approval_request_id>`, then submit the returned token
   with the unchanged payload.
+- Read-only account metadata tools cover user search, groups and group members,
+  organizations, brands, ticket fields/forms, and custom statuses.
 
 The server starts in `read_only` mode. Help Center, CSAT, attachment, and
 Community tools are intentionally not available until their corresponding

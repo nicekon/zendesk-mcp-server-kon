@@ -63,4 +63,12 @@ def test_support_read_tools_are_registered():
         "zendesk_get_ticket_conversation",
         "zendesk_post_public_reply",
         "zendesk_post_internal_note",
+        "zendesk_search_users",
+        "zendesk_list_groups",
+        "zendesk_list_group_users",
+        "zendesk_get_organization",
+        "zendesk_list_brands",
+        "zendesk_list_ticket_fields",
+        "zendesk_list_ticket_forms",
+        "zendesk_list_custom_statuses",
     ]
