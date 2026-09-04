@@ -11,6 +11,7 @@ import tempfile
 import time
 import uuid
 from collections.abc import Callable, Iterator
+from collections.abc import Mapping
 from contextlib import contextmanager
 from pathlib import Path
 
@@ -19,6 +20,12 @@ class ApprovalStore:
     def __init__(self, path: Path, *, now: Callable[[], float] = time.time) -> None:
         self.path = path
         self._now = now
+
+    @classmethod
+    def from_environment(cls, environ: Mapping[str, str]) -> "ApprovalStore":
+        configured = environ.get("ZENDESK_APPROVAL_STORE")
+        path = Path(configured).expanduser() if configured else Path.home() / ".config" / "zendesk-mcp" / "approvals.json"
+        return cls(path)
 
     def create(self, tool: str, payload: dict[str, object]) -> str:
         with self._locked():

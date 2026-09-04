@@ -1,3 +1,4 @@
+from zendesk_mcp_server.approvals import ApprovalStore
 from zendesk_mcp_server.contracts import success
 from zendesk_mcp_server.config import Settings
 from zendesk_mcp_server.tools.tickets import TicketTools
@@ -169,3 +170,52 @@ def test_ticket_tag_shortcuts_read_then_reuse_update_ticket():
         ("PUT", "/api/v2/tickets/9.json", {"ticket": {"tags": ["billing", "priority"]}}),
         ("PUT", "/api/v2/tickets/9.json", {"ticket": {"tags": []}}),
     ]
+
+
+def test_public_reply_requires_preview_and_single_use_local_approval(tmp_path):
+    client = MutationStub()
+    store = ApprovalStore(tmp_path / "approvals.json")
+    settings = Settings.load(
+        {"ZENDESK_WRITE_MODE": "standard", "ZENDESK_ENABLE_PUBLIC_WRITES": "true"}
+    )
+    tools = TicketTools(client, settings, store)
+
+    preview = tools.post_public_reply(9, "Reply")
+    token = store.approve(preview["data"]["approval_request_id"])
+    result = tools.post_public_reply(
+        9,
+        "Reply",
+        execution_mode="apply",
+        approval_request_id=preview["data"]["approval_request_id"],
+        approval_token=token,
+    )
+
+    assert result["data"]["ticket"]["id"] == 9
+    assert client.calls == [
+        ("PUT", "/api/v2/tickets/9.json", {"ticket": {"comment": {"body": "Reply", "public": True}}})
+    ]
+
+
+def test_internal_note_is_a_standard_write_without_public_approval():
+    client = MutationStub()
+    tools = TicketTools(client, Settings.load({"ZENDESK_WRITE_MODE": "standard"}))
+
+    tools.post_internal_note(9, "Investigating")
+
+    assert client.calls == [
+        ("PUT", "/api/v2/tickets/9.json", {"ticket": {"comment": {"body": "Investigating", "public": False}}})
+    ]
+
+
+def test_public_reply_apply_does_not_write_without_approval(tmp_path):
+    client = MutationStub()
+    settings = Settings.load(
+        {"ZENDESK_WRITE_MODE": "standard", "ZENDESK_ENABLE_PUBLIC_WRITES": "true"}
+    )
+
+    result = TicketTools(client, settings, ApprovalStore(tmp_path / "approvals.json")).post_public_reply(
+        9, "Reply", execution_mode="apply"
+    )
+
+    assert result["error"]["code"] == "approval_required"
+    assert client.calls == []

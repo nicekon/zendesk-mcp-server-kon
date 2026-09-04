@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Protocol
 
+from ..approvals import ApprovalStore
 from ..config import Settings
 from ..contracts import ErrorCode, failure, success
 from ..write_policy import WriteRisk, check_write_permission
@@ -24,9 +25,15 @@ class TicketMutationClient(TicketClient, Protocol):
 
 
 class TicketTools:
-    def __init__(self, client: TicketClient | None, settings: Settings | None = None) -> None:
+    def __init__(
+        self,
+        client: TicketClient | None,
+        settings: Settings | None = None,
+        approvals: ApprovalStore | None = None,
+    ) -> None:
         self._client = client
         self._settings = settings
+        self._approvals = approvals
 
     def get_ticket(self, ticket_id: int) -> dict[str, object]:
         if not _valid_ticket_id(ticket_id):
@@ -209,6 +216,64 @@ class TicketTools:
             return success({"ticket_id": ticket_id, "tags": tags, "idempotent": True})
         return self.update_ticket(ticket_id, tags=[value for value in tags if value != tag])
 
+    def post_internal_note(self, ticket_id: int, body: str) -> dict[str, object]:
+        payload = _comment_payload(ticket_id, body, public=False)
+        if isinstance(payload, dict) and "error" in payload:
+            return payload
+        permitted = self._write_permitted(WriteRisk.STANDARD)
+        if permitted is not None:
+            return permitted
+        client = self._configured_mutation_client()
+        if isinstance(client, dict):
+            return client
+        return _with_automation_notice(client.request("PUT", f"/api/v2/tickets/{ticket_id}.json", json_body=payload))
+
+    def post_public_reply(
+        self,
+        ticket_id: int,
+        body: str,
+        *,
+        execution_mode: str = "preview",
+        approval_request_id: str | None = None,
+        approval_token: str | None = None,
+    ) -> dict[str, object]:
+        payload = _comment_payload(ticket_id, body, public=True)
+        if isinstance(payload, dict) and "error" in payload:
+            return payload
+        if execution_mode == "preview":
+            if self._approvals is None:
+                return failure(ErrorCode.NOT_CONFIGURED, "Zendesk approval store is not configured")
+            request_id = self._approvals.create("zendesk_post_public_reply", payload)
+            return success(
+                {
+                    "approval_request_id": request_id,
+                    "execution_mode": "preview",
+                    "public": True,
+                    "outbound_write": False,
+                }
+            )
+        if execution_mode != "apply":
+            return failure(ErrorCode.VALIDATION_ERROR, "execution_mode must be preview or apply")
+        permitted = self._write_permitted(WriteRisk.PUBLIC)
+        if permitted is not None:
+            return permitted
+        if (
+            self._approvals is None
+            or not isinstance(approval_request_id, str)
+            or not isinstance(approval_token, str)
+            or not self._approvals.consume(
+                approval_request_id,
+                "zendesk_post_public_reply",
+                payload,
+                approval_token,
+            )
+        ):
+            return failure(ErrorCode.APPROVAL_REQUIRED, "a matching local approval is required")
+        client = self._configured_mutation_client()
+        if isinstance(client, dict):
+            return client
+        return _with_automation_notice(client.request("PUT", f"/api/v2/tickets/{ticket_id}.json", json_body=payload))
+
     def _configured_client(self) -> TicketClient | dict[str, object]:
         if self._client is None:
             return failure(ErrorCode.NOT_CONFIGURED, "Zendesk is not configured")
@@ -308,6 +373,14 @@ def _with_automation_notice(result: dict[str, object]) -> dict[str, object]:
     if result.get("ok") and isinstance(data, dict):
         data["account_automation_side_effects_possible"] = True
     return result
+
+
+def _comment_payload(ticket_id: int, body: str, *, public: bool) -> dict[str, object]:
+    if not _valid_ticket_id(ticket_id):
+        return failure(ErrorCode.VALIDATION_ERROR, "ticket_id must be a positive integer")
+    if not _valid_text(body):
+        return failure(ErrorCode.VALIDATION_ERROR, "body must be a non-empty string")
+    return {"ticket": {"comment": {"body": body.strip(), "public": public}}}
 
 
 def _update_ticket_payload(**values: object) -> dict[str, object]:

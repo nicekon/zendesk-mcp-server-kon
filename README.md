@@ -23,6 +23,11 @@ The current pre-release exposes these safe tools:
   are unavailable until
   `ZENDESK_WRITE_MODE=standard` is set, and their responses note that account
   automations can have additional side effects.
+- `zendesk_post_internal_note` is a standard write. `zendesk_post_public_reply`
+  defaults to a non-writing preview. To apply a public reply, enable
+  `ZENDESK_ENABLE_PUBLIC_WRITES=true`, inspect and approve its request locally
+  with `zendesk approve <approval_request_id>`, then submit the returned token
+  with the unchanged payload.
 
 The server starts in `read_only` mode. Help Center, CSAT, attachment, and
 Community tools are intentionally not available until their corresponding

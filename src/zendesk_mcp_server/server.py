@@ -10,6 +10,7 @@ from collections.abc import Mapping
 from mcp.server import InitializationOptions, NotificationOptions, Server, types
 from mcp.server.stdio import stdio_server
 
+from .approvals import ApprovalStore
 from .auth import build_authorization
 from .client import ZendeskClient
 from .config import ConfigurationError, Settings
@@ -122,6 +123,16 @@ def build_tools() -> list[types.Tool]:
             description="Retrieve a ticket conversation without making changes.",
             inputSchema={"type": "object", "properties": {"ticket_id": {"type": "integer", "minimum": 1}}, "required": ["ticket_id"]},
         ),
+        types.Tool(
+            name="zendesk_post_public_reply",
+            description="Preview or post a public ticket reply. Apply requires standard mode, the public-write gate, and a matching local approval.",
+            inputSchema={"type": "object", "properties": {"ticket_id": {"type": "integer", "minimum": 1}, "body": {"type": "string", "minLength": 1}, "execution_mode": {"type": "string", "enum": ["preview", "apply"], "default": "preview"}, "approval_request_id": {"type": "string"}, "approval_token": {"type": "string"}}, "required": ["ticket_id", "body"]},
+        ),
+        types.Tool(
+            name="zendesk_post_internal_note",
+            description="Post a non-public internal ticket note. Requires standard write mode and may trigger account automations.",
+            inputSchema={"type": "object", "properties": {"ticket_id": {"type": "integer", "minimum": 1}, "body": {"type": "string", "minLength": 1}}, "required": ["ticket_id", "body"]},
+        ),
     ]
 
 
@@ -140,7 +151,7 @@ def build_ticket_tools(environ: Mapping[str, str]) -> TicketTools | dict[str, ob
         return failure(ErrorCode.VALIDATION_ERROR, str(error))
     if authorization is None:
         return failure(ErrorCode.NOT_CONFIGURED, "Zendesk is not configured")
-    return TicketTools(ZendeskClient(settings, authorization), settings)
+    return TicketTools(ZendeskClient(settings, authorization), settings, ApprovalStore.from_environment(environ))
 
 
 def create_server(environ: Mapping[str, str] | None = None) -> Server:
@@ -222,6 +233,8 @@ def create_server(environ: Mapping[str, str] | None = None) -> Server:
             "zendesk_add_ticket_tag",
             "zendesk_remove_ticket_tag",
             "zendesk_get_ticket_conversation",
+            "zendesk_post_public_reply",
+            "zendesk_post_internal_note",
         }:
             tools = build_ticket_tools(environment)
             if isinstance(tools, dict):
@@ -275,6 +288,18 @@ def create_server(environ: Mapping[str, str] | None = None) -> Server:
             elif name == "zendesk_remove_ticket_tag":
                 values = arguments or {}
                 result = tools.remove_ticket_tag(values.get("ticket_id"), values.get("tag"))
+            elif name == "zendesk_post_public_reply":
+                values = arguments or {}
+                result = tools.post_public_reply(
+                    values.get("ticket_id"),
+                    values.get("body"),
+                    execution_mode=values.get("execution_mode", "preview"),
+                    approval_request_id=values.get("approval_request_id"),
+                    approval_token=values.get("approval_token"),
+                )
+            elif name == "zendesk_post_internal_note":
+                values = arguments or {}
+                result = tools.post_internal_note(values.get("ticket_id"), values.get("body"))
             else:
                 ticket_id = (arguments or {}).get("ticket_id")
                 if not isinstance(ticket_id, int) or isinstance(ticket_id, bool):
