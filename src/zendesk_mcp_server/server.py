@@ -126,6 +126,7 @@ def build_tools() -> list[types.Tool]:
             description="Retrieve a ticket conversation without making changes.",
             inputSchema={"type": "object", "properties": {"ticket_id": {"type": "integer", "minimum": 1}}, "required": ["ticket_id"]},
         ),
+        types.Tool(name="zendesk_list_ticket_attachments", description="List attachment metadata for a Zendesk ticket without downloading content.", inputSchema={"type": "object", "properties": {"ticket_id": {"type": "integer", "minimum": 1}}, "required": ["ticket_id"]}),
         types.Tool(
             name="zendesk_post_public_reply",
             description="Preview or post a public ticket reply. Apply requires standard mode, the public-write gate, and a matching local approval.",
@@ -318,6 +319,7 @@ def create_server(environ: Mapping[str, str] | None = None) -> Server:
             "zendesk_add_ticket_tag",
             "zendesk_remove_ticket_tag",
             "zendesk_get_ticket_conversation",
+            "zendesk_list_ticket_attachments",
             "zendesk_post_public_reply",
             "zendesk_post_internal_note",
         }:
@@ -385,6 +387,8 @@ def create_server(environ: Mapping[str, str] | None = None) -> Server:
             elif name == "zendesk_post_internal_note":
                 values = arguments or {}
                 result = tools.post_internal_note(values.get("ticket_id"), values.get("body"))
+            elif name == "zendesk_list_ticket_attachments":
+                result = tools.list_attachments((arguments or {}).get("ticket_id"))
             else:
                 ticket_id = (arguments or {}).get("ticket_id")
                 if not isinstance(ticket_id, int) or isinstance(ticket_id, bool):
