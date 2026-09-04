@@ -59,6 +59,20 @@ def test_article_export_uses_locale_cursor_pagination():
     ]
 
 
+def test_article_export_writes_a_managed_artifact(tmp_path):
+    class ExportClient:
+        def get(self, path, *, params=None):
+            return success({"articles": [{"id": 1, "title": "Welcome"}], "meta": {"has_more": False}})
+
+    settings = Settings.load({"ZENDESK_ATTACHMENT_CACHE_ROOT": str(tmp_path / "attachments")})
+    result = GuideTools(ExportClient(), settings).export_article_artifact("en-us", output_format="json")
+
+    assert result["data"]["format"] == "json"
+    assert result["data"]["item_count"] == 1
+    assert "articles" not in result["data"]
+    assert Path(result["data"]["cache_path"]).read_text() == '[{"id":1,"title":"Welcome"}]'
+
+
 def test_csat_adapters_only_send_their_official_filters():
     client = StubClient(); tools = GuideTools(client)
 

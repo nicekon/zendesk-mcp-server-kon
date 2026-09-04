@@ -74,6 +74,19 @@ class GuideTools:
             if not isinstance(cursor, str) or not cursor or cursor in seen: return failure(ErrorCode.UPSTREAM_ERROR, "Zendesk returned an invalid article export cursor")
             seen.add(cursor)
         return success({"articles": articles, "truncated": True})
+    def export_article_artifact(self, locale: str, max_articles: int = 100000, *, output_format: str = "json") -> dict[str, object]:
+        if output_format not in {"json", "csv"}: return failure(ErrorCode.VALIDATION_ERROR, "output_format must be json or csv")
+        result = self.export_articles(locale, max_articles)
+        if not result.get("ok"): return result
+        data = result.get("data")
+        articles = data.get("articles") if isinstance(data, dict) else None
+        if not isinstance(articles, list): return failure(ErrorCode.UPSTREAM_ERROR, "Zendesk returned an invalid article export response")
+        if self._settings is None or self._settings.attachment_cache_root is None: return failure(ErrorCode.NOT_CONFIGURED, "Zendesk export cache is not configured")
+        root = self._settings.attachment_cache_root.parent / "exports"
+        _clean_export_cache(root)
+        cached = _cache_ticket_export(root, output_format, _serialize_ticket_export(articles, output_format), filename_prefix="help-center-export")
+        if not cached.get("ok"): return cached
+        return success({"format": output_format, "item_count": len(articles), "truncated": data.get("truncated", False), **cached["data"]})
     def get_article(self, article_id: int) -> dict[str, object]:
         if not self._valid_id(article_id): return failure(ErrorCode.VALIDATION_ERROR, "article_id must be a positive integer")
         return self._get(f"/api/v2/help_center/articles/{article_id}.json")

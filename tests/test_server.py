@@ -61,6 +61,15 @@ def test_csat_export_result_includes_a_resource_link_without_its_cache_path():
     assert content[1].name == "Zendesk CSAT export (json)"
 
 
+def test_help_center_export_result_includes_a_resource_link_without_its_cache_path():
+    from zendesk_mcp_server.server import help_center_export_content
+
+    content = help_center_export_content({"ok": True, "data": {"format": "csv", "cache_path": "/private/cache/exports/articles.csv", "item_count": 2}})
+
+    assert isinstance(content[1], types.ResourceLink)
+    assert content[1].name == "Zendesk Help Center export (csv)"
+
+
 def test_knowledge_base_resource_is_registered_only_when_enabled():
     from zendesk_mcp_server.server import create_server
 
@@ -134,6 +143,14 @@ def test_csat_export_has_a_canonical_tool_registration():
     tools = {tool.name: tool for tool in build_tools()}
 
     assert tools["zendesk_export_satisfaction_ratings"].inputSchema["properties"]["format"]["enum"] == ["json", "csv"]
+
+
+def test_help_center_export_accepts_an_artifact_format():
+    from zendesk_mcp_server.server import build_tools
+
+    tools = {tool.name: tool for tool in build_tools()}
+
+    assert tools["zendesk_export_help_center_articles"].inputSchema["properties"]["format"]["enum"] == ["json", "csv"]
 
 
 def test_server_import_does_not_require_credentials(monkeypatch):

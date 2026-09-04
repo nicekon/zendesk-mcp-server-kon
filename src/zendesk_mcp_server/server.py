@@ -206,7 +206,7 @@ def build_tools() -> list[types.Tool]:
         types.Tool(name="zendesk_list_help_center_categories", description="List Help Center categories without making changes.", inputSchema={"type": "object", "properties": {}}),
         types.Tool(name="zendesk_list_help_center_sections", description="List Help Center sections without making changes.", inputSchema={"type": "object", "properties": {}}),
         types.Tool(name="zendesk_search_help_center_articles", description="Search Help Center articles without making changes.", inputSchema={"type": "object", "properties": {"query": {"type": "string", "minLength": 1}}, "required": ["query"]}),
-        types.Tool(name="zendesk_export_help_center_articles", description="Export Help Center articles for one locale with cursor pagination, up to a bounded total.", inputSchema={"type": "object", "properties": {"locale": {"type": "string", "minLength": 2}, "max_articles": {"type": "integer", "minimum": 1, "maximum": 100000}}, "required": ["locale"]}),
+        types.Tool(name="zendesk_export_help_center_articles", description="Export Help Center articles for one locale with cursor pagination, up to a bounded total.", inputSchema={"type": "object", "properties": {"locale": {"type": "string", "minLength": 2}, "max_articles": {"type": "integer", "minimum": 1, "maximum": 100000}, "format": {"type": "string", "enum": ["json", "csv"], "default": "json"}}, "required": ["locale"]}),
         types.Tool(name="zendesk_get_help_center_article", description="Get a Help Center article without making changes.", inputSchema={"type": "object", "properties": {"article_id": {"type": "integer", "minimum": 1}}, "required": ["article_id"]}),
         types.Tool(name="zendesk_get_satisfaction_ratings", description="List Zendesk satisfaction ratings without making changes.", inputSchema={"type": "object", "properties": {}}),
         types.Tool(name="zendesk_list_csat", description="List legacy or survey CSAT responses with backend-specific official filters.", inputSchema={"type": "object", "properties": {"backend": {"type": "string", "enum": ["auto", "legacy", "survey"], "default": "auto"}, "score": {"type": "string"}, "ticket_id": {"type": "integer", "minimum": 1}, "responder_ids": {"type": "array", "items": {"type": "integer", "minimum": 1}}, "created_at_start": {"type": "string", "format": "date-time"}, "created_at_end": {"type": "string", "format": "date-time"}}}),
@@ -337,7 +337,7 @@ def attachment_download_content(result: dict[str, object]) -> list[object]:
     ]
 
 
-def ticket_export_content(result: dict[str, object]) -> list[object]:
+def _export_content(result: dict[str, object], label: str) -> list[object]:
     data = result.get("data")
     if not result.get("ok") or not isinstance(data, dict) or not isinstance(data.get("cache_path"), str):
         return [types.TextContent(type="text", text=json.dumps(result))]
@@ -347,22 +347,18 @@ def ticket_export_content(result: dict[str, object]) -> list[object]:
     summary = {key: value for key, value in data.items() if key != "cache_path"}
     return [
         types.TextContent(type="text", text=json.dumps({**result, "data": summary})),
-        types.ResourceLink(type="resource_link", name=f"Zendesk ticket export ({output_format})", uri=path.as_uri(), mimeType={"json": "application/json", "csv": "text/csv"}.get(output_format)),
+        types.ResourceLink(type="resource_link", name=f"{label} ({output_format})", uri=path.as_uri(), mimeType={"json": "application/json", "csv": "text/csv"}.get(output_format)),
     ]
+
+
+def ticket_export_content(result: dict[str, object]) -> list[object]: return _export_content(result, "Zendesk ticket export")
 
 
 def csat_export_content(result: dict[str, object]) -> list[object]:
-    data = result.get("data")
-    if not result.get("ok") or not isinstance(data, dict) or not isinstance(data.get("cache_path"), str):
-        return [types.TextContent(type="text", text=json.dumps(result))]
-    path = Path(data["cache_path"])
-    if not path.is_absolute(): return [types.TextContent(type="text", text=json.dumps(result))]
-    output_format = data.get("format") if isinstance(data.get("format"), str) else "json"
-    summary = {key: value for key, value in data.items() if key != "cache_path"}
-    return [
-        types.TextContent(type="text", text=json.dumps({**result, "data": summary})),
-        types.ResourceLink(type="resource_link", name=f"Zendesk CSAT export ({output_format})", uri=path.as_uri(), mimeType={"json": "application/json", "csv": "text/csv"}.get(output_format)),
-    ]
+    return _export_content(result, "Zendesk CSAT export")
+
+
+def help_center_export_content(result: dict[str, object]) -> list[object]: return _export_content(result, "Zendesk Help Center export")
 
 
 def attachment_inspection_content(result: dict[str, object]) -> list[object]:
@@ -576,7 +572,7 @@ def create_server(environ: Mapping[str, str] | None = None) -> Server:
             elif name == "zendesk_list_help_center_sections": result = tools.list_sections()
             elif name == "zendesk_search_help_center_articles": result = tools.search_articles((arguments or {}).get("query"))
             elif name == "zendesk_export_help_center_articles":
-                values = arguments or {}; result = tools.export_articles(values.get("locale"), values.get("max_articles", 100000))
+                values = arguments or {}; result = tools.export_article_artifact(values.get("locale"), values.get("max_articles", 100000), output_format=values.get("format", "json"))
             elif name == "zendesk_get_help_center_article": result = tools.get_article((arguments or {}).get("article_id"))
             elif name in {"zendesk_list_csat", "zendesk_export_satisfaction_ratings"}:
                 values = arguments or {}
@@ -734,6 +730,7 @@ def create_server(environ: Mapping[str, str] | None = None) -> Server:
         if name == "zendesk_inspect_ticket_attachment": return attachment_inspection_content(result)
         if name == "zendesk_export_tickets": return ticket_export_content(result)
         if name == "zendesk_export_satisfaction_ratings": return csat_export_content(result)
+        if name == "zendesk_export_help_center_articles": return help_center_export_content(result)
         return [types.TextContent(type="text", text=json.dumps(result))]
 
     return server
