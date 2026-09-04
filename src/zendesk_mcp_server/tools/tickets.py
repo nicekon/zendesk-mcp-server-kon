@@ -174,6 +174,40 @@ class TicketTools:
         if isinstance(client, dict): return client
         return client.get("/api/v2/search/export.json", params={"filter[type]": "ticket", "query": query.strip()})
 
+    def apply_macro(
+        self,
+        ticket_id: int,
+        macro_id: int,
+        *,
+        execution_mode: str = "preview",
+        approval_request_id: str | None = None,
+        approval_token: str | None = None,
+    ) -> dict[str, object]:
+        if not _valid_ticket_id(ticket_id) or not _valid_ticket_id(macro_id):
+            return failure(ErrorCode.VALIDATION_ERROR, "ticket_id and macro_id must be positive integers")
+        preview = self._macro_changes(ticket_id, macro_id)
+        if not preview.get("ok"):
+            return preview
+        data = preview["data"]
+        ticket = data["ticket"]
+        payload = {"ticket_id": ticket_id, "macro_id": macro_id, "ticket": ticket}
+        public = isinstance(ticket.get("comment"), dict) and ticket["comment"].get("public") is True
+        if execution_mode == "preview":
+            if self._approvals is None:
+                return failure(ErrorCode.NOT_CONFIGURED, "Zendesk approval store is not configured")
+            return success({"approval_request_id": self._approvals.create("zendesk_apply_ticket_macro", payload), "execution_mode": "preview", "standard": True, "public": public, "ticket": ticket, "outbound_write": False})
+        if execution_mode != "apply":
+            return failure(ErrorCode.VALIDATION_ERROR, "execution_mode must be preview or apply")
+        for risk in (WriteRisk.STANDARD, WriteRisk.PUBLIC) if public else (WriteRisk.STANDARD,):
+            if (blocked := self._write_permitted(risk)) is not None:
+                return blocked
+        if self._approvals is None or not isinstance(approval_request_id, str) or not isinstance(approval_token, str) or not self._approvals.consume(approval_request_id, "zendesk_apply_ticket_macro", payload, approval_token):
+            return failure(ErrorCode.APPROVAL_REQUIRED, "a matching local approval is required")
+        client = self._configured_mutation_client()
+        if isinstance(client, dict):
+            return client
+        return _with_automation_notice(client.request("PUT", f"/api/v2/tickets/{ticket_id}.json", json_body={"ticket": ticket}))
+
     def create_ticket(
         self,
         *,
@@ -362,6 +396,20 @@ class TicketTools:
         if not isinstance(tags, list) or any(not isinstance(value, str) for value in tags):
             return failure(ErrorCode.UPSTREAM_ERROR, "Zendesk returned invalid ticket tags")
         return tags
+
+    def _macro_changes(self, ticket_id: int, macro_id: int) -> dict[str, object]:
+        client = self._configured_client()
+        if isinstance(client, dict):
+            return client
+        result = client.get(f"/api/v2/tickets/{ticket_id}/macros/{macro_id}/apply.json")
+        if not result.get("ok"):
+            return result
+        data = result.get("data")
+        changes = data.get("result") if isinstance(data, dict) else None
+        ticket = changes.get("ticket") if isinstance(changes, dict) else None
+        if not isinstance(ticket, dict):
+            return failure(ErrorCode.UPSTREAM_ERROR, "Zendesk returned an invalid macro preview")
+        return success({"ticket": ticket})
 
 
 def _valid_ticket_id(ticket_id: int) -> bool:

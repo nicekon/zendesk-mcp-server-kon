@@ -28,6 +28,12 @@ class MutationStub:
         return success({"ticket": {"id": 9, "tags": ["billing"]}})
 
 
+class MacroStub(MutationStub):
+    def get(self, path, *, params=None):
+        self.get_paths.append((path, params))
+        return success({"result": {"ticket": {"status": "pending", "comment": {"body": "We are checking", "public": True}}}})
+
+
 def test_get_ticket_rejects_zero_without_a_client():
     result = TicketTools(None).get_ticket(0)
 
@@ -251,3 +257,21 @@ def test_public_reply_apply_does_not_write_without_approval(tmp_path):
 
     assert result["error"]["code"] == "approval_required"
     assert client.calls == []
+
+
+def test_ticket_macro_preview_requires_approval_and_reuses_ticket_update(tmp_path):
+    client = MacroStub()
+    store = ApprovalStore(tmp_path / "approvals.json")
+    tools = TicketTools(client, Settings.load({"ZENDESK_WRITE_MODE": "standard", "ZENDESK_ENABLE_PUBLIC_WRITES": "true"}), store)
+
+    preview = tools.apply_macro(9, 4)
+    token = store.approve(preview["data"]["approval_request_id"])
+    result = tools.apply_macro(9, 4, execution_mode="apply", approval_request_id=preview["data"]["approval_request_id"], approval_token=token)
+
+    assert preview["data"]["public"] is True
+    assert client.get_paths == [
+        ("/api/v2/tickets/9/macros/4/apply.json", None),
+        ("/api/v2/tickets/9/macros/4/apply.json", None),
+    ]
+    assert client.calls == [("PUT", "/api/v2/tickets/9.json", {"ticket": {"status": "pending", "comment": {"body": "We are checking", "public": True}}})]
+    assert result["data"]["ticket"]["id"] == 9
