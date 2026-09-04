@@ -128,3 +128,26 @@ def test_community_vote_delete_requires_local_destructive_approval(tmp_path):
     token = store.approve(preview["data"]["approval_request_id"])
     tools.delete_vote(5, execution_mode="apply", approval_request_id=preview["data"]["approval_request_id"], approval_token=token)
     assert client.paths[-1] == ("DELETE", "/api/v2/help_center/votes/5.json", None)
+
+
+def test_community_subscription_get_and_create_require_correct_paths_and_approval(tmp_path):
+    client = StubClient(); store = ApprovalStore(tmp_path / "approvals.json")
+    tools = CommunityTools(client, Settings.load({"ZENDESK_WRITE_MODE": "standard", "ZENDESK_ENABLE_PUBLIC_WRITES": "true"}), store)
+    tools.get_subscription("post", 2, 5)
+    preview = tools.create_subscription("topic", 4, include_comments=True)
+    token = store.approve(preview["data"]["approval_request_id"])
+    tools.create_subscription("topic", 4, include_comments=True, execution_mode="apply", approval_request_id=preview["data"]["approval_request_id"], approval_token=token)
+    assert client.paths[-2:] == [("/api/v2/community/posts/2/subscriptions/5.json", None), ("POST", "/api/v2/community/topics/4/subscriptions.json", {"subscription": {"include_comments": True}})]
+
+
+def test_community_topic_subscription_update_and_delete_require_approvals(tmp_path):
+    client = StubClient(); store = ApprovalStore(tmp_path / "approvals.json")
+    update_tools = CommunityTools(client, Settings.load({"ZENDESK_WRITE_MODE": "standard", "ZENDESK_ENABLE_PUBLIC_WRITES": "true"}), store)
+    preview = update_tools.update_subscription(4, 5, include_comments=True)
+    token = store.approve(preview["data"]["approval_request_id"])
+    update_tools.update_subscription(4, 5, include_comments=True, execution_mode="apply", approval_request_id=preview["data"]["approval_request_id"], approval_token=token)
+    delete_tools = CommunityTools(client, Settings.load({"ZENDESK_WRITE_MODE": "standard", "ZENDESK_ENABLE_DESTRUCTIVE_WRITES": "true"}), store)
+    preview = delete_tools.delete_subscription("topic", 4, 5)
+    token = store.approve(preview["data"]["approval_request_id"])
+    delete_tools.delete_subscription("topic", 4, 5, execution_mode="apply", approval_request_id=preview["data"]["approval_request_id"], approval_token=token)
+    assert client.paths[-2:] == [("PUT", "/api/v2/community/topics/4/subscriptions/5.json", {"subscription": {"include_comments": True}}), ("DELETE", "/api/v2/community/topics/4/subscriptions/5.json", None)]

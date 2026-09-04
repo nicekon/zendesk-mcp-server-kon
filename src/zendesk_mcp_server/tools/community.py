@@ -92,6 +92,24 @@ class CommunityTools:
         return self._approved_request("zendesk_remove_community_vote", {"vote_id": vote_id}, "DELETE", f"/api/v2/help_center/votes/{vote_id}.json", None, WriteRisk.DESTRUCTIVE, execution_mode, approval_request_id, approval_token)
     def list_post_subscriptions(self, post_id: int) -> dict[str, object]: return self._by_id("/api/v2/community/posts/{id}/subscriptions.json", post_id, "post_id")
     def list_topic_subscriptions(self, topic_id: int) -> dict[str, object]: return self._by_id("/api/v2/community/topics/{id}/subscriptions.json", topic_id, "topic_id")
+    def get_subscription(self, content_type: str, content_id: int, subscription_id: int) -> dict[str, object]:
+        path = self._subscription_path(content_type, content_id, subscription_id)
+        return self._get(path) if path else failure(ErrorCode.VALIDATION_ERROR, "valid content_type, content_id, and subscription_id are required")
+    def create_subscription(self, content_type: str, content_id: int, *, include_comments: bool = False, execution_mode: str = "preview", approval_request_id: str | None = None, approval_token: str | None = None) -> dict[str, object]:
+        path = self._subscription_path(content_type, content_id)
+        if path is None or not isinstance(include_comments, bool) or (content_type == "post" and include_comments): return failure(ErrorCode.VALIDATION_ERROR, "valid subscription fields are required")
+        body = {"subscription": {"include_comments": include_comments}} if content_type == "topic" else None
+        payload = {"content_type": content_type, "content_id": content_id, "include_comments": include_comments}
+        return self._approved_request("zendesk_create_content_subscription", payload, "POST", path, body, WriteRisk.PUBLIC, execution_mode, approval_request_id, approval_token)
+    def update_subscription(self, topic_id: int, subscription_id: int, *, include_comments: bool, execution_mode: str = "preview", approval_request_id: str | None = None, approval_token: str | None = None) -> dict[str, object]:
+        path = self._subscription_path("topic", topic_id, subscription_id)
+        if path is None or not isinstance(include_comments, bool): return failure(ErrorCode.VALIDATION_ERROR, "valid topic_id, subscription_id, and include_comments are required")
+        body = {"subscription": {"include_comments": include_comments}}
+        return self._approved_request("zendesk_update_content_subscription", {"topic_id": topic_id, "subscription_id": subscription_id, "include_comments": include_comments}, "PUT", path, body, WriteRisk.PUBLIC, execution_mode, approval_request_id, approval_token)
+    def delete_subscription(self, content_type: str, content_id: int, subscription_id: int, *, execution_mode: str = "preview", approval_request_id: str | None = None, approval_token: str | None = None) -> dict[str, object]:
+        path = self._subscription_path(content_type, content_id, subscription_id)
+        if path is None: return failure(ErrorCode.VALIDATION_ERROR, "valid content_type, content_id, and subscription_id are required")
+        return self._approved_request("zendesk_delete_content_subscription", {"content_type": content_type, "content_id": content_id, "subscription_id": subscription_id}, "DELETE", path, None, WriteRisk.DESTRUCTIVE, execution_mode, approval_request_id, approval_token)
     def search_content_tags(self, prefix: str) -> dict[str, object]:
         if not isinstance(prefix, str): return failure(ErrorCode.VALIDATION_ERROR, "prefix must be a string")
         return self._get("/api/v2/guide/content_tags.json", {"prefix": prefix})
@@ -109,6 +127,10 @@ class CommunityTools:
         if content_type == "post" and comment_id is None: return f"/api/v2/help_center/posts/{post_id}/{direction}.json"
         if content_type == "post_comment" and self._valid_id(comment_id, "comment_id"): return f"/api/v2/community/posts/{post_id}/comments/{comment_id}/{direction}.json"
         return None
+    def _subscription_path(self, content_type: str, content_id: int, subscription_id: int | None = None) -> str | None:
+        if content_type not in {"post", "topic"} or not self._valid_id(content_id, "content_id") or (subscription_id is not None and not self._valid_id(subscription_id, "subscription_id")): return None
+        path = f"/api/v2/community/{content_type}s/{content_id}/subscriptions"
+        return f"{path}/{subscription_id}.json" if subscription_id is not None else f"{path}.json"
     def _post_payload(self, post: dict[str, object]) -> dict[str, object] | None:
         if not isinstance(post, dict) or not post or set(post) - {"title", "details", "topic_id", "status", "closed", "featured", "pinned", "content_tag_ids"}: return None
         normalized = dict(post)
