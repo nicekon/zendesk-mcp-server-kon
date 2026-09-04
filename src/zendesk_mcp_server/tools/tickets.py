@@ -5,8 +5,11 @@ from __future__ import annotations
 import os
 import secrets
 import stat
+import subprocess
+import sys
 import tarfile
 import zipfile
+import json
 from datetime import datetime
 from pathlib import Path
 from typing import Protocol
@@ -147,6 +150,8 @@ class TicketTools:
         data = downloaded["data"]; path = data["cache_path"]; content_type = data.get("content_type")
         if isinstance(content_type, str) and content_type.startswith("text/"):
             inspected = _inspect_text(Path(path))
+        elif content_type == "application/pdf":
+            inspected = _inspect_pdf(Path(path))
         elif _is_archive(content_type):
             inspected = _inspect_archive(Path(path))
         else:
@@ -684,6 +689,40 @@ def _inspect_text(path: Path) -> dict[str, object]:
     with stream:
         content = stream.read(500 * 1024 + 1)
     return success({"kind": "text", "text": content[: 500 * 1024].decode("utf-8", errors="replace"), "truncated": len(content) > 500 * 1024})
+
+
+_PDF_INSPECTOR = """
+import json, resource, sys
+soft, hard = resource.getrlimit(resource.RLIMIT_AS)
+limits = [256 * 1024 * 1024]
+if soft > 0: limits.append(soft)
+if hard > 0: limits.append(hard)
+limit = min(limits)
+resource.setrlimit(resource.RLIMIT_AS, (limit, hard))
+from pypdf import PdfReader
+reader = PdfReader(sys.argv[1])
+if len(reader.pages) > 100: raise ValueError('PDF exceeds 100 pages')
+text = ''
+truncated = False
+for page in reader.pages:
+    text += page.extract_text() or ''
+    if len(text.encode('utf-8')) > 500 * 1024:
+        text = text.encode('utf-8')[:500 * 1024].decode('utf-8', 'ignore'); truncated = True; break
+print(json.dumps({'page_count': len(reader.pages), 'text': text, 'truncated': truncated}))
+"""
+
+
+def _inspect_pdf(path: Path) -> dict[str, object]:
+    stream = _safe_cache_open(path)
+    if stream is None: return failure(ErrorCode.VALIDATION_ERROR, "attachment cache file is unsafe")
+    stream.close()
+    try:
+        result = subprocess.run([sys.executable, "-c", _PDF_INSPECTOR, str(path)], capture_output=True, text=True, timeout=10, check=False)
+        data = json.loads(result.stdout) if result.returncode == 0 else None
+    except (OSError, subprocess.TimeoutExpired, json.JSONDecodeError):
+        data = None
+    if not isinstance(data, dict) or not isinstance(data.get("page_count"), int) or not isinstance(data.get("text"), str) or not isinstance(data.get("truncated"), bool): return failure(ErrorCode.UNSUPPORTED, "PDF inspection requires a bounded parser subprocess")
+    return success({"kind": "pdf", **data})
 
 
 def _is_archive(content_type: object) -> bool:

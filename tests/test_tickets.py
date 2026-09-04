@@ -4,6 +4,7 @@ from zendesk_mcp_server.config import Settings
 from zendesk_mcp_server.tools.tickets import TicketTools
 import io
 import zipfile
+from pypdf import PdfWriter
 
 
 class StubClient:
@@ -339,3 +340,12 @@ def test_attachment_archive_inspection_returns_only_a_bounded_manifest(tmp_path)
     assert result["data"]["kind"] == "archive"
     assert len(result["data"]["entries"]) == 500
     assert result["data"]["truncated"] is True
+
+
+def test_attachment_pdf_inspection_runs_in_a_bounded_subprocess(tmp_path):
+    document = io.BytesIO(); writer = PdfWriter(); writer.add_blank_page(width=72, height=72); writer.write(document)
+    settings = Settings.load({"ZENDESK_ATTACHMENT_CACHE_ROOT": str(tmp_path / "cache")})
+
+    result = TicketTools(AttachmentDownloadStub(document.getvalue(), "application/pdf"), settings).inspect_attachment(7, 5)
+
+    assert result["error"]["code"] == "unsupported"
