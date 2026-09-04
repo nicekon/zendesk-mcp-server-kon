@@ -159,6 +159,7 @@ def build_tools() -> list[types.Tool]:
         types.Tool(name="zendesk_list_community_posts", description="List Community posts without making changes.", inputSchema={"type": "object", "properties": {}}),
         types.Tool(name="zendesk_search_community_posts", description="Search Community posts without making changes.", inputSchema={"type": "object", "properties": {"query": {"type": "string", "minLength": 1}}, "required": ["query"]}),
         types.Tool(name="zendesk_get_community_post", description="Get a Community post without making changes.", inputSchema={"type": "object", "properties": {"post_id": {"type": "integer", "minimum": 1}}, "required": ["post_id"]}),
+        types.Tool(name="zendesk_create_community_post", description="Preview or create a public Community post. Apply requires public-write gate and local approval.", inputSchema={"type": "object", "properties": {"topic_id": {"type": "integer", "minimum": 1}, "title": {"type": "string", "minLength": 1}, "details": {"type": "string", "minLength": 1}, "execution_mode": {"type": "string", "enum": ["preview", "apply"], "default": "preview"}, "approval_request_id": {"type": "string"}, "approval_token": {"type": "string"}}, "required": ["topic_id", "title", "details"]}),
     ]
 
 
@@ -207,7 +208,7 @@ def build_community_tools(environ: Mapping[str, str]) -> CommunityTools | dict[s
         settings = Settings.load(environ); authorization = build_authorization(settings)
     except ConfigurationError as error: return failure(ErrorCode.VALIDATION_ERROR, str(error))
     if authorization is None: return failure(ErrorCode.NOT_CONFIGURED, "Zendesk is not configured")
-    return CommunityTools(ZendeskClient(settings, authorization))
+    return CommunityTools(ZendeskClient(settings, authorization), settings, ApprovalStore.from_environment(environ))
 
 
 def create_server(environ: Mapping[str, str] | None = None) -> Server:
@@ -277,11 +278,13 @@ def create_server(environ: Mapping[str, str] | None = None) -> Server:
     ) -> list[types.TextContent]:
         if name == "zendesk_get_connection_status":
             result = build_connection_status(environment)
-        elif name in {"zendesk_list_community_posts", "zendesk_search_community_posts", "zendesk_get_community_post"}:
+        elif name in {"zendesk_list_community_posts", "zendesk_search_community_posts", "zendesk_get_community_post", "zendesk_create_community_post"}:
             tools = build_community_tools(environment)
             if isinstance(tools, dict): result = tools
             elif name == "zendesk_list_community_posts": result = tools.list_posts()
             elif name == "zendesk_search_community_posts": result = tools.search_posts((arguments or {}).get("query"))
+            elif name == "zendesk_create_community_post":
+                values = arguments or {}; result = tools.create_post(values.get("topic_id"), values.get("title"), values.get("details"), execution_mode=values.get("execution_mode", "preview"), approval_request_id=values.get("approval_request_id"), approval_token=values.get("approval_token"))
             else: result = tools.get_post((arguments or {}).get("post_id"))
         elif name in {"zendesk_list_help_center_categories", "zendesk_list_help_center_sections", "zendesk_search_help_center_articles", "zendesk_get_help_center_article", "zendesk_get_satisfaction_ratings"}:
             tools = build_guide_tools(environment)
