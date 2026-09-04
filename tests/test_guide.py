@@ -1,3 +1,6 @@
+import os
+from pathlib import Path
+
 from zendesk_mcp_server.contracts import ErrorCode, failure, success
 from zendesk_mcp_server.approvals import ApprovalStore
 from zendesk_mcp_server.config import Settings
@@ -66,6 +69,22 @@ def test_csat_adapters_only_send_their_official_filters():
         ("/api/v2/satisfaction_ratings.json", {"score": "good", "start_time": "1788220800", "end_time": "1788307200"}),
         ("/api/v2/guide/survey_responses.json", {"filter[subject_zrns]": "zen:ticket:9", "filter[responder_ids]": "3,4", "filter[created_at_start]": "1788220800000"}),
     ]
+
+
+def test_csat_export_writes_a_managed_artifact(tmp_path):
+    class CsatClient:
+        def get(self, path, *, params=None):
+            assert path == "/api/v2/satisfaction_ratings.json"
+            return success({"satisfaction_ratings": [{"id": 1, "score": "good"}]})
+
+    settings = Settings.load({"ZENDESK_ATTACHMENT_CACHE_ROOT": str(tmp_path / "attachments")})
+    result = GuideTools(CsatClient(), settings).export_csat("legacy", output_format="csv")
+
+    assert result["data"]["format"] == "csv"
+    assert result["data"]["item_count"] == 1
+    assert "satisfaction_ratings" not in result["data"]
+    assert (tmp_path / "exports" / str(os.getuid())).exists()
+    assert "id,score" in Path(result["data"]["cache_path"]).read_text()
 
 
 def test_draft_article_create_validates_locale_and_requires_local_approval(tmp_path):

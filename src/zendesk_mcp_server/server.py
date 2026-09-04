@@ -351,6 +351,20 @@ def ticket_export_content(result: dict[str, object]) -> list[object]:
     ]
 
 
+def csat_export_content(result: dict[str, object]) -> list[object]:
+    data = result.get("data")
+    if not result.get("ok") or not isinstance(data, dict) or not isinstance(data.get("cache_path"), str):
+        return [types.TextContent(type="text", text=json.dumps(result))]
+    path = Path(data["cache_path"])
+    if not path.is_absolute(): return [types.TextContent(type="text", text=json.dumps(result))]
+    output_format = data.get("format") if isinstance(data.get("format"), str) else "json"
+    summary = {key: value for key, value in data.items() if key != "cache_path"}
+    return [
+        types.TextContent(type="text", text=json.dumps({**result, "data": summary})),
+        types.ResourceLink(type="resource_link", name=f"Zendesk CSAT export ({output_format})", uri=path.as_uri(), mimeType={"json": "application/json", "csv": "text/csv"}.get(output_format)),
+    ]
+
+
 def attachment_inspection_content(result: dict[str, object]) -> list[object]:
     data = result.get("data")
     if not result.get("ok") or not isinstance(data, dict) or data.get("kind") != "image" or not isinstance(data.get("image_data"), str) or not isinstance(data.get("mime_type"), str):
@@ -566,7 +580,7 @@ def create_server(environ: Mapping[str, str] | None = None) -> Server:
             elif name == "zendesk_get_help_center_article": result = tools.get_article((arguments or {}).get("article_id"))
             elif name in {"zendesk_list_csat", "zendesk_export_satisfaction_ratings"}:
                 values = arguments or {}
-                result = failure(ErrorCode.VALIDATION_ERROR, "format must be json or csv") if name == "zendesk_export_satisfaction_ratings" and values.get("format", "json") not in {"json", "csv"} else tools.list_csat(values.get("backend", "auto"), score=values.get("score"), ticket_id=values.get("ticket_id"), responder_ids=values.get("responder_ids"), created_at_start=values.get("created_at_start"), created_at_end=values.get("created_at_end"))
+                result = tools.export_csat(values.get("backend", "auto"), score=values.get("score"), ticket_id=values.get("ticket_id"), responder_ids=values.get("responder_ids"), created_at_start=values.get("created_at_start"), created_at_end=values.get("created_at_end"), output_format=values.get("format", "json")) if name == "zendesk_export_satisfaction_ratings" else tools.list_csat(values.get("backend", "auto"), score=values.get("score"), ticket_id=values.get("ticket_id"), responder_ids=values.get("responder_ids"), created_at_start=values.get("created_at_start"), created_at_end=values.get("created_at_end"))
             elif name == "zendesk_list_guide_permission_groups": result = tools.list_permission_groups()
             elif name == "zendesk_list_guide_user_segments":
                 values = arguments or {}; result = tools.list_user_segments(built_in=values.get("built_in"), applicable=values.get("applicable", False))
@@ -719,6 +733,7 @@ def create_server(environ: Mapping[str, str] | None = None) -> Server:
         if name == "zendesk_download_ticket_attachment": return attachment_download_content(result)
         if name == "zendesk_inspect_ticket_attachment": return attachment_inspection_content(result)
         if name == "zendesk_export_tickets": return ticket_export_content(result)
+        if name == "zendesk_export_satisfaction_ratings": return csat_export_content(result)
         return [types.TextContent(type="text", text=json.dumps(result))]
 
     return server

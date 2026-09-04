@@ -10,6 +10,7 @@ from ..approvals import ApprovalStore
 from ..config import Settings
 from ..contracts import ErrorCode, failure, success
 from ..write_policy import WriteRisk, check_write_permission
+from .tickets import _cache_ticket_export, _clean_export_cache, _serialize_ticket_export
 
 _LOCALE = re.compile(r"[a-z]{2,3}(?:-[a-z0-9]+)*$")
 _CSAT_SCORES = {"offered", "unoffered", "received", "received_with_comment", "received_without_comment", "good", "good_with_comment", "good_without_comment", "bad", "bad_with_comment", "bad_without_comment"}
@@ -36,6 +37,20 @@ class GuideTools:
             return self._get("/api/v2/satisfaction_ratings.json", {key: value for key, value in {"score": score, "start_time": str(start) if start is not None else None, "end_time": str(end) if end is not None else None}.items() if value is not None} or None)
         if score is not None or (ticket_id is not None and not self._valid_id(ticket_id)) or (responder_ids is not None and (not isinstance(responder_ids, list) or not responder_ids or any(not self._valid_id(value) for value in responder_ids))): return failure(ErrorCode.VALIDATION_ERROR, "survey CSAT accepts ticket_id, responder_ids, and date range only")
         return self._get("/api/v2/guide/survey_responses.json", {key: value for key, value in {"filter[subject_zrns]": f"zen:ticket:{ticket_id}" if ticket_id is not None else None, "filter[responder_ids]": ",".join(str(value) for value in responder_ids) if responder_ids is not None else None, "filter[created_at_start]": str(start) if start is not None else None, "filter[created_at_end]": str(end) if end is not None else None}.items() if value is not None} or None)
+    def export_csat(self, backend: str = "auto", *, score: str | None = None, ticket_id: int | None = None, responder_ids: list[int] | None = None, created_at_start: str | None = None, created_at_end: str | None = None, output_format: str = "json") -> dict[str, object]:
+        if output_format not in {"json", "csv"}: return failure(ErrorCode.VALIDATION_ERROR, "output_format must be json or csv")
+        result = self.list_csat(backend, score=score, ticket_id=ticket_id, responder_ids=responder_ids, created_at_start=created_at_start, created_at_end=created_at_end)
+        if not result.get("ok"): return result
+        data = result.get("data")
+        items = data.get("satisfaction_ratings") if isinstance(data, dict) else None
+        if not isinstance(items, list): items = data.get("survey_responses") if isinstance(data, dict) else None
+        if not isinstance(items, list): return failure(ErrorCode.UPSTREAM_ERROR, "Zendesk returned an invalid CSAT export response")
+        if self._settings is None or self._settings.attachment_cache_root is None: return failure(ErrorCode.NOT_CONFIGURED, "Zendesk export cache is not configured")
+        root = self._settings.attachment_cache_root.parent / "exports"
+        _clean_export_cache(root)
+        cached = _cache_ticket_export(root, output_format, _serialize_ticket_export(items, output_format), filename_prefix="csat-export")
+        if not cached.get("ok"): return cached
+        return success({"format": output_format, "item_count": len(items), **cached["data"]})
     def list_permission_groups(self) -> dict[str, object]: return self._get("/api/v2/guide/permission_groups.json")
     def list_user_segments(self, *, built_in: bool | None = None, applicable: bool = False) -> dict[str, object]:
         if not isinstance(applicable, bool) or (built_in is not None and not isinstance(built_in, bool)): return failure(ErrorCode.VALIDATION_ERROR, "built_in and applicable must be booleans")

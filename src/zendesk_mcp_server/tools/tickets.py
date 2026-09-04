@@ -989,14 +989,14 @@ def _csv_value(value: object) -> object:
     return json.dumps(value, ensure_ascii=False, separators=(",", ":")) if isinstance(value, (dict, list)) else value
 
 
-def _cache_ticket_export(root: Path, output_format: str, content: bytes) -> dict[str, object]:
+def _cache_ticket_export(root: Path, output_format: str, content: bytes, *, filename_prefix: str = "ticket-export") -> dict[str, object]:
     try:
         user_root = root / str(os.getuid())
         for directory in (root, user_root):
             directory.mkdir(mode=0o700, exist_ok=True)
             info = directory.lstat()
             if stat.S_ISLNK(info.st_mode) or not stat.S_ISDIR(info.st_mode): return failure(ErrorCode.VALIDATION_ERROR, "export cache directory is unsafe")
-        target = user_root / f"ticket-export-{secrets.token_hex(16)}.{output_format}"
+        target = user_root / f"{filename_prefix}-{secrets.token_hex(16)}.{output_format}"
         temporary = user_root / f".{target.name}.tmp"
         descriptor = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
         with os.fdopen(descriptor, "wb") as stream: stream.write(content)

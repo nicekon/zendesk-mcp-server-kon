@@ -50,6 +50,17 @@ def test_ticket_export_result_includes_a_resource_link_without_its_cache_path():
     assert content[1].mimeType == "text/csv"
 
 
+def test_csat_export_result_includes_a_resource_link_without_its_cache_path():
+    from zendesk_mcp_server.server import csat_export_content
+
+    content = csat_export_content({"ok": True, "data": {"format": "json", "cache_path": "/private/cache/exports/csat.json", "item_count": 2}})
+
+    assert isinstance(content[0], types.TextContent)
+    assert "cache_path" not in str(content[0].text)
+    assert isinstance(content[1], types.ResourceLink)
+    assert content[1].name == "Zendesk CSAT export (json)"
+
+
 def test_knowledge_base_resource_is_registered_only_when_enabled():
     from zendesk_mcp_server.server import create_server
 
