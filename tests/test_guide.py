@@ -186,6 +186,27 @@ def test_article_create_binds_brand_to_approval_and_uses_its_subdomain(tmp_path)
     assert client.paths[-1] == ("brand-one", "POST", "/api/v2/help_center/sections/3/articles.json", {"article": {"title": "Title", "body": "Body", "locale": "en-us", "draft": True}, "notify_subscribers": False})
 
 
+def test_article_publish_binds_brand_to_approval_and_uses_its_subdomain(tmp_path):
+    class BrandClient:
+        def __init__(self): self.paths = []
+        def get(self, path, *, params=None):
+            self.paths.append((path, params)); return success({"brand": {"subdomain": "brand-one", "has_help_center": True}})
+        def get_for_subdomain(self, subdomain, path, *, params=None):
+            self.paths.append((subdomain, path, params))
+            return success({"locales": ["en-us"]}) if path.endswith("locales.json") else success({"translation": {"id": 6, "draft": True}})
+        def request_for_subdomain(self, subdomain, method, path, *, json_body=None):
+            self.paths.append((subdomain, method, path, json_body)); return success({})
+
+    client = BrandClient(); store = ApprovalStore(tmp_path / "approvals.json")
+    tools = GuideTools(client, Settings.load({"ZENDESK_WRITE_MODE": "standard", "ZENDESK_ENABLE_PUBLIC_WRITES": "true"}), store)
+    preview = tools.publish_article(3, "en-us", brand_id=7)
+    token = store.approve(preview["data"]["approval_request_id"])
+    result = tools.publish_article(3, "en-us", brand_id=7, execution_mode="apply", approval_request_id=preview["data"]["approval_request_id"], approval_token=token)
+
+    assert result["data"]["translation"]["id"] == 6
+    assert ("brand-one", "PUT", "/api/v2/help_center/articles/3/translations/en-us.json", {"translation": {"draft": False}}) in client.paths
+
+
 class TranslationClient(StubClient):
     def __init__(self, existing): super().__init__(); self.existing, self.published = existing, False
     def get(self, path, *, params=None):
