@@ -201,7 +201,29 @@ class CommunityTools:
         payload = {"user_id": user_id, "followed_id": followed_id, "include_comments": include_comments}
         body = {"user_subscription": {"followed_id": followed_id, "include_comments": include_comments}}
         risk: WriteRisk | tuple[WriteRisk, ...] = WriteRisk.PUBLIC if user_id == "me" else (WriteRisk.PUBLIC, WriteRisk.IMPERSONATION)
-        return self._approved_request("zendesk_upsert_user_subscription", payload, "POST", path, body, risk, execution_mode, approval_request_id, approval_token)
+        current = self._find_user_subscription(path, followed_id)
+        if not current.get("ok"): return current
+        existing = current["data"]["subscription"]
+        if isinstance(existing, dict) and existing.get("include_comments") == include_comments:
+            return success({"current_subscription": existing, "subscription": existing, "operation_state": "not_applied", "idempotent": True, "outbound_write": False})
+        proposed = {"followed_id": followed_id, "include_comments": include_comments}
+        if execution_mode == "preview":
+            if self._approvals is None: return failure(ErrorCode.NOT_CONFIGURED, "Zendesk approval store is not configured")
+            risks = risk if isinstance(risk, tuple) else (risk,)
+            return success({"approval_request_id": self._approvals.create("zendesk_upsert_user_subscription", payload), "execution_mode": "preview", "current_subscription": existing, "proposed_subscription": proposed, "operation_state": "not_applied", **{item.value: True for item in risks}, "outbound_write": False})
+        if execution_mode != "apply": return failure(ErrorCode.VALIDATION_ERROR, "execution_mode must be preview or apply")
+        if self._settings is None: return failure(ErrorCode.WRITE_DISABLED, "Zendesk writes are disabled")
+        for item in risk if isinstance(risk, tuple) else (risk,):
+            if (blocked := check_write_permission(self._settings, item)) is not None: return blocked
+        if self._approvals is None or not isinstance(approval_request_id, str) or not isinstance(approval_token, str) or not self._approvals.consume(approval_request_id, "zendesk_upsert_user_subscription", payload, approval_token): return failure(ErrorCode.APPROVAL_REQUIRED, "a matching local approval is required")
+        if self._client is None: return failure(ErrorCode.NOT_CONFIGURED, "Zendesk write client is not configured")
+        written = self._client.request("POST", path, json_body=body)
+        if not written.get("ok"): return written
+        observed = self._find_user_subscription(path, followed_id)
+        if not observed.get("ok"): return failure(ErrorCode.OUTCOME_UNKNOWN, "subscription write succeeded but read-back failed", operation_state="unknown")
+        subscription = observed["data"]["subscription"]
+        if not isinstance(subscription, dict) or subscription.get("include_comments") != include_comments: return failure(ErrorCode.OUTCOME_UNKNOWN, "subscription write could not be verified", operation_state="unknown")
+        return success({"current_subscription": existing, "subscription": subscription, "operation_state": "applied", "idempotent": False})
     def delete_user_subscription(self, user_id: int | str, subscription_id: int, *, execution_mode: str = "preview", approval_request_id: str | None = None, approval_token: str | None = None) -> dict[str, object]:
         path = self._user_subscription_path(user_id, subscription_id)
         if path is None: return failure(ErrorCode.VALIDATION_ERROR, "valid user_id and subscription_id are required")
@@ -423,6 +445,23 @@ class CommunityTools:
         if not isinstance(items, list) or not isinstance(meta, dict): return failure(ErrorCode.UPSTREAM_ERROR, "Zendesk returned an invalid cursor page")
         next_cursor = meta.get("after_cursor") if isinstance(meta.get("after_cursor"), str) else None
         return {"ok": True, "items": items, "has_more": bool(meta.get("has_more")), "next_cursor": next_cursor, "truncated": False}
+    def _find_user_subscription(self, path: str, followed_id: int) -> dict[str, object]:
+        after: str | None = None; seen: set[str] = set(); scanned = 0
+        while scanned < 1000:
+            params = {"type": "followings", "page[size]": "100"}
+            if after is not None: params["page[after]"] = after
+            result = self._get(path, params)
+            if not result.get("ok"): return result
+            data = result.get("data"); subscriptions = data.get("user_subscriptions") if isinstance(data, dict) else None; meta = data.get("meta", {}) if isinstance(data, dict) else None
+            if not isinstance(subscriptions, list) or not isinstance(meta, dict) or len(subscriptions) > 100: return failure(ErrorCode.UPSTREAM_ERROR, "Zendesk returned an invalid user subscription page")
+            scanned += len(subscriptions)
+            found = next((subscription for subscription in subscriptions if isinstance(subscription, dict) and subscription.get("followed_id") == followed_id), None)
+            if found is not None: return success({"subscription": found})
+            if not meta.get("has_more"): return success({"subscription": None})
+            next_after = meta.get("after_cursor")
+            if not isinstance(next_after, str) or not next_after or next_after in seen: return failure(ErrorCode.UPSTREAM_ERROR, "Zendesk returned an invalid user subscription cursor")
+            seen.add(next_after); after = next_after
+        return failure(ErrorCode.UPSTREAM_ERROR, "too many user subscriptions to safely determine the current setting")
 
 
 def _valid_timestamp(value: object) -> bool:

@@ -286,13 +286,62 @@ def test_content_tag_delete_requires_local_destructive_approval(tmp_path):
 
 
 def test_user_subscription_list_and_upsert_require_fixed_path_and_public_approval(tmp_path):
-    client = StubClient(); store = ApprovalStore(tmp_path / "approvals.json")
+    class SubscriptionClient(StubClient):
+        def get(self, path, *, params=None):
+            self.paths.append((path, params)); return success({"user_subscriptions": [], "meta": {"has_more": False}})
+
+    client = SubscriptionClient(); store = ApprovalStore(tmp_path / "approvals.json")
     tools = CommunityTools(client, Settings.load({"ZENDESK_WRITE_MODE": "standard", "ZENDESK_ENABLE_PUBLIC_WRITES": "true"}), store)
     tools.list_user_subscriptions("me", "followings")
     preview = tools.upsert_user_subscription("me", 7, include_comments=False)
     token = store.approve(preview["data"]["approval_request_id"])
     tools.upsert_user_subscription("me", 7, include_comments=False, execution_mode="apply", approval_request_id=preview["data"]["approval_request_id"], approval_token=token)
-    assert client.paths[-2:] == [("/api/v2/help_center/users/me/user_subscriptions.json", {"type": "followings"}), ("POST", "/api/v2/help_center/users/me/user_subscriptions.json", {"user_subscription": {"followed_id": 7, "include_comments": False}})]
+    assert client.paths[-4:] == [
+        ("/api/v2/help_center/users/me/user_subscriptions.json", {"type": "followings", "page[size]": "100"}),
+        ("/api/v2/help_center/users/me/user_subscriptions.json", {"type": "followings", "page[size]": "100"}),
+        ("POST", "/api/v2/help_center/users/me/user_subscriptions.json", {"user_subscription": {"followed_id": 7, "include_comments": False}}),
+        ("/api/v2/help_center/users/me/user_subscriptions.json", {"type": "followings", "page[size]": "100"}),
+    ]
+
+
+def test_user_subscription_upsert_is_idempotent_when_the_setting_already_matches(tmp_path):
+    class SubscriptionClient:
+        def __init__(self): self.get_calls, self.write_calls = [], []
+        def get(self, path, *, params=None):
+            self.get_calls.append((path, params)); return success({"user_subscriptions": [{"id": 5, "followed_id": 7, "include_comments": False}], "meta": {"has_more": False}})
+        def request(self, method, path, *, json_body=None): self.write_calls.append((method, path, json_body)); return success({})
+
+    client = SubscriptionClient()
+    result = CommunityTools(client, Settings.load({}), ApprovalStore(tmp_path / "approvals.json")).upsert_user_subscription("me", 7, include_comments=False, execution_mode="apply")
+
+    assert result["data"] == {"current_subscription": {"id": 5, "followed_id": 7, "include_comments": False}, "subscription": {"id": 5, "followed_id": 7, "include_comments": False}, "operation_state": "not_applied", "idempotent": True, "outbound_write": False}
+    assert client.write_calls == []
+
+
+def test_user_subscription_upsert_previews_change_and_reads_back_after_approval(tmp_path):
+    class SubscriptionClient:
+        def __init__(self): self.include_comments, self.calls = False, []
+        def get(self, path, *, params=None):
+            self.calls.append(("GET", path, params)); return success({"user_subscriptions": [{"id": 5, "followed_id": 7, "include_comments": self.include_comments}], "meta": {"has_more": False}})
+        def request(self, method, path, *, json_body=None):
+            self.calls.append((method, path, json_body)); self.include_comments = json_body["user_subscription"]["include_comments"]; return success({"user_subscription": {"id": 5}})
+
+    client = SubscriptionClient(); store = ApprovalStore(tmp_path / "approvals.json")
+    tools = CommunityTools(client, Settings.load({"ZENDESK_WRITE_MODE": "standard", "ZENDESK_ENABLE_PUBLIC_WRITES": "true"}), store)
+    preview = tools.upsert_user_subscription("me", 7, include_comments=True)
+    token = store.approve(preview["data"]["approval_request_id"])
+    result = tools.upsert_user_subscription("me", 7, include_comments=True, execution_mode="apply", approval_request_id=preview["data"]["approval_request_id"], approval_token=token)
+
+    assert preview["data"]["current_subscription"] == {"id": 5, "followed_id": 7, "include_comments": False}
+    assert preview["data"]["proposed_subscription"] == {"followed_id": 7, "include_comments": True}
+    assert result["data"]["subscription"] == {"id": 5, "followed_id": 7, "include_comments": True}
+    assert result["data"]["operation_state"] == "applied"
+    assert client.calls == [
+        ("GET", "/api/v2/help_center/users/me/user_subscriptions.json", {"type": "followings", "page[size]": "100"}),
+        ("GET", "/api/v2/help_center/users/me/user_subscriptions.json", {"type": "followings", "page[size]": "100"}),
+        ("POST", "/api/v2/help_center/users/me/user_subscriptions.json", {"user_subscription": {"followed_id": 7, "include_comments": True}}),
+        ("GET", "/api/v2/help_center/users/me/user_subscriptions.json", {"type": "followings", "page[size]": "100"}),
+    ]
 
 
 def test_user_subscription_delete_requires_local_destructive_approval(tmp_path):
@@ -305,13 +354,17 @@ def test_user_subscription_delete_requires_local_destructive_approval(tmp_path):
 
 
 def test_other_user_subscription_requires_public_and_impersonation_gates(tmp_path):
-    client = StubClient(); store = ApprovalStore(tmp_path / "approvals.json")
+    class SubscriptionClient(StubClient):
+        def get(self, path, *, params=None):
+            self.paths.append((path, params)); return success({"user_subscriptions": [], "meta": {"has_more": False}})
+
+    client = SubscriptionClient(); store = ApprovalStore(tmp_path / "approvals.json")
     tools = CommunityTools(client, Settings.load({"ZENDESK_WRITE_MODE": "standard", "ZENDESK_ENABLE_IMPERSONATION": "true"}), store)
     preview = tools.upsert_user_subscription(6, 7)
     token = store.approve(preview["data"]["approval_request_id"])
     result = tools.upsert_user_subscription(6, 7, execution_mode="apply", approval_request_id=preview["data"]["approval_request_id"], approval_token=token)
     assert result["error"]["code"] == "write_disabled"
-    assert client.paths == []
+    assert not any(isinstance(call[0], str) and call[0] == "POST" for call in client.paths)
 
 
 def test_badge_category_reads_and_mutations_use_fixed_paths_and_approvals(tmp_path):
