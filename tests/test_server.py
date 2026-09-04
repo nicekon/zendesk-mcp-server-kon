@@ -89,6 +89,8 @@ def test_support_read_tools_are_registered():
         "zendesk_list_guide_user_segments",
         "zendesk_create_help_center_article",
         "zendesk_upsert_article_translation",
+        "zendesk_replace_article_translation_body",
+        "zendesk_publish_help_center_article",
         "zendesk_list_community_posts",
         "zendesk_search_community_posts",
         "zendesk_get_community_post",

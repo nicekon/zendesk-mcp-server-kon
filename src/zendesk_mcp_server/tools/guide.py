@@ -75,6 +75,43 @@ class GuideTools:
         if self._client is None: return failure(ErrorCode.NOT_CONFIGURED, "Zendesk is not configured")
         path = f"/api/v2/help_center/articles/{article_id}/translations.json" if operation == "create" else f"/api/v2/help_center/articles/{article_id}/translations/{locale}.json"
         return self._client.request("POST" if operation == "create" else "PUT", path, json_body={"translation": translation})
+    def replace_article_translation_body(self, article_id: int, locale: str, body: str, *, execution_mode: str = "preview", approval_request_id: str | None = None, approval_token: str | None = None) -> dict[str, object]:
+        if not self._valid_id(article_id) or not isinstance(locale, str) or not _LOCALE.fullmatch(locale) or not isinstance(body, str): return failure(ErrorCode.VALIDATION_ERROR, "valid article_id, locale, and body are required")
+        current = self._get_translation(article_id, locale)
+        if current is None or not current.get("ok", True): return current or failure(ErrorCode.NOT_FOUND, "translation not found")
+        risks = (WriteRisk.DESTRUCTIVE, WriteRisk.PUBLIC) if current.get("draft") is not True else (WriteRisk.DESTRUCTIVE,)
+        payload = {"article_id": article_id, "locale": locale, "body": body}
+        if execution_mode == "preview":
+            if self._approvals is None: return failure(ErrorCode.NOT_CONFIGURED, "Zendesk approval store is not configured")
+            return success({"approval_request_id": self._approvals.create("zendesk_replace_article_translation_body", payload), "execution_mode": "preview", "content_block_replacement_warning": True, "outbound_write": False, **{risk.value: True for risk in risks}})
+        if execution_mode != "apply": return failure(ErrorCode.VALIDATION_ERROR, "execution_mode must be preview or apply")
+        if self._settings is None: return failure(ErrorCode.WRITE_DISABLED, "Zendesk writes are disabled")
+        for risk in risks:
+            if (blocked := check_write_permission(self._settings, risk)) is not None: return blocked
+        locale_check = self._validate_active_locale(locale)
+        if locale_check is not None: return locale_check
+        if self._approvals is None or not isinstance(approval_request_id, str) or not isinstance(approval_token, str) or not self._approvals.consume(approval_request_id, "zendesk_replace_article_translation_body", payload, approval_token): return failure(ErrorCode.APPROVAL_REQUIRED, "a matching local approval is required")
+        if self._client is None: return failure(ErrorCode.NOT_CONFIGURED, "Zendesk is not configured")
+        return self._client.request("PUT", f"/api/v2/help_center/articles/{article_id}/translations/{locale}.json", json_body={"translation": {"body": body}})
+    def publish_article(self, article_id: int, locale: str, *, execution_mode: str = "preview", approval_request_id: str | None = None, approval_token: str | None = None) -> dict[str, object]:
+        if not self._valid_id(article_id) or not isinstance(locale, str) or not _LOCALE.fullmatch(locale): return failure(ErrorCode.VALIDATION_ERROR, "valid article_id and locale are required")
+        current = self._get_translation(article_id, locale)
+        if current is None or not current.get("ok", True): return current or failure(ErrorCode.NOT_FOUND, "translation not found")
+        if current.get("draft") is False: return success({"translation": current, "outbound_write": False})
+        payload = {"article_id": article_id, "locale": locale}
+        if execution_mode == "preview":
+            if self._approvals is None: return failure(ErrorCode.NOT_CONFIGURED, "Zendesk approval store is not configured")
+            return success({"approval_request_id": self._approvals.create("zendesk_publish_help_center_article", payload), "execution_mode": "preview", "public": True, "outbound_write": False})
+        if execution_mode != "apply": return failure(ErrorCode.VALIDATION_ERROR, "execution_mode must be preview or apply")
+        if self._settings is None or (blocked := check_write_permission(self._settings, WriteRisk.PUBLIC)) is not None: return blocked or failure(ErrorCode.WRITE_DISABLED, "Zendesk public writes are disabled")
+        locale_check = self._validate_active_locale(locale)
+        if locale_check is not None: return locale_check
+        if self._approvals is None or not isinstance(approval_request_id, str) or not isinstance(approval_token, str) or not self._approvals.consume(approval_request_id, "zendesk_publish_help_center_article", payload, approval_token): return failure(ErrorCode.APPROVAL_REQUIRED, "a matching local approval is required")
+        if self._client is None: return failure(ErrorCode.NOT_CONFIGURED, "Zendesk is not configured")
+        updated = self._client.request("PUT", f"/api/v2/help_center/articles/{article_id}/translations/{locale}.json", json_body={"translation": {"draft": False}})
+        if not updated.get("ok"): return updated
+        read_back = self._get_translation(article_id, locale)
+        return success({"translation": read_back}) if isinstance(read_back, dict) and "ok" not in read_back else read_back
     def _article_payload(self, section_id: object, locale: object, title: object, body: object, labels: object, position: object, permission_group_id: object, user_segment_id: object, draft: object, notify_subscribers: object) -> dict[str, object] | None:
         if not self._valid_id(section_id) or not isinstance(locale, str) or not _LOCALE.fullmatch(locale) or not isinstance(title, str) or not title.strip() or not isinstance(body, str) or not isinstance(draft, bool) or not draft or not isinstance(notify_subscribers, bool): return None
         article: dict[str, object] = {"title": title.strip(), "body": body, "locale": locale, "draft": True}

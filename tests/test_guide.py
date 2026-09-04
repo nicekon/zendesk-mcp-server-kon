@@ -60,12 +60,16 @@ def test_article_create_rejects_publishing_before_any_request(tmp_path):
 
 
 class TranslationClient(StubClient):
-    def __init__(self, existing): super().__init__(); self.existing = existing
+    def __init__(self, existing): super().__init__(); self.existing, self.published = existing, False
     def get(self, path, *, params=None):
         self.paths.append((path, params))
         if path == "/api/v2/help_center/locales.json": return success({"locales": ["en-us"]})
-        if path == "/api/v2/help_center/articles/3/translations/en-us.json": return success({"translation": {"id": 6, "locale": "en-us", "title": "Old", "draft": True}}) if self.existing else failure(ErrorCode.NOT_FOUND, "missing")
+        if path == "/api/v2/help_center/articles/3/translations/en-us.json": return success({"translation": {"id": 6, "locale": "en-us", "title": "Old", "draft": not self.published}}) if self.existing else failure(ErrorCode.NOT_FOUND, "missing")
         return success({})
+    def request(self, method, path, *, json_body=None):
+        self.paths.append((method, path, json_body))
+        if json_body == {"translation": {"draft": False}}: self.published = True
+        return success({"translation": {"id": 6}})
 
 
 def test_translation_upsert_refuses_to_replace_an_existing_body(tmp_path):
@@ -85,9 +89,40 @@ def test_translation_upsert_creates_only_a_draft_after_approval(tmp_path):
     token = store.approve(preview["data"]["approval_request_id"])
     result = tools.upsert_article_translation(3, "en-us", title="New", body="<p>New body</p>", execution_mode="apply", approval_request_id=preview["data"]["approval_request_id"], approval_token=token)
 
-    assert result["data"]["article"]["id"] == 4
+    assert result["data"]["translation"]["id"] == 6
     assert client.paths[-3:] == [
         ("/api/v2/help_center/articles/3/translations/en-us.json", None),
         ("/api/v2/help_center/locales.json", None),
         ("POST", "/api/v2/help_center/articles/3/translations.json", {"translation": {"locale": "en-us", "title": "New", "body": "<p>New body</p>", "draft": True}}),
+    ]
+
+
+def test_translation_body_replacement_is_destructive_and_separate(tmp_path):
+    client = TranslationClient(existing=True); store = ApprovalStore(tmp_path / "approvals.json")
+    tools = GuideTools(client, Settings.load({"ZENDESK_WRITE_MODE": "standard", "ZENDESK_ENABLE_DESTRUCTIVE_WRITES": "true"}), store)
+    preview = tools.replace_article_translation_body(3, "en-us", "<p>Replacement</p>")
+    token = store.approve(preview["data"]["approval_request_id"])
+    tools.replace_article_translation_body(3, "en-us", "<p>Replacement</p>", execution_mode="apply", approval_request_id=preview["data"]["approval_request_id"], approval_token=token)
+
+    assert preview["data"]["destructive"] is True
+    assert client.paths[-3:] == [
+        ("/api/v2/help_center/articles/3/translations/en-us.json", None),
+        ("/api/v2/help_center/locales.json", None),
+        ("PUT", "/api/v2/help_center/articles/3/translations/en-us.json", {"translation": {"body": "<p>Replacement</p>"}}),
+    ]
+
+
+def test_publish_translation_requires_public_approval_and_reads_back(tmp_path):
+    client = TranslationClient(existing=True); store = ApprovalStore(tmp_path / "approvals.json")
+    tools = GuideTools(client, Settings.load({"ZENDESK_WRITE_MODE": "standard", "ZENDESK_ENABLE_PUBLIC_WRITES": "true"}), store)
+    preview = tools.publish_article(3, "en-us")
+    token = store.approve(preview["data"]["approval_request_id"])
+    result = tools.publish_article(3, "en-us", execution_mode="apply", approval_request_id=preview["data"]["approval_request_id"], approval_token=token)
+
+    assert result["data"]["translation"]["draft"] is False
+    assert client.paths[-4:] == [
+        ("/api/v2/help_center/articles/3/translations/en-us.json", None),
+        ("/api/v2/help_center/locales.json", None),
+        ("PUT", "/api/v2/help_center/articles/3/translations/en-us.json", {"translation": {"draft": False}}),
+        ("/api/v2/help_center/articles/3/translations/en-us.json", None),
     ]
