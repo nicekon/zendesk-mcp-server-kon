@@ -106,6 +106,14 @@ def test_search_and_count_use_ticket_query():
     ]
 
 
+def test_ticket_export_uses_dedicated_export_type_filter():
+    client = StubClient({"/api/v2/search/export.json": success({"results": []})})
+
+    TicketTools(client).export_tickets("status:open")
+
+    assert client.paths == [("/api/v2/search/export.json", {"filter[type]": "ticket", "query": "status:open"})]
+
+
 def test_search_rejects_blank_query_and_non_integer_limit_without_a_client():
     tools = TicketTools(None)
 

@@ -167,6 +167,13 @@ class TicketTools:
             return failure(ErrorCode.UPSTREAM_ERROR, "Zendesk returned an invalid ticket count")
         return success({"count": count["value"], "refreshed_at": count.get("refreshed_at")})
 
+    def export_tickets(self, query: str) -> dict[str, object]:
+        if not isinstance(query, str) or not query.strip():
+            return failure(ErrorCode.VALIDATION_ERROR, "query must be a non-empty string")
+        client = self._configured_client()
+        if isinstance(client, dict): return client
+        return client.get("/api/v2/search/export.json", params={"filter[type]": "ticket", "query": query.strip()})
+
     def create_ticket(
         self,
         *,
