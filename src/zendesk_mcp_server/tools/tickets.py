@@ -100,6 +100,15 @@ class TicketTools:
                     attachments.append({**attachment, "ticket_id": ticket_id, "comment_id": comment.get("id"), "untrusted_user_content": True})
         return success({"attachments": attachments})
 
+    @staticmethod
+    def attachment_is_safe_to_download(attachment: dict[str, object]) -> bool:
+        return (
+            attachment.get("deleted") is not True
+            and attachment.get("malware_scan_result") == "malware_not_found"
+            and isinstance(attachment.get("size"), int)
+            and 0 <= attachment["size"] <= 20 * 1024 * 1024
+        )
+
     def search_tickets(self, query: str, limit: int = 100) -> dict[str, object]:
         ticket_query = _ticket_query(query)
         if ticket_query is None:

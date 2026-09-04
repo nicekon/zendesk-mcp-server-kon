@@ -74,6 +74,12 @@ def test_ticket_attachment_metadata_is_extracted_from_comments():
     assert result["data"]["attachments"] == [{"id": 5, "file_name": "log.txt", "size": 12, "malware_scan_result": "malware_not_found", "ticket_id": 7, "comment_id": 3, "untrusted_user_content": True}]
 
 
+def test_attachment_download_requires_safe_scan_and_size():
+    assert TicketTools.attachment_is_safe_to_download({"size": 20 * 1024 * 1024, "malware_scan_result": "malware_not_found"}) is True
+    assert TicketTools.attachment_is_safe_to_download({"size": 20 * 1024 * 1024 + 1, "malware_scan_result": "malware_not_found"}) is False
+    assert TicketTools.attachment_is_safe_to_download({"size": 1, "malware_scan_result": "not_scanned"}) is False
+
+
 def test_search_and_count_use_ticket_query():
     client = StubClient(
         {
