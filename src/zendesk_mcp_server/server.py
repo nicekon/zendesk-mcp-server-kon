@@ -202,7 +202,7 @@ def build_tools() -> list[types.Tool]:
         types.Tool(name="zendesk_get_community_comment", description="Get a Community comment without making changes.", inputSchema={"type": "object", "properties": {"comment_id": {"type": "integer", "minimum": 1}}, "required": ["comment_id"]}),
         types.Tool(name="zendesk_list_community_topics", description="List Community topics with cursor pagination without making changes.", inputSchema={"type": "object", "properties": {"cursor": {"type": "string", "minLength": 1}, "limit": {"type": "integer", "minimum": 1, "maximum": 100, "default": 100}}}),
         types.Tool(name="zendesk_get_community_topic", description="Get a Community topic without making changes.", inputSchema={"type": "object", "properties": {"topic_id": {"type": "integer", "minimum": 1}}, "required": ["topic_id"]}),
-        types.Tool(name="zendesk_search_content_tags", description="Search Community content tags without making changes.", inputSchema={"type": "object", "properties": {"prefix": {"type": "string", "default": ""}}}),
+        types.Tool(name="zendesk_search_content_tags", description="Search Community content tags with cursor pagination without making changes.", inputSchema={"type": "object", "properties": {"prefix": {"type": "string", "default": ""}, "cursor": {"type": "string", "minLength": 1}, "limit": {"type": "integer", "minimum": 1, "maximum": 100, "default": 100}}}),
         types.Tool(name="zendesk_count_content_tags", description="Count Community content tags without making changes.", inputSchema={"type": "object", "properties": {}}),
         types.Tool(name="zendesk_get_content_tag", description="Get a Community content tag without making changes.", inputSchema={"type": "object", "properties": {"tag_id": {"type": "string", "minLength": 1}}, "required": ["tag_id"]}),
         types.Tool(name="zendesk_create_content_tag", description="Preview or create a Community content tag. Apply requires public-write gate and local approval.", inputSchema={"type": "object", "properties": {"name": {"type": "string", "minLength": 1}, "execution_mode": {"type": "string", "enum": ["preview", "apply"], "default": "preview"}, "approval_request_id": {"type": "string"}, "approval_token": {"type": "string"}}, "required": ["name"]}),
@@ -393,7 +393,8 @@ def create_server(environ: Mapping[str, str] | None = None) -> Server:
             elif name == "zendesk_list_community_topics":
                 values = arguments or {}; result = tools.list_topics(cursor=values.get("cursor"), limit=values.get("limit", 100))
             elif name == "zendesk_get_community_topic": result = tools.get_topic((arguments or {}).get("topic_id"))
-            elif name == "zendesk_search_content_tags": result = tools.search_content_tags((arguments or {}).get("prefix", ""))
+            elif name == "zendesk_search_content_tags":
+                values = arguments or {}; result = tools.search_content_tags(values.get("prefix", ""), cursor=values.get("cursor"), limit=values.get("limit", 100))
             elif name == "zendesk_count_content_tags": result = tools.count_content_tags()
             elif name == "zendesk_get_content_tag": result = tools.get_content_tag((arguments or {}).get("tag_id"))
             elif name == "zendesk_create_content_tag":

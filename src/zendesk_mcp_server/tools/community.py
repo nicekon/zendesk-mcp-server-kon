@@ -317,9 +317,11 @@ class CommunityTools:
         if not isinstance(url, str) or not isinstance(headers, dict) or not self._valid_tag_id(upload_id) or any(not isinstance(name, str) or not isinstance(value, str) for name, value in headers.items()): return failure(ErrorCode.UPSTREAM_ERROR, "Zendesk returned an invalid badge-icon upload response")
         uploaded = self._client.upload_presigned(url, headers, content)
         return success({"badge_icon_upload_id": upload_id}) if uploaded.get("ok") else uploaded
-    def search_content_tags(self, prefix: str) -> dict[str, object]:
-        if not isinstance(prefix, str): return failure(ErrorCode.VALIDATION_ERROR, "prefix must be a string")
-        return self._get("/api/v2/guide/content_tags.json", {"filter[name_prefix]": prefix})
+    def search_content_tags(self, prefix: str, *, cursor: str | None = None, limit: int = 100) -> dict[str, object]:
+        if not isinstance(prefix, str) or not isinstance(limit, int) or isinstance(limit, bool) or not 1 <= limit <= 100 or (cursor is not None and (not isinstance(cursor, str) or not cursor)): return failure(ErrorCode.VALIDATION_ERROR, "valid prefix, cursor, and limit are required")
+        params = {"filter[name_prefix]": prefix, "page[size]": str(limit)}
+        if cursor is not None: params["page[after]"] = cursor
+        return self._cursor_page("/api/v2/guide/content_tags.json", params, "records")
     def count_content_tags(self) -> dict[str, object]: return self._get("/api/v2/guide/content_tags/count.json")
     def get_content_tag(self, tag_id: str) -> dict[str, object]:
         if not self._valid_tag_id(tag_id): return failure(ErrorCode.VALIDATION_ERROR, "tag_id must be a non-empty path-safe string")

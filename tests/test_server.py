@@ -183,3 +183,12 @@ def test_user_subscription_list_exposes_cursor_controls():
 
     assert tool.inputSchema["properties"]["cursor"] == {"type": "string", "minLength": 1}
     assert tool.inputSchema["properties"]["limit"] == {"type": "integer", "minimum": 1, "maximum": 100, "default": 100}
+
+
+def test_content_tag_search_exposes_cursor_controls():
+    from zendesk_mcp_server.server import build_tools
+
+    tool = next(item for item in build_tools() if item.name == "zendesk_search_content_tags")
+
+    assert tool.inputSchema["properties"]["cursor"] == {"type": "string", "minLength": 1}
+    assert tool.inputSchema["properties"]["limit"] == {"type": "integer", "minimum": 1, "maximum": 100, "default": 100}
