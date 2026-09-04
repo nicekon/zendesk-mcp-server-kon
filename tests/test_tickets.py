@@ -201,6 +201,12 @@ def test_structured_ticket_filter_resolves_brand_name():
     assert client.paths == [("/api/v2/brands.json", {"page[size]": "100"}), ("/api/v2/search.json", {"query": "type:ticket brand:2", "page[size]": "100"})]
 
 
+def test_structured_ticket_filter_resolves_group_name():
+    client = StubClient({"/api/v2/groups.json": success({"groups": [{"id": 3, "name": "Support"}]}), "/api/v2/search.json": success({"results": [], "next_page": None})})
+    TicketTools(client).search_tickets({"group": {"kind": "name", "value": "Support"}})
+    assert client.paths == [("/api/v2/groups.json", {"page[size]": "100"}), ("/api/v2/search.json", {"query": "type:ticket group:3", "page[size]": "100"})]
+
+
 def test_custom_object_projection_requires_its_capability():
     settings = Settings.load({})
     result = TicketTools(StubClient({}), settings).search_tickets("status:open", projection={"include_custom_objects": ["asset"]})
