@@ -193,7 +193,9 @@ class TicketTools:
             and 0 <= attachment["size"] <= 20 * 1024 * 1024
         )
 
-    def search_tickets(self, query: object, limit: int = 100) -> dict[str, object]:
+    def search_tickets(self, query: object, limit: int = 100, *, projection: Mapping[str, object] | None = None) -> dict[str, object]:
+        if projection is not None and (self._settings is None or not self._settings.has_capability("custom_objects")):
+            return failure(ErrorCode.UNSUPPORTED, "custom object projection is not enabled")
         ticket_query = self._resolve_ticket_query(query)
         if isinstance(ticket_query, dict): return ticket_query
         if ticket_query is None:
