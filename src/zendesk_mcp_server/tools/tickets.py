@@ -7,6 +7,7 @@ import secrets
 import stat
 import tarfile
 import zipfile
+from datetime import datetime
 from pathlib import Path
 from typing import Protocol
 
@@ -271,6 +272,10 @@ class TicketTools:
         tags: list[str] | None = None,
         priority: str | None = None,
         ticket_type: str | None = None,
+        assignee_id: int | None = None,
+        group_id: int | None = None,
+        organization_id: int | None = None,
+        custom_fields: list[dict[str, object]] | None = None,
     ) -> dict[str, object]:
         payload = _create_ticket_payload(
             requester_id=requester_id,
@@ -279,6 +284,10 @@ class TicketTools:
             tags=tags,
             priority=priority,
             ticket_type=ticket_type,
+            assignee_id=assignee_id,
+            group_id=group_id,
+            organization_id=organization_id,
+            custom_fields=custom_fields,
         )
         if isinstance(payload, dict) and "error" in payload:
             return payload
@@ -303,6 +312,9 @@ class TicketTools:
         group_id: int | None = None,
         organization_id: int | None = None,
         tags: list[str] | None = None,
+        custom_status_id: int | None = None,
+        due_at: str | None = None,
+        custom_fields: list[dict[str, object]] | None = None,
     ) -> dict[str, object]:
         if not _valid_ticket_id(ticket_id):
             return failure(ErrorCode.VALIDATION_ERROR, "ticket_id must be a positive integer")
@@ -316,6 +328,9 @@ class TicketTools:
             group_id=group_id,
             organization_id=organization_id,
             tags=tags,
+            custom_status_id=custom_status_id,
+            due_at=due_at,
+            custom_fields=custom_fields,
         )
         if isinstance(payload, dict) and "error" in payload:
             return payload
@@ -490,6 +505,10 @@ def _create_ticket_payload(
     tags: list[str] | None,
     priority: str | None,
     ticket_type: str | None,
+    assignee_id: int | None,
+    group_id: int | None,
+    organization_id: int | None,
+    custom_fields: list[dict[str, object]] | None,
 ) -> dict[str, object]:
     if not _valid_ticket_id(requester_id):
         return failure(ErrorCode.VALIDATION_ERROR, "requester_id must be a positive integer")
@@ -512,6 +531,13 @@ def _create_ticket_payload(
         if ticket_type not in {"question", "incident", "problem", "task"}:
             return failure(ErrorCode.VALIDATION_ERROR, "ticket_type is invalid")
         payload["type"] = ticket_type
+    for name, value in (("assignee_id", assignee_id), ("group_id", group_id), ("organization_id", organization_id)):
+        if value is not None:
+            if not _valid_ticket_id(value): return failure(ErrorCode.VALIDATION_ERROR, f"{name} must be a positive integer")
+            payload[name] = value
+    if custom_fields is not None:
+        if not _valid_custom_fields(custom_fields): return failure(ErrorCode.VALIDATION_ERROR, "custom_fields must contain positive IDs and scalar or string-list values")
+        payload["custom_fields"] = custom_fields
     return payload
 
 
@@ -566,14 +592,39 @@ def _update_ticket_payload(**values: object) -> dict[str, object]:
             if not _valid_ticket_id(value):
                 return failure(ErrorCode.VALIDATION_ERROR, f"{name} must be a positive integer")
             payload[name] = value
+    custom_status_id = values["custom_status_id"]
+    if custom_status_id is not None:
+        if not _valid_ticket_id(custom_status_id):
+            return failure(ErrorCode.VALIDATION_ERROR, "custom_status_id must be a positive integer")
+        payload["custom_status_id"] = custom_status_id
+    due_at = values["due_at"]
+    if due_at is not None:
+        if not _valid_due_at(due_at):
+            return failure(ErrorCode.VALIDATION_ERROR, "due_at must be an ISO-8601 timestamp with timezone")
+        payload["due_at"] = due_at
     tags = values["tags"]
     if tags is not None:
         if not isinstance(tags, list) or any(not _valid_tag(tag) for tag in tags):
             return failure(ErrorCode.VALIDATION_ERROR, "tags must be non-empty strings without spaces")
         payload["tags"] = tags
+    custom_fields = values["custom_fields"]
+    if custom_fields is not None:
+        if not _valid_custom_fields(custom_fields):
+            return failure(ErrorCode.VALIDATION_ERROR, "custom_fields must contain positive IDs and scalar or string-list values")
+        payload["custom_fields"] = custom_fields
     if not payload:
         return failure(ErrorCode.VALIDATION_ERROR, "at least one ticket field is required")
     return payload
+
+
+def _valid_due_at(value: object) -> bool:
+    if not isinstance(value, str): return False
+    try: return datetime.fromisoformat(value.replace("Z", "+00:00")).tzinfo is not None
+    except ValueError: return False
+
+
+def _valid_custom_fields(value: object) -> bool:
+    return isinstance(value, list) and all(isinstance(field, dict) and _valid_ticket_id(field.get("id")) and set(field) == {"id", "value"} and (field["value"] is None or isinstance(field["value"], (str, int, float, bool)) or isinstance(field["value"], list) and all(isinstance(item, str) for item in field["value"])) for field in value)
 
 
 def _cache_attachment(root: Path, attachment_id: int, content: bytes) -> dict[str, object]:

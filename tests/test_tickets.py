@@ -178,6 +178,15 @@ def test_create_ticket_uses_a_validated_standard_write_payload():
     ]
 
 
+def test_create_ticket_accepts_assignment_and_custom_fields():
+    client = MutationStub()
+    tools = TicketTools(client, Settings.load({"ZENDESK_WRITE_MODE": "standard"}))
+
+    tools.create_ticket(requester_id=7, subject="Need help", description="Details", assignee_id=3, group_id=4, organization_id=5, custom_fields=[{"id": 12, "value": "gold"}])
+
+    assert client.calls == [("POST", "/api/v2/tickets.json", {"ticket": {"requester_id": 7, "subject": "Need help", "comment": {"body": "Details"}, "assignee_id": 3, "group_id": 4, "organization_id": 5, "custom_fields": [{"id": 12, "value": "gold"}]}})]
+
+
 def test_update_ticket_reuses_the_standard_write_guard_and_endpoint():
     client = MutationStub()
     settings = Settings.load({"ZENDESK_WRITE_MODE": "standard"})
@@ -188,6 +197,15 @@ def test_update_ticket_reuses_the_standard_write_guard_and_endpoint():
     assert client.calls == [
         ("PUT", "/api/v2/tickets/9.json", {"ticket": {"status": "pending", "assignee_id": 3}})
     ]
+
+
+def test_update_ticket_validates_custom_status_due_date_and_custom_fields():
+    client = MutationStub()
+    tools = TicketTools(client, Settings.load({"ZENDESK_WRITE_MODE": "standard"}))
+
+    tools.update_ticket(9, custom_status_id=7, due_at="2026-09-05T12:00:00Z", custom_fields=[{"id": 12, "value": "gold"}])
+
+    assert client.calls == [("PUT", "/api/v2/tickets/9.json", {"ticket": {"custom_status_id": 7, "due_at": "2026-09-05T12:00:00Z", "custom_fields": [{"id": 12, "value": "gold"}]}})]
 
 
 def test_ticket_shortcuts_reuse_update_ticket():

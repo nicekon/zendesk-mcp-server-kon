@@ -80,6 +80,10 @@ def build_tools() -> list[types.Tool]:
                     "tags": {"type": "array", "items": {"type": "string"}},
                     "priority": {"type": "string", "enum": ["low", "normal", "high", "urgent"]},
                     "ticket_type": {"type": "string", "enum": ["question", "incident", "problem", "task"]},
+                    "assignee_id": {"type": "integer", "minimum": 1},
+                    "group_id": {"type": "integer", "minimum": 1},
+                    "organization_id": {"type": "integer", "minimum": 1},
+                    "custom_fields": {"type": "array", "items": {"type": "object", "properties": {"id": {"type": "integer", "minimum": 1}, "value": {}}, "required": ["id", "value"], "additionalProperties": False}},
                 },
                 "required": ["requester_id", "subject", "description"],
             },
@@ -100,6 +104,9 @@ def build_tools() -> list[types.Tool]:
                     "group_id": {"type": "integer", "minimum": 1},
                     "organization_id": {"type": "integer", "minimum": 1},
                     "tags": {"type": "array", "items": {"type": "string"}},
+                    "custom_status_id": {"type": "integer", "minimum": 1},
+                    "due_at": {"type": "string", "format": "date-time"},
+                    "custom_fields": {"type": "array", "items": {"type": "object", "properties": {"id": {"type": "integer", "minimum": 1}, "value": {}}, "required": ["id", "value"], "additionalProperties": False}},
                 },
                 "required": ["ticket_id"],
             },
@@ -509,6 +516,10 @@ def create_server(environ: Mapping[str, str] | None = None) -> Server:
                     tags=values.get("tags"),
                     priority=values.get("priority"),
                     ticket_type=values.get("ticket_type"),
+                    assignee_id=values.get("assignee_id"),
+                    group_id=values.get("group_id"),
+                    organization_id=values.get("organization_id"),
+                    custom_fields=values.get("custom_fields"),
                 )
             elif name == "zendesk_update_ticket":
                 values = arguments or {}
@@ -523,6 +534,9 @@ def create_server(environ: Mapping[str, str] | None = None) -> Server:
                     group_id=values.get("group_id"),
                     organization_id=values.get("organization_id"),
                     tags=values.get("tags"),
+                    custom_status_id=values.get("custom_status_id"),
+                    due_at=values.get("due_at"),
+                    custom_fields=values.get("custom_fields"),
                 )
             elif name == "zendesk_set_ticket_status":
                 values = arguments or {}
