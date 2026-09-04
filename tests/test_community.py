@@ -60,6 +60,19 @@ def test_community_post_create_requires_local_public_approval(tmp_path):
     assert result["data"]["post"]["id"] == 2
 
 
+def test_community_post_author_or_created_at_requires_impersonation_gate(tmp_path):
+    client = StubClient(); store = ApprovalStore(tmp_path / "approvals.json")
+    tools = CommunityTools(client, Settings.load({"ZENDESK_WRITE_MODE": "standard", "ZENDESK_ENABLE_PUBLIC_WRITES": "true"}), store)
+    preview = tools.create_post(4, "Title", "Body", author_id=9, created_at="2026-09-01T00:00:00Z", notify_subscribers=True)
+    token = store.approve(preview["data"]["approval_request_id"])
+    blocked = tools.create_post(4, "Title", "Body", author_id=9, created_at="2026-09-01T00:00:00Z", notify_subscribers=True, execution_mode="apply", approval_request_id=preview["data"]["approval_request_id"], approval_token=token)
+
+    assert preview["data"]["impersonation"] is True
+    assert preview["data"]["recipient_count_unknown"] is True
+    assert blocked["error"]["code"] == "write_disabled"
+    assert not client.paths
+
+
 def test_community_comment_create_requires_local_public_approval(tmp_path):
     client = StubClient(); store = ApprovalStore(tmp_path / "approvals.json")
     tools = CommunityTools(client, Settings.load({"ZENDESK_WRITE_MODE": "standard", "ZENDESK_ENABLE_PUBLIC_WRITES": "true"}), store)

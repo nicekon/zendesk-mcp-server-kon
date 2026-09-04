@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import os
 import stat
+from datetime import datetime
 from html.parser import HTMLParser
 from pathlib import Path
 from typing import Protocol
@@ -67,29 +68,24 @@ class CommunityTools:
     def get_post(self, post_id: int) -> dict[str, object]:
         if not isinstance(post_id, int) or isinstance(post_id, bool) or post_id < 1: return failure(ErrorCode.VALIDATION_ERROR, "post_id must be a positive integer")
         return self._get(f"/api/v2/community/posts/{post_id}.json")
-    def create_post(self, topic_id: int, title: str, details: str, *, execution_mode: str = "preview", approval_request_id: str | None = None, approval_token: str | None = None) -> dict[str, object]:
-        if not isinstance(topic_id, int) or topic_id < 1 or not isinstance(title, str) or not title.strip() or not isinstance(details, str) or not details.strip() or not self._valid_html(details): return failure(ErrorCode.VALIDATION_ERROR, "topic_id, title, and safe details are required")
-        payload = {"post": {"topic_id": topic_id, "title": title.strip(), "details": details.strip()}}
-        if execution_mode == "preview":
-            if self._approvals is None: return failure(ErrorCode.NOT_CONFIGURED, "Zendesk approval store is not configured")
-            return success({"approval_request_id": self._approvals.create("zendesk_create_community_post", payload), "execution_mode": "preview", "public": True, "outbound_write": False})
-        if execution_mode != "apply": return failure(ErrorCode.VALIDATION_ERROR, "execution_mode must be preview or apply")
-        if self._settings is None or (blocked := check_write_permission(self._settings, WriteRisk.PUBLIC)) is not None: return blocked or failure(ErrorCode.WRITE_DISABLED, "Zendesk public writes are disabled")
-        if self._approvals is None or not isinstance(approval_request_id, str) or not isinstance(approval_token, str) or not self._approvals.consume(approval_request_id, "zendesk_create_community_post", payload, approval_token): return failure(ErrorCode.APPROVAL_REQUIRED, "a matching local approval is required")
-        if self._client is None or not hasattr(self._client, "request"): return failure(ErrorCode.NOT_CONFIGURED, "Zendesk write client is not configured")
-        return self._client.request("POST", "/api/v2/community/posts.json", json_body=payload)
-    def create_comment(self, post_id: int, body: str, *, execution_mode: str = "preview", approval_request_id: str | None = None, approval_token: str | None = None) -> dict[str, object]:
-        if not isinstance(post_id, int) or post_id < 1 or not isinstance(body, str) or not body.strip() or not self._valid_html(body): return failure(ErrorCode.VALIDATION_ERROR, "post_id and safe body are required")
-        payload = {"comment": {"body": body.strip()}}
-        if execution_mode == "preview":
-            if self._approvals is None: return failure(ErrorCode.NOT_CONFIGURED, "Zendesk approval store is not configured")
-            return success({"approval_request_id": self._approvals.create("zendesk_create_community_comment", {"post_id": post_id, **payload}), "execution_mode": "preview", "public": True, "outbound_write": False})
-        approval_payload = {"post_id": post_id, **payload}
-        if execution_mode != "apply": return failure(ErrorCode.VALIDATION_ERROR, "execution_mode must be preview or apply")
-        if self._settings is None or (blocked := check_write_permission(self._settings, WriteRisk.PUBLIC)) is not None: return blocked or failure(ErrorCode.WRITE_DISABLED, "Zendesk public writes are disabled")
-        if self._approvals is None or not isinstance(approval_request_id, str) or not isinstance(approval_token, str) or not self._approvals.consume(approval_request_id, "zendesk_create_community_comment", approval_payload, approval_token): return failure(ErrorCode.APPROVAL_REQUIRED, "a matching local approval is required")
-        if self._client is None or not hasattr(self._client, "request"): return failure(ErrorCode.NOT_CONFIGURED, "Zendesk write client is not configured")
-        return self._client.request("POST", f"/api/v2/community/posts/{post_id}/comments.json", json_body=payload)
+    def create_post(self, topic_id: int, title: str, details: str, *, author_id: int | None = None, created_at: str | None = None, notify_subscribers: bool = False, execution_mode: str = "preview", approval_request_id: str | None = None, approval_token: str | None = None) -> dict[str, object]:
+        if not self._valid_id(topic_id, "topic_id") or not isinstance(title, str) or not title.strip() or not isinstance(details, str) or not details.strip() or not self._valid_html(details) or not isinstance(notify_subscribers, bool) or (author_id is not None and not self._valid_id(author_id, "author_id")) or not _valid_timestamp(created_at): return failure(ErrorCode.VALIDATION_ERROR, "valid post fields, notify_subscribers, author_id, and created_at are required")
+        post: dict[str, object] = {"topic_id": topic_id, "title": title.strip(), "details": details.strip()}
+        if author_id is not None: post["author_id"] = author_id
+        if created_at is not None: post["created_at"] = created_at
+        payload = {"post": post, "notify_subscribers": notify_subscribers}; risks = (WriteRisk.PUBLIC, WriteRisk.IMPERSONATION) if author_id is not None or created_at is not None else WriteRisk.PUBLIC
+        result = self._approved_request("zendesk_create_community_post", payload, "POST", "/api/v2/community/posts.json", payload, risks, execution_mode, approval_request_id, approval_token)
+        if execution_mode == "preview" and result.get("ok") and notify_subscribers: result["data"]["recipient_count_unknown"] = True
+        return result
+    def create_comment(self, post_id: int, body: str, *, author_id: int | None = None, created_at: str | None = None, notify_subscribers: bool = False, execution_mode: str = "preview", approval_request_id: str | None = None, approval_token: str | None = None) -> dict[str, object]:
+        if not self._valid_id(post_id, "post_id") or not isinstance(body, str) or not body.strip() or not self._valid_html(body) or not isinstance(notify_subscribers, bool) or (author_id is not None and not self._valid_id(author_id, "author_id")) or not _valid_timestamp(created_at): return failure(ErrorCode.VALIDATION_ERROR, "valid comment fields, notify_subscribers, author_id, and created_at are required")
+        comment: dict[str, object] = {"body": body.strip()}
+        if author_id is not None: comment["author_id"] = author_id
+        if created_at is not None: comment["created_at"] = created_at
+        payload = {"post_id": post_id, "comment": comment, "notify_subscribers": notify_subscribers}; body_payload = {"comment": comment, "notify_subscribers": notify_subscribers}; risks = (WriteRisk.PUBLIC, WriteRisk.IMPERSONATION) if author_id is not None or created_at is not None else WriteRisk.PUBLIC
+        result = self._approved_request("zendesk_create_community_comment", payload, "POST", f"/api/v2/community/posts/{post_id}/comments.json", body_payload, risks, execution_mode, approval_request_id, approval_token)
+        if execution_mode == "preview" and result.get("ok") and notify_subscribers: result["data"]["recipient_count_unknown"] = True
+        return result
     def create_topic(self, name: str, description: str, *, execution_mode: str = "preview", approval_request_id: str | None = None, approval_token: str | None = None) -> dict[str, object]:
         if not isinstance(name, str) or not name.strip() or not isinstance(description, str): return failure(ErrorCode.VALIDATION_ERROR, "name and description are required")
         payload = {"topic": {"name": name.strip(), "description": description.strip()}}
@@ -386,3 +382,10 @@ class CommunityTools:
     def _get(self, path: str, params: dict[str, str] | None = None) -> dict[str, object]:
         if self._client is None: return failure(ErrorCode.NOT_CONFIGURED, "Zendesk is not configured")
         return self._client.get(path, params=params)
+
+
+def _valid_timestamp(value: object) -> bool:
+    if value is None: return True
+    if not isinstance(value, str): return False
+    try: return datetime.fromisoformat(value.replace("Z", "+00:00")).tzinfo is not None
+    except ValueError: return False
