@@ -50,6 +50,7 @@ def test_support_read_tools_are_registered():
 
     assert [tool.name for tool in build_tools()] == [
         "zendesk_get_connection_status",
+        "zendesk_list_help_center_locales",
         "zendesk_list_tickets",
         "zendesk_search_tickets",
         "zendesk_count_tickets",
@@ -86,6 +87,7 @@ def test_support_read_tools_are_registered():
         "zendesk_get_satisfaction_ratings",
         "zendesk_list_guide_permission_groups",
         "zendesk_list_guide_user_segments",
+        "zendesk_create_help_center_article",
         "zendesk_list_community_posts",
         "zendesk_search_community_posts",
         "zendesk_get_community_post",

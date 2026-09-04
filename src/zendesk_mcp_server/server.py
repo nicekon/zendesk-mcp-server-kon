@@ -45,6 +45,7 @@ def build_tools() -> list[types.Tool]:
             description="Report Zendesk configuration without exposing credentials or making a network request.",
             inputSchema={"type": "object", "properties": {}},
         ),
+        types.Tool(name="zendesk_list_help_center_locales", description="List enabled Help Center locales without making changes.", inputSchema={"type": "object", "properties": {}}),
         types.Tool(
             name="zendesk_list_tickets",
             description="List Zendesk tickets without making changes.",
@@ -159,6 +160,7 @@ def build_tools() -> list[types.Tool]:
         types.Tool(name="zendesk_get_satisfaction_ratings", description="List Zendesk satisfaction ratings without making changes.", inputSchema={"type": "object", "properties": {}}),
         types.Tool(name="zendesk_list_guide_permission_groups", description="List Guide management permission groups without making changes.", inputSchema={"type": "object", "properties": {}}),
         types.Tool(name="zendesk_list_guide_user_segments", description="List Guide user segments without making changes.", inputSchema={"type": "object", "properties": {"built_in": {"type": "boolean"}, "applicable": {"type": "boolean", "default": False}}}),
+        types.Tool(name="zendesk_create_help_center_article", description="Preview or create a draft Help Center article. Apply requires standard write mode and local approval; notifications additionally need the public-write gate.", inputSchema={"type": "object", "properties": {"section_id": {"type": "integer", "minimum": 1}, "locale": {"type": "string", "minLength": 2}, "title": {"type": "string", "minLength": 1}, "body": {"type": "string"}, "labels": {"type": "array", "items": {"type": "string"}}, "position": {"type": "integer", "minimum": 0}, "permission_group_id": {"type": "integer", "minimum": 1}, "user_segment_id": {"type": "integer", "minimum": 1}, "draft": {"const": True, "default": True}, "notify_subscribers": {"type": "boolean", "default": False}, "execution_mode": {"type": "string", "enum": ["preview", "apply"], "default": "preview"}, "approval_request_id": {"type": "string"}, "approval_token": {"type": "string"}}, "required": ["section_id", "locale", "title", "body"]}),
         types.Tool(name="zendesk_list_community_posts", description="List Community posts without making changes.", inputSchema={"type": "object", "properties": {"topic_id": {"type": "integer", "minimum": 1}, "user_id": {"oneOf": [{"type": "integer", "minimum": 1}, {"type": "string", "enum": ["me"]}]}, "status": {"type": "string", "enum": ["planned", "not_planned", "completed", "answered", "none"]}, "sort_by": {"type": "string", "enum": ["created_at", "edited_at", "updated_at", "recent_activity", "votes", "comments"]}}}),
         types.Tool(name="zendesk_search_community_posts", description="Search Community posts without making changes.", inputSchema={"type": "object", "properties": {"query": {"type": "string", "minLength": 1}}, "required": ["query"]}),
         types.Tool(name="zendesk_get_community_post", description="Get a Community post without making changes.", inputSchema={"type": "object", "properties": {"post_id": {"type": "integer", "minimum": 1}}, "required": ["post_id"]}),
@@ -248,7 +250,7 @@ def build_guide_tools(environ: Mapping[str, str]) -> GuideTools | dict[str, obje
         return failure(ErrorCode.VALIDATION_ERROR, str(error))
     if authorization is None:
         return failure(ErrorCode.NOT_CONFIGURED, "Zendesk is not configured")
-    return GuideTools(ZendeskClient(settings, authorization))
+    return GuideTools(ZendeskClient(settings, authorization), settings, ApprovalStore.from_environment(environ))
 
 
 def build_community_tools(environ: Mapping[str, str]) -> CommunityTools | dict[str, object]:
@@ -414,9 +416,10 @@ def create_server(environ: Mapping[str, str] | None = None) -> Server:
             elif name == "zendesk_upload_badge_icon":
                 values = arguments or {}; result = tools.upload_badge_icon(values.get("image_path"), values.get("content_type"), execution_mode=values.get("execution_mode", "preview"), approval_request_id=values.get("approval_request_id"), approval_token=values.get("approval_token"))
             else: result = tools.get_post((arguments or {}).get("post_id"))
-        elif name in {"zendesk_list_help_center_categories", "zendesk_list_help_center_sections", "zendesk_search_help_center_articles", "zendesk_get_help_center_article", "zendesk_get_satisfaction_ratings", "zendesk_list_guide_permission_groups", "zendesk_list_guide_user_segments"}:
+        elif name in {"zendesk_list_help_center_locales", "zendesk_list_help_center_categories", "zendesk_list_help_center_sections", "zendesk_search_help_center_articles", "zendesk_get_help_center_article", "zendesk_get_satisfaction_ratings", "zendesk_list_guide_permission_groups", "zendesk_list_guide_user_segments", "zendesk_create_help_center_article"}:
             tools = build_guide_tools(environment)
             if isinstance(tools, dict): result = tools
+            elif name == "zendesk_list_help_center_locales": result = tools.list_locales()
             elif name == "zendesk_list_help_center_categories": result = tools.list_categories()
             elif name == "zendesk_list_help_center_sections": result = tools.list_sections()
             elif name == "zendesk_search_help_center_articles": result = tools.search_articles((arguments or {}).get("query"))
@@ -424,6 +427,8 @@ def create_server(environ: Mapping[str, str] | None = None) -> Server:
             elif name == "zendesk_list_guide_permission_groups": result = tools.list_permission_groups()
             elif name == "zendesk_list_guide_user_segments":
                 values = arguments or {}; result = tools.list_user_segments(built_in=values.get("built_in"), applicable=values.get("applicable", False))
+            elif name == "zendesk_create_help_center_article":
+                values = arguments or {}; result = tools.create_article(values.get("section_id"), values.get("locale"), values.get("title"), values.get("body"), labels=values.get("labels"), position=values.get("position"), permission_group_id=values.get("permission_group_id"), user_segment_id=values.get("user_segment_id"), draft=values.get("draft", True), notify_subscribers=values.get("notify_subscribers", False), execution_mode=values.get("execution_mode", "preview"), approval_request_id=values.get("approval_request_id"), approval_token=values.get("approval_token"))
             else: result = tools.get_satisfaction_ratings()
         elif name in {"zendesk_search_users", "zendesk_list_groups", "zendesk_list_group_users", "zendesk_get_organization", "zendesk_list_brands", "zendesk_list_ticket_fields", "zendesk_list_ticket_forms", "zendesk_list_custom_statuses", "zendesk_list_views", "zendesk_get_view", "zendesk_list_view_tickets", "zendesk_list_macros", "zendesk_list_triggers"}:
             tools = build_metadata_tools(environment)
