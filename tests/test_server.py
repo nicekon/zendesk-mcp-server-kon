@@ -62,6 +62,7 @@ def test_support_read_tools_are_registered():
         "zendesk_remove_ticket_tag",
         "zendesk_get_ticket_conversation",
         "zendesk_list_ticket_attachments",
+        "zendesk_ticket_to_issue_context",
         "zendesk_post_public_reply",
         "zendesk_post_internal_note",
         "zendesk_search_users",
