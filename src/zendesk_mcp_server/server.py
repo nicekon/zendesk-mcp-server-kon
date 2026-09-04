@@ -164,6 +164,7 @@ def build_tools() -> list[types.Tool]:
         types.Tool(name="zendesk_create_community_comment", description="Preview or create a public Community comment. Apply requires public-write gate and local approval.", inputSchema={"type": "object", "properties": {"post_id": {"type": "integer", "minimum": 1}, "body": {"type": "string", "minLength": 1}, "execution_mode": {"type": "string", "enum": ["preview", "apply"], "default": "preview"}, "approval_request_id": {"type": "string"}, "approval_token": {"type": "string"}}, "required": ["post_id", "body"]}),
         types.Tool(name="zendesk_create_community_topic", description="Preview or create a public Community topic. Apply requires public-write gate and local approval.", inputSchema={"type": "object", "properties": {"name": {"type": "string", "minLength": 1}, "description": {"type": "string"}, "execution_mode": {"type": "string", "enum": ["preview", "apply"], "default": "preview"}, "approval_request_id": {"type": "string"}, "approval_token": {"type": "string"}}, "required": ["name", "description"]}),
         types.Tool(name="zendesk_list_community_votes", description="List votes for a Community post without making changes.", inputSchema={"type": "object", "properties": {"post_id": {"type": "integer", "minimum": 1}}, "required": ["post_id"]}),
+        types.Tool(name="zendesk_list_content_subscriptions", description="List subscriptions for a Community post or topic without making changes.", inputSchema={"type": "object", "properties": {"content_type": {"type": "string", "enum": ["post", "topic"]}, "content_id": {"type": "integer", "minimum": 1}}, "required": ["content_type", "content_id"]}),
     ]
 
 
@@ -282,7 +283,7 @@ def create_server(environ: Mapping[str, str] | None = None) -> Server:
     ) -> list[types.TextContent]:
         if name == "zendesk_get_connection_status":
             result = build_connection_status(environment)
-        elif name in {"zendesk_list_community_posts", "zendesk_search_community_posts", "zendesk_get_community_post", "zendesk_create_community_post", "zendesk_create_community_comment", "zendesk_create_community_topic", "zendesk_list_community_votes"}:
+        elif name in {"zendesk_list_community_posts", "zendesk_search_community_posts", "zendesk_get_community_post", "zendesk_create_community_post", "zendesk_create_community_comment", "zendesk_create_community_topic", "zendesk_list_community_votes", "zendesk_list_content_subscriptions"}:
             tools = build_community_tools(environment)
             if isinstance(tools, dict): result = tools
             elif name == "zendesk_list_community_posts": result = tools.list_posts()
@@ -294,6 +295,11 @@ def create_server(environ: Mapping[str, str] | None = None) -> Server:
             elif name == "zendesk_create_community_topic":
                 values = arguments or {}; result = tools.create_topic(values.get("name"), values.get("description"), execution_mode=values.get("execution_mode", "preview"), approval_request_id=values.get("approval_request_id"), approval_token=values.get("approval_token"))
             elif name == "zendesk_list_community_votes": result = tools.list_votes((arguments or {}).get("post_id"))
+            elif name == "zendesk_list_content_subscriptions":
+                values = arguments or {}
+                if values.get("content_type") == "post": result = tools.list_post_subscriptions(values.get("content_id"))
+                elif values.get("content_type") == "topic": result = tools.list_topic_subscriptions(values.get("content_id"))
+                else: result = failure(ErrorCode.VALIDATION_ERROR, "content_type must be post or topic")
             else: result = tools.get_post((arguments or {}).get("post_id"))
         elif name in {"zendesk_list_help_center_categories", "zendesk_list_help_center_sections", "zendesk_search_help_center_articles", "zendesk_get_help_center_article", "zendesk_get_satisfaction_ratings"}:
             tools = build_guide_tools(environment)
