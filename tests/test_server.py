@@ -66,6 +66,7 @@ def test_support_read_tools_are_registered():
         "zendesk_get_ticket_conversation",
         "zendesk_list_ticket_attachments",
         "zendesk_download_ticket_attachment",
+        "zendesk_inspect_ticket_attachment",
         "zendesk_ticket_to_issue_context",
         "zendesk_post_public_reply",
         "zendesk_post_internal_note",

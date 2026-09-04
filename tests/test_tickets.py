@@ -2,6 +2,8 @@ from zendesk_mcp_server.approvals import ApprovalStore
 from zendesk_mcp_server.contracts import success
 from zendesk_mcp_server.config import Settings
 from zendesk_mcp_server.tools.tickets import TicketTools
+import io
+import zipfile
 
 
 class StubClient:
@@ -35,12 +37,12 @@ class MacroStub(MutationStub):
 
 
 class AttachmentDownloadStub:
-    def __init__(self): self.downloads = []
+    def __init__(self, content=b"hello world", content_type="text/plain"): self.downloads, self.content, self.content_type = [], content, content_type
     def get(self, path, *, params=None):
         return success({"comments": [{"id": 3, "attachments": [{"id": 5, "file_name": "log.txt", "size": 12, "content_url": "https://acme.zendesk.com/attachments/token/log", "malware_scan_result": "malware_not_found"}]}]})
     def download_attachment(self, content_url, *, max_bytes):
         self.downloads.append((content_url, max_bytes))
-        return success({"content": b"hello world", "content_type": "text/plain", "size": 11})
+        return success({"content": self.content, "content_type": self.content_type, "size": len(self.content)})
 
 
 def test_get_ticket_rejects_zero_without_a_client():
@@ -296,3 +298,25 @@ def test_attachment_download_revalidates_ownership_and_uses_fixed_cache(tmp_path
     assert result["data"]["attachment_id"] == 5
     assert result["data"]["cache_path"].endswith("/5/attachment")
     assert open(result["data"]["cache_path"], "rb").read() == b"hello world"
+
+
+def test_attachment_inspection_is_bounded_and_uses_the_managed_cache(tmp_path):
+    client = AttachmentDownloadStub()
+    settings = Settings.load({"ZENDESK_ATTACHMENT_CACHE_ROOT": str(tmp_path / "cache")})
+
+    result = TicketTools(client, settings).inspect_attachment(7, 5)
+
+    assert result["data"] == {"ticket_id": 7, "attachment_id": 5, "kind": "text", "text": "hello world", "truncated": False}
+
+
+def test_attachment_archive_inspection_returns_only_a_bounded_manifest(tmp_path):
+    content = io.BytesIO()
+    with zipfile.ZipFile(content, "w") as archive:
+        for index in range(501): archive.writestr(f"entry-{index}", "x")
+    settings = Settings.load({"ZENDESK_ATTACHMENT_CACHE_ROOT": str(tmp_path / "cache")})
+
+    result = TicketTools(AttachmentDownloadStub(content.getvalue(), "application/zip"), settings).inspect_attachment(7, 5)
+
+    assert result["data"]["kind"] == "archive"
+    assert len(result["data"]["entries"]) == 500
+    assert result["data"]["truncated"] is True

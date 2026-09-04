@@ -5,6 +5,8 @@ from __future__ import annotations
 import os
 import secrets
 import stat
+import tarfile
+import zipfile
 from pathlib import Path
 from typing import Protocol
 
@@ -136,6 +138,21 @@ class TicketTools:
         if not cached.get("ok"):
             return cached
         return success({"ticket_id": ticket_id, "attachment_id": attachment_id, "cache_path": cached["data"]["cache_path"], "cache_hit": cached["data"]["cache_hit"], "content_type": response_data.get("content_type")})
+
+    def inspect_attachment(self, ticket_id: int, attachment_id: int) -> dict[str, object]:
+        downloaded = self.download_attachment(ticket_id, attachment_id)
+        if not downloaded.get("ok"):
+            return downloaded
+        data = downloaded["data"]; path = data["cache_path"]; content_type = data.get("content_type")
+        if isinstance(content_type, str) and content_type.startswith("text/"):
+            inspected = _inspect_text(Path(path))
+        elif _is_archive(content_type):
+            inspected = _inspect_archive(Path(path))
+        else:
+            return failure(ErrorCode.UNSUPPORTED, "attachment inspection supports text and archive files only")
+        if not inspected.get("ok"):
+            return inspected
+        return success({"ticket_id": ticket_id, "attachment_id": attachment_id, **inspected["data"]})
 
     def ticket_to_issue_context(self, ticket_id: int) -> dict[str, object]:
         ticket = self.get_ticket(ticket_id)
@@ -589,3 +606,44 @@ def _cache_attachment(root: Path, attachment_id: int, content: bytes) -> dict[st
             temporary.unlink(missing_ok=True)
     except OSError:
         return failure(ErrorCode.UPSTREAM_ERROR, "attachment cache could not be written")
+
+
+def _safe_cache_open(path: Path):
+    try:
+        descriptor = os.open(path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
+        stream = os.fdopen(descriptor, "rb")
+        if not stat.S_ISREG(os.fstat(stream.fileno()).st_mode):
+            stream.close(); return None
+        return stream
+    except OSError:
+        return None
+
+
+def _inspect_text(path: Path) -> dict[str, object]:
+    stream = _safe_cache_open(path)
+    if stream is None: return failure(ErrorCode.VALIDATION_ERROR, "attachment cache file is unsafe")
+    with stream:
+        content = stream.read(500 * 1024 + 1)
+    return success({"kind": "text", "text": content[: 500 * 1024].decode("utf-8", errors="replace"), "truncated": len(content) > 500 * 1024})
+
+
+def _is_archive(content_type: object) -> bool:
+    return isinstance(content_type, str) and content_type in {"application/zip", "application/x-zip-compressed", "application/x-tar", "application/gzip", "application/x-gzip"}
+
+
+def _inspect_archive(path: Path) -> dict[str, object]:
+    stream = _safe_cache_open(path)
+    if stream is None: return failure(ErrorCode.VALIDATION_ERROR, "attachment cache file is unsafe")
+    with stream:
+        try:
+            if zipfile.is_zipfile(stream):
+                stream.seek(0)
+                with zipfile.ZipFile(stream) as archive:
+                    entries = [{"name": item.filename, "size": item.file_size, "directory": item.is_dir()} for item in archive.infolist()[:501]]
+            else:
+                stream.seek(0)
+                with tarfile.open(fileobj=stream, mode="r|*") as archive:
+                    entries = [{"name": item.name, "size": item.size, "directory": item.isdir()} for _, item in zip(range(501), archive)]
+        except (tarfile.TarError, zipfile.BadZipFile, OSError):
+            return failure(ErrorCode.VALIDATION_ERROR, "attachment archive is invalid")
+    return success({"kind": "archive", "entries": entries[:500], "truncated": len(entries) > 500})
