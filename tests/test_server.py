@@ -70,6 +70,7 @@ def test_connection_status_is_available_without_configuration():
             "auth_mode": None,
             "write_mode": "read_only",
             "active_write_gates": [],
+            "capabilities": ["community", "guide", "operations", "support"],
         },
     }
 

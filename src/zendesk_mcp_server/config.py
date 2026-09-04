@@ -140,6 +140,7 @@ class Settings:
                 "auth_mode": None,
                 "write_mode": self.write_mode,
                 "active_write_gates": self.active_write_gates(),
+                "capabilities": sorted(self.capabilities),
             }
 
         return {
@@ -147,6 +148,7 @@ class Settings:
             "auth_mode": self.auth_mode.value,
             "write_mode": self.write_mode,
             "active_write_gates": self.active_write_gates(),
+            "capabilities": sorted(self.capabilities),
             "subdomain": self.subdomain,
         }
 

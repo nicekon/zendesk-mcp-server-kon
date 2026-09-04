@@ -18,6 +18,7 @@ def test_auto_uses_api_token_when_no_oauth_settings_exist():
         "auth_mode": "api_token",
         "write_mode": "read_only",
         "active_write_gates": [],
+        "capabilities": ["community", "guide", "operations", "support"],
         "subdomain": "acme",
     }
     assert "secret" not in repr(settings.connection_status())
@@ -57,6 +58,7 @@ def test_empty_environment_is_unconfigured_not_an_import_error():
         "auth_mode": None,
         "write_mode": "read_only",
         "active_write_gates": [],
+        "capabilities": ["community", "guide", "operations", "support"],
     }
 
 
