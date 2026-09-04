@@ -201,6 +201,11 @@ def test_custom_object_projection_requires_its_capability():
     assert result["error"]["code"] == "unsupported"
 
 
+def test_custom_object_projection_validates_its_keys():
+    result = TicketTools(None).search_tickets("status:open", projection={"unknown": []})
+    assert result["error"]["code"] == "validation_error"
+
+
 def test_ticket_export_uses_dedicated_export_type_filter():
     client = StubClient({"/api/v2/search/export.json": success({"results": [{"id": 1}], "meta": {"has_more": True, "after_cursor": "next"}})})
 
