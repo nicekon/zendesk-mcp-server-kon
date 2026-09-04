@@ -20,6 +20,7 @@ class ErrorCode(str, Enum):
     NOT_CONFIGURED = "not_configured"
     WRITE_DISABLED = "write_disabled"
     APPROVAL_REQUIRED = "approval_required"
+    ARTICLE_BODY_REPLACE_REQUIRED = "article_body_replace_required"
     OUTCOME_UNKNOWN = "outcome_unknown"
 
 

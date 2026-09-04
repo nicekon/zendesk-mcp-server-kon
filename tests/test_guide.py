@@ -1,4 +1,4 @@
-from zendesk_mcp_server.contracts import success
+from zendesk_mcp_server.contracts import ErrorCode, failure, success
 from zendesk_mcp_server.approvals import ApprovalStore
 from zendesk_mcp_server.config import Settings
 from zendesk_mcp_server.tools.guide import GuideTools
@@ -57,3 +57,37 @@ def test_article_create_rejects_publishing_before_any_request(tmp_path):
 
     assert tools.create_article(3, "en-us", "Title", "Body", draft=False)["error"]["code"] == "validation_error"
     assert client.paths == []
+
+
+class TranslationClient(StubClient):
+    def __init__(self, existing): super().__init__(); self.existing = existing
+    def get(self, path, *, params=None):
+        self.paths.append((path, params))
+        if path == "/api/v2/help_center/locales.json": return success({"locales": ["en-us"]})
+        if path == "/api/v2/help_center/articles/3/translations/en-us.json": return success({"translation": {"id": 6, "locale": "en-us", "title": "Old", "draft": True}}) if self.existing else failure(ErrorCode.NOT_FOUND, "missing")
+        return success({})
+
+
+def test_translation_upsert_refuses_to_replace_an_existing_body(tmp_path):
+    client = TranslationClient(existing=True)
+    tools = GuideTools(client, Settings.load({"ZENDESK_WRITE_MODE": "standard"}), ApprovalStore(tmp_path / "approvals.json"))
+
+    result = tools.upsert_article_translation(3, "en-us", title="New", body="<p>New body</p>")
+
+    assert result["error"]["code"] == "article_body_replace_required"
+    assert not any(path[0] == "POST" for path in client.paths)
+
+
+def test_translation_upsert_creates_only_a_draft_after_approval(tmp_path):
+    client = TranslationClient(existing=False); store = ApprovalStore(tmp_path / "approvals.json")
+    tools = GuideTools(client, Settings.load({"ZENDESK_WRITE_MODE": "standard"}), store)
+    preview = tools.upsert_article_translation(3, "en-us", title="New", body="<p>New body</p>")
+    token = store.approve(preview["data"]["approval_request_id"])
+    result = tools.upsert_article_translation(3, "en-us", title="New", body="<p>New body</p>", execution_mode="apply", approval_request_id=preview["data"]["approval_request_id"], approval_token=token)
+
+    assert result["data"]["article"]["id"] == 4
+    assert client.paths[-3:] == [
+        ("/api/v2/help_center/articles/3/translations/en-us.json", None),
+        ("/api/v2/help_center/locales.json", None),
+        ("POST", "/api/v2/help_center/articles/3/translations.json", {"translation": {"locale": "en-us", "title": "New", "body": "<p>New body</p>", "draft": True}}),
+    ]

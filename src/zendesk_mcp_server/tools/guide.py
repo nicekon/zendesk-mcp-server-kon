@@ -50,6 +50,31 @@ class GuideTools:
         if self._approvals is None or not isinstance(approval_request_id, str) or not isinstance(approval_token, str) or not self._approvals.consume(approval_request_id, "zendesk_create_help_center_article", payload, approval_token): return failure(ErrorCode.APPROVAL_REQUIRED, "a matching local approval is required")
         if self._client is None: return failure(ErrorCode.NOT_CONFIGURED, "Zendesk is not configured")
         return self._client.request("POST", f"/api/v2/help_center/sections/{section_id}/articles.json", json_body={"article": payload["article"], "notify_subscribers": notify_subscribers})
+    def upsert_article_translation(self, article_id: int, locale: str, *, title: str | None = None, body: str | None = None, draft: bool = True, execution_mode: str = "preview", approval_request_id: str | None = None, approval_token: str | None = None) -> dict[str, object]:
+        if not self._valid_id(article_id) or not isinstance(locale, str) or not _LOCALE.fullmatch(locale) or not isinstance(draft, bool) or not draft or (title is not None and (not isinstance(title, str) or not title.strip())) or (body is not None and not isinstance(body, str)): return failure(ErrorCode.VALIDATION_ERROR, "valid draft translation fields are required; publish with zendesk_publish_help_center_article")
+        current = self._get_translation(article_id, locale)
+        if isinstance(current, dict) and not current.get("ok", True):
+            if current.get("error", {}).get("code") != ErrorCode.NOT_FOUND.value: return current
+            current = None
+        if current is not None and body is not None: return failure(ErrorCode.ARTICLE_BODY_REPLACE_REQUIRED, "existing translation bodies require zendesk_replace_article_translation_body")
+        if current is None:
+            if title is None or body is None: return failure(ErrorCode.VALIDATION_ERROR, "new translations require title and body")
+            operation, translation = "create", {"locale": locale, "title": title.strip(), "body": body, "draft": True}
+        else:
+            if title is None: return success({"translation": current, "outbound_write": False})
+            operation, translation = "update", {"title": title.strip(), "draft": True}
+        payload = {"article_id": article_id, "locale": locale, "operation": operation, "translation": translation}
+        if execution_mode == "preview":
+            if self._approvals is None: return failure(ErrorCode.NOT_CONFIGURED, "Zendesk approval store is not configured")
+            return success({"approval_request_id": self._approvals.create("zendesk_upsert_article_translation", payload), "execution_mode": "preview", "standard": True, "outbound_write": False})
+        if execution_mode != "apply": return failure(ErrorCode.VALIDATION_ERROR, "execution_mode must be preview or apply")
+        if self._settings is None or (blocked := check_write_permission(self._settings, WriteRisk.STANDARD)) is not None: return blocked or failure(ErrorCode.WRITE_DISABLED, "Zendesk writes are disabled")
+        locale_check = self._validate_active_locale(locale)
+        if locale_check is not None: return locale_check
+        if self._approvals is None or not isinstance(approval_request_id, str) or not isinstance(approval_token, str) or not self._approvals.consume(approval_request_id, "zendesk_upsert_article_translation", payload, approval_token): return failure(ErrorCode.APPROVAL_REQUIRED, "a matching local approval is required")
+        if self._client is None: return failure(ErrorCode.NOT_CONFIGURED, "Zendesk is not configured")
+        path = f"/api/v2/help_center/articles/{article_id}/translations.json" if operation == "create" else f"/api/v2/help_center/articles/{article_id}/translations/{locale}.json"
+        return self._client.request("POST" if operation == "create" else "PUT", path, json_body={"translation": translation})
     def _article_payload(self, section_id: object, locale: object, title: object, body: object, labels: object, position: object, permission_group_id: object, user_segment_id: object, draft: object, notify_subscribers: object) -> dict[str, object] | None:
         if not self._valid_id(section_id) or not isinstance(locale, str) or not _LOCALE.fullmatch(locale) or not isinstance(title, str) or not title.strip() or not isinstance(body, str) or not isinstance(draft, bool) or not draft or not isinstance(notify_subscribers, bool): return None
         article: dict[str, object] = {"title": title.strip(), "body": body, "locale": locale, "draft": True}
@@ -68,6 +93,11 @@ class GuideTools:
         result = self.list_locales(); data = result.get("data") if isinstance(result, dict) else None; locales = data.get("locales") if isinstance(data, dict) else None
         if not result.get("ok"): return result
         return None if isinstance(locales, list) and locale in locales else failure(ErrorCode.VALIDATION_ERROR, "locale is not enabled for this Help Center")
+    def _get_translation(self, article_id: int, locale: str) -> dict[str, object] | None:
+        result = self._get(f"/api/v2/help_center/articles/{article_id}/translations/{locale}.json")
+        if not result.get("ok"): return result
+        data = result.get("data"); translation = data.get("translation") if isinstance(data, dict) else None
+        return translation if isinstance(translation, dict) else failure(ErrorCode.UPSTREAM_ERROR, "Zendesk returned an invalid translation response")
     @staticmethod
     def _valid_id(value: object) -> bool: return isinstance(value, int) and not isinstance(value, bool) and value > 0
     def _get(self, path: str, params: dict[str, str] | None = None) -> dict[str, object]:
