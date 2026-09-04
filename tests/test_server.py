@@ -1,3 +1,4 @@
+import asyncio
 import importlib
 
 from mcp import types
@@ -47,6 +48,54 @@ def test_ticket_export_result_includes_a_resource_link_without_its_cache_path():
     assert isinstance(content[1], types.ResourceLink)
     assert str(content[1].uri) == "file:///private/cache/exports/tickets.csv"
     assert content[1].mimeType == "text/csv"
+
+
+def test_knowledge_base_resource_is_registered_only_when_enabled():
+    from zendesk_mcp_server.server import create_server
+
+    disabled = create_server({})
+    enabled = create_server({"ZENDESK_ENABLE_KNOWLEDGE_BASE_RESOURCE": "true"})
+
+    assert types.ListResourcesRequest not in disabled.request_handlers
+    result = asyncio.run(enabled.request_handlers[types.ListResourcesRequest](types.ListResourcesRequest()))
+    assert str(result.root.resources[0].uri) == "zendesk://knowledge-base"
+
+
+def test_knowledge_base_resource_reuses_locale_article_exports(monkeypatch):
+    from zendesk_mcp_server import server as server_module
+    from zendesk_mcp_server.contracts import success
+
+    class GuideExport:
+        def list_locales(self): return success({"locales": ["en-us"]})
+        def export_articles(self, locale): return success({"articles": [{"id": 1, "locale": locale}], "truncated": False})
+
+    monkeypatch.setattr(server_module, "build_guide_tools", lambda _: GuideExport())
+    server = server_module.create_server({"ZENDESK_ENABLE_KNOWLEDGE_BASE_RESOURCE": "true"})
+    request = types.ReadResourceRequest(params=types.ReadResourceRequestParams(uri="zendesk://knowledge-base"))
+
+    result = asyncio.run(server.request_handlers[types.ReadResourceRequest](request))
+
+    assert result.root.contents[0].text == '{"ok": true, "data": {"locales": [{"locale": "en-us", "articles": [{"id": 1, "locale": "en-us"}]}]}}'
+
+
+def test_knowledge_base_resource_caches_its_export_for_one_hour(monkeypatch):
+    from zendesk_mcp_server import server as server_module
+    from zendesk_mcp_server.contracts import success
+
+    class GuideExport:
+        calls = 0
+        def list_locales(self): self.calls += 1; return success({"locales": ["en-us"]})
+        def export_articles(self, locale): self.calls += 1; return success({"articles": [], "truncated": False})
+
+    guide = GuideExport()
+    monkeypatch.setattr(server_module, "build_guide_tools", lambda _: guide)
+    server = server_module.create_server({"ZENDESK_ENABLE_KNOWLEDGE_BASE_RESOURCE": "true"})
+    request = types.ReadResourceRequest(params=types.ReadResourceRequestParams(uri="zendesk://knowledge-base"))
+
+    asyncio.run(server.request_handlers[types.ReadResourceRequest](request))
+    asyncio.run(server.request_handlers[types.ReadResourceRequest](request))
+
+    assert guide.calls == 2
 
 
 def test_ticket_search_tools_accept_the_shared_structured_filter():

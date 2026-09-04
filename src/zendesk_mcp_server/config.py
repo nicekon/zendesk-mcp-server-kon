@@ -45,6 +45,7 @@ class Settings:
     external_uploads_enabled: bool = False
     upload_root: Path | None = None
     attachment_cache_root: Path | None = None
+    knowledge_base_resource_enabled: bool = False
     email: str | None = None
     api_token: str | None = None
     oauth: OAuthConfig | None = None
@@ -72,6 +73,7 @@ class Settings:
         external_uploads_enabled = _parse_bool(environ, "ZENDESK_ENABLE_EXTERNAL_UPLOADS")
         upload_root = environ.get("ZENDESK_UPLOAD_ROOT")
         attachment_cache_root = environ.get("ZENDESK_ATTACHMENT_CACHE_ROOT")
+        knowledge_base_resource_enabled = _parse_bool(environ, "ZENDESK_ENABLE_KNOWLEDGE_BASE_RESOURCE")
         capabilities = frozenset(value.strip() for value in environ.get("ZENDESK_CAPABILITIES", "support,operations,guide,community").split(",") if value.strip())
         if not capabilities <= _CAPABILITIES: raise ConfigurationError("invalid_capabilities", "Zendesk capabilities contain an unknown value")
 
@@ -127,6 +129,7 @@ class Settings:
             external_uploads_enabled=external_uploads_enabled,
             upload_root=Path(upload_root).expanduser() if upload_root else None,
             attachment_cache_root=Path(attachment_cache_root).expanduser() if attachment_cache_root else Path.home() / ".cache" / "zendesk-mcp-server" / "attachments",
+            knowledge_base_resource_enabled=knowledge_base_resource_enabled,
             email=email if selected_mode is AuthMode.API_TOKEN else None,
             api_token=api_token if selected_mode is AuthMode.API_TOKEN else None,
             oauth=oauth if selected_mode is AuthMode.OAUTH else None,

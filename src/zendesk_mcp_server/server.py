@@ -5,11 +5,13 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import time
 from collections.abc import Mapping
 from pathlib import Path
 
 from mcp import types
 from mcp.server import InitializationOptions, NotificationOptions, Server
+from mcp.server.lowlevel.helper_types import ReadResourceContents
 from mcp.server.stdio import stdio_server
 
 from .approvals import ApprovalStore
@@ -361,6 +363,40 @@ def attachment_inspection_content(result: dict[str, object]) -> list[object]:
 def create_server(environ: Mapping[str, str] | None = None) -> Server:
     environment = dict(os.environ) if environ is None else dict(environ)
     server = Server("Zendesk")
+
+    try:
+        settings = Settings.load(environment)
+        knowledge_base_enabled = settings.knowledge_base_resource_enabled and settings.has_capability("guide")
+    except ConfigurationError:
+        knowledge_base_enabled = False
+    if knowledge_base_enabled:
+        knowledge_base_cache: tuple[float, str] | None = None
+
+        @server.list_resources()
+        async def handle_list_resources() -> list[types.Resource]:
+            return [types.Resource(name="Zendesk Knowledge Base", uri="zendesk://knowledge-base", description="Enabled Help Center article export.", mimeType="application/json")]
+
+        @server.read_resource()
+        async def handle_read_resource(uri: object) -> list[ReadResourceContents]:
+            nonlocal knowledge_base_cache
+            if str(uri) != "zendesk://knowledge-base": raise ValueError("Unknown Zendesk resource")
+            if knowledge_base_cache is not None and time.time() - knowledge_base_cache[0] < 60 * 60:
+                return [ReadResourceContents(knowledge_base_cache[1], "application/json")]
+            tools = build_guide_tools(environment)
+            if isinstance(tools, dict): return [ReadResourceContents(json.dumps(tools), "application/json")]
+            locales_result = tools.list_locales()
+            if not locales_result.get("ok"): return [ReadResourceContents(json.dumps(locales_result), "application/json")]
+            locales_data = locales_result.get("data"); locales = locales_data.get("locales") if isinstance(locales_data, dict) else None
+            if not isinstance(locales, list) or not all(isinstance(locale, str) for locale in locales): return [ReadResourceContents(json.dumps(failure(ErrorCode.UPSTREAM_ERROR, "Zendesk returned invalid Help Center locales")), "application/json")]
+            exports = []
+            for locale in locales:
+                exported = tools.export_articles(locale)
+                if not exported.get("ok"): return [ReadResourceContents(json.dumps(exported), "application/json")]
+                data = exported.get("data")
+                exports.append({"locale": locale, "articles": data.get("articles", []) if isinstance(data, dict) else []})
+            content = json.dumps(success({"locales": exports}), ensure_ascii=False)
+            knowledge_base_cache = time.time(), content
+            return [ReadResourceContents(content, "application/json")]
 
     @server.list_prompts()
     async def handle_list_prompts() -> list[types.Prompt]:
