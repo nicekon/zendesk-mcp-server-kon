@@ -78,6 +78,26 @@ def build_tools() -> list[types.Tool]:
             },
         ),
         types.Tool(
+            name="zendesk_update_ticket",
+            description="Update Zendesk ticket fields. Requires standard write mode and may trigger account automations.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "ticket_id": {"type": "integer", "minimum": 1},
+                    "subject": {"type": "string", "minLength": 1},
+                    "status": {"type": "string", "enum": ["new", "open", "pending", "hold", "solved", "closed"]},
+                    "priority": {"type": "string", "enum": ["low", "normal", "high", "urgent"]},
+                    "ticket_type": {"type": "string", "enum": ["question", "incident", "problem", "task"]},
+                    "requester_id": {"type": "integer", "minimum": 1},
+                    "assignee_id": {"type": "integer", "minimum": 1},
+                    "group_id": {"type": "integer", "minimum": 1},
+                    "organization_id": {"type": "integer", "minimum": 1},
+                    "tags": {"type": "array", "items": {"type": "string"}},
+                },
+                "required": ["ticket_id"],
+            },
+        ),
+        types.Tool(
             name="zendesk_get_ticket_conversation",
             description="Retrieve a ticket conversation without making changes.",
             inputSchema={"type": "object", "properties": {"ticket_id": {"type": "integer", "minimum": 1}}, "required": ["ticket_id"]},
@@ -176,6 +196,7 @@ def create_server(environ: Mapping[str, str] | None = None) -> Server:
             "zendesk_count_tickets",
             "zendesk_get_ticket",
             "zendesk_create_ticket",
+            "zendesk_update_ticket",
             "zendesk_get_ticket_conversation",
         }:
             tools = build_ticket_tools(environment)
@@ -199,6 +220,20 @@ def create_server(environ: Mapping[str, str] | None = None) -> Server:
                     tags=values.get("tags"),
                     priority=values.get("priority"),
                     ticket_type=values.get("ticket_type"),
+                )
+            elif name == "zendesk_update_ticket":
+                values = arguments or {}
+                result = tools.update_ticket(
+                    values.get("ticket_id"),
+                    subject=values.get("subject"),
+                    status=values.get("status"),
+                    priority=values.get("priority"),
+                    ticket_type=values.get("ticket_type"),
+                    requester_id=values.get("requester_id"),
+                    assignee_id=values.get("assignee_id"),
+                    group_id=values.get("group_id"),
+                    organization_id=values.get("organization_id"),
+                    tags=values.get("tags"),
                 )
             else:
                 ticket_id = (arguments or {}).get("ticket_id")

@@ -121,3 +121,15 @@ def test_create_ticket_uses_a_validated_standard_write_payload():
             },
         )
     ]
+
+
+def test_update_ticket_reuses_the_standard_write_guard_and_endpoint():
+    client = MutationStub()
+    settings = Settings.load({"ZENDESK_WRITE_MODE": "standard"})
+
+    result = TicketTools(client, settings).update_ticket(9, status="pending", assignee_id=3)
+
+    assert result["data"]["ticket"]["id"] == 9
+    assert client.calls == [
+        ("PUT", "/api/v2/tickets/9.json", {"ticket": {"status": "pending", "assignee_id": 3}})
+    ]

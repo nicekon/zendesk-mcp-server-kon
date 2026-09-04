@@ -142,6 +142,43 @@ class TicketTools:
             return client
         return _with_automation_notice(client.request("POST", "/api/v2/tickets.json", json_body={"ticket": payload}))
 
+    def update_ticket(
+        self,
+        ticket_id: int,
+        *,
+        subject: str | None = None,
+        status: str | None = None,
+        priority: str | None = None,
+        ticket_type: str | None = None,
+        requester_id: int | None = None,
+        assignee_id: int | None = None,
+        group_id: int | None = None,
+        organization_id: int | None = None,
+        tags: list[str] | None = None,
+    ) -> dict[str, object]:
+        if not _valid_ticket_id(ticket_id):
+            return failure(ErrorCode.VALIDATION_ERROR, "ticket_id must be a positive integer")
+        payload = _update_ticket_payload(
+            subject=subject,
+            status=status,
+            priority=priority,
+            ticket_type=ticket_type,
+            requester_id=requester_id,
+            assignee_id=assignee_id,
+            group_id=group_id,
+            organization_id=organization_id,
+            tags=tags,
+        )
+        if isinstance(payload, dict) and "error" in payload:
+            return payload
+        permitted = self._write_permitted(WriteRisk.STANDARD)
+        if permitted is not None:
+            return permitted
+        client = self._configured_mutation_client()
+        if isinstance(client, dict):
+            return client
+        return _with_automation_notice(client.request("PUT", f"/api/v2/tickets/{ticket_id}.json", json_body={"ticket": payload}))
+
     def _configured_client(self) -> TicketClient | dict[str, object]:
         if self._client is None:
             return failure(ErrorCode.NOT_CONFIGURED, "Zendesk is not configured")
@@ -223,3 +260,41 @@ def _with_automation_notice(result: dict[str, object]) -> dict[str, object]:
     if result.get("ok") and isinstance(data, dict):
         data["account_automation_side_effects_possible"] = True
     return result
+
+
+def _update_ticket_payload(**values: object) -> dict[str, object]:
+    payload: dict[str, object] = {}
+    subject = values["subject"]
+    if subject is not None:
+        if not _valid_text(subject):
+            return failure(ErrorCode.VALIDATION_ERROR, "subject must be a non-empty string")
+        payload["subject"] = subject.strip()
+    status = values["status"]
+    if status is not None:
+        if status not in {"new", "open", "pending", "hold", "solved", "closed"}:
+            return failure(ErrorCode.VALIDATION_ERROR, "status is invalid")
+        payload["status"] = status
+    priority = values["priority"]
+    if priority is not None:
+        if priority not in {"low", "normal", "high", "urgent"}:
+            return failure(ErrorCode.VALIDATION_ERROR, "priority is invalid")
+        payload["priority"] = priority
+    ticket_type = values["ticket_type"]
+    if ticket_type is not None:
+        if ticket_type not in {"question", "incident", "problem", "task"}:
+            return failure(ErrorCode.VALIDATION_ERROR, "ticket_type is invalid")
+        payload["type"] = ticket_type
+    for name in ("requester_id", "assignee_id", "group_id", "organization_id"):
+        value = values[name]
+        if value is not None:
+            if not _valid_ticket_id(value):
+                return failure(ErrorCode.VALIDATION_ERROR, f"{name} must be a positive integer")
+            payload[name] = value
+    tags = values["tags"]
+    if tags is not None:
+        if not isinstance(tags, list) or any(not _valid_tag(tag) for tag in tags):
+            return failure(ErrorCode.VALIDATION_ERROR, "tags must be non-empty strings without spaces")
+        payload["tags"] = tags
+    if not payload:
+        return failure(ErrorCode.VALIDATION_ERROR, "at least one ticket field is required")
+    return payload
