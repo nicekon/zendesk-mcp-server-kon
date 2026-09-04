@@ -69,6 +69,14 @@ def test_community_comment_create_requires_local_public_approval(tmp_path):
     assert result["data"]["post"]["id"] == 2
 
 
+def test_community_html_writes_reject_unsafe_tags_and_image_sources(tmp_path):
+    tools = CommunityTools(StubClient(), Settings.load({"ZENDESK_SUBDOMAIN": "acme", "ZENDESK_EMAIL": "agent@example.test", "ZENDESK_API_TOKEN": "token"}), ApprovalStore(tmp_path / "approvals.json"))
+
+    assert tools.create_post(4, "Title", "<script>alert(1)</script>")["error"]["code"] == "validation_error"
+    assert tools.update_comment(2, 3, {"body": '<img src="https://evil.example/image.png">'})["error"]["code"] == "validation_error"
+    assert tools.create_comment(2, '<p><a href="https://example.test">safe</a></p>')["ok"] is True
+
+
 def test_community_topic_create_requires_local_public_approval(tmp_path):
     client = StubClient(); store = ApprovalStore(tmp_path / "approvals.json")
     tools = CommunityTools(client, Settings.load({"ZENDESK_WRITE_MODE": "standard", "ZENDESK_ENABLE_PUBLIC_WRITES": "true"}), store)

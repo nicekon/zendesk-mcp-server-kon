@@ -3,13 +3,51 @@ from __future__ import annotations
 import hashlib
 import os
 import stat
+from html.parser import HTMLParser
 from pathlib import Path
 from typing import Protocol
+from urllib.parse import urlsplit
 from ..approvals import ApprovalStore
 from ..config import Settings
 from ..contracts import ErrorCode, failure
 from ..contracts import success
 from ..write_policy import WriteRisk, check_write_permission
+
+
+_HTML_TAGS = {"p", "div", "span", "br", "b", "i", "u", "strong", "em", "sub", "sup", "a", "hr", "img", "h1", "h2", "h3", "h4", "h5", "h6", "ul", "ol", "li", "dl", "dt", "dd", "table", "thead", "tbody", "tfoot", "tr", "th", "td", "colgroup", "col", "blockquote", "pre", "abbr", "acronym", "cite", "code", "tt", "samp", "kbd", "var", "dfn", "address", "x-zendesk-user"}
+_VOID_HTML_TAGS = {"br", "hr", "img", "col"}
+_HTML_ATTRIBUTES = {"a": {"href", "title", "rel"}, "img": {"src", "alt", "title", "width", "height"}, "th": {"colspan", "rowspan", "scope"}, "td": {"colspan", "rowspan", "scope"}}
+
+
+class _CommunityHTMLValidator(HTMLParser):
+    def __init__(self, subdomain: str | None) -> None:
+        super().__init__(convert_charrefs=True); self.subdomain, self.valid, self.stack, self._mention = subdomain, True, [], []
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        self._start(tag, attrs, False)
+    def handle_startendtag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        self._start(tag, attrs, True)
+    def _start(self, tag: str, attrs: list[tuple[str, str | None]], self_closing: bool) -> None:
+        if tag not in _HTML_TAGS or (self_closing and tag not in _VOID_HTML_TAGS) or len({name for name, _ in attrs}) != len(attrs): self.valid = False; return
+        values = dict(attrs)
+        if set(values) - _HTML_ATTRIBUTES.get(tag, set()) or any(value is None for value in values.values()): self.valid = False; return
+        if tag == "a" and not self._safe_link(values.get("href", "")): self.valid = False; return
+        if tag == "img" and not self._safe_image(values.get("src", "")): self.valid = False; return
+        if tag in {"img", "th", "td"} and any(name in values and not values[name].isdigit() for name in {"width", "height", "colspan", "rowspan"}): self.valid = False; return
+        if tag not in _VOID_HTML_TAGS: self.stack.append(tag)
+        if tag == "x-zendesk-user": self._mention.append("")
+    def handle_endtag(self, tag: str) -> None:
+        if tag in _VOID_HTML_TAGS or not self.stack or self.stack[-1] != tag: self.valid = False; return
+        self.stack.pop()
+        if tag == "x-zendesk-user" and (not self._mention or not self._mention.pop().strip().isdigit()): self.valid = False
+    def handle_data(self, data: str) -> None:
+        if self.stack and self.stack[-1] == "x-zendesk-user" and self._mention: self._mention[-1] += data
+    def handle_comment(self, data: str) -> None: self.valid = False
+    def handle_decl(self, decl: str) -> None: self.valid = False
+    def _safe_link(self, value: str) -> bool: return urlsplit(value).scheme in {"http", "https", "mailto"}
+    def _safe_image(self, value: str) -> bool:
+        if value.startswith("/hc/user_images/"): return True
+        parsed = urlsplit(value)
+        return self.subdomain is not None and parsed.scheme == "https" and parsed.netloc == f"{self.subdomain}.zendesk.com" and parsed.path.startswith("/hc/user_images/")
 
 class CommunityClient(Protocol):
     def get(self, path: str, *, params: dict[str, str] | None = None) -> dict[str, object]: ...
@@ -30,7 +68,7 @@ class CommunityTools:
         if not isinstance(post_id, int) or isinstance(post_id, bool) or post_id < 1: return failure(ErrorCode.VALIDATION_ERROR, "post_id must be a positive integer")
         return self._get(f"/api/v2/community/posts/{post_id}.json")
     def create_post(self, topic_id: int, title: str, details: str, *, execution_mode: str = "preview", approval_request_id: str | None = None, approval_token: str | None = None) -> dict[str, object]:
-        if not isinstance(topic_id, int) or topic_id < 1 or not isinstance(title, str) or not title.strip() or not isinstance(details, str) or not details.strip(): return failure(ErrorCode.VALIDATION_ERROR, "topic_id, title, and details are required")
+        if not isinstance(topic_id, int) or topic_id < 1 or not isinstance(title, str) or not title.strip() or not isinstance(details, str) or not details.strip() or not self._valid_html(details): return failure(ErrorCode.VALIDATION_ERROR, "topic_id, title, and safe details are required")
         payload = {"post": {"topic_id": topic_id, "title": title.strip(), "details": details.strip()}}
         if execution_mode == "preview":
             if self._approvals is None: return failure(ErrorCode.NOT_CONFIGURED, "Zendesk approval store is not configured")
@@ -41,7 +79,7 @@ class CommunityTools:
         if self._client is None or not hasattr(self._client, "request"): return failure(ErrorCode.NOT_CONFIGURED, "Zendesk write client is not configured")
         return self._client.request("POST", "/api/v2/community/posts.json", json_body=payload)
     def create_comment(self, post_id: int, body: str, *, execution_mode: str = "preview", approval_request_id: str | None = None, approval_token: str | None = None) -> dict[str, object]:
-        if not isinstance(post_id, int) or post_id < 1 or not isinstance(body, str) or not body.strip(): return failure(ErrorCode.VALIDATION_ERROR, "post_id and body are required")
+        if not isinstance(post_id, int) or post_id < 1 or not isinstance(body, str) or not body.strip() or not self._valid_html(body): return failure(ErrorCode.VALIDATION_ERROR, "post_id and safe body are required")
         payload = {"comment": {"body": body.strip()}}
         if execution_mode == "preview":
             if self._approvals is None: return failure(ErrorCode.NOT_CONFIGURED, "Zendesk approval store is not configured")
@@ -262,7 +300,7 @@ class CommunityTools:
         if not isinstance(post, dict) or not post or set(post) - {"title", "details", "topic_id", "status", "closed", "featured", "pinned", "content_tag_ids"}: return None
         normalized = dict(post)
         for name in {"title", "details"} & normalized.keys():
-            if not isinstance(normalized[name], str) or (name == "title" and not normalized[name].strip()): return None
+            if not isinstance(normalized[name], str) or (name == "title" and not normalized[name].strip()) or (name == "details" and not self._valid_html(normalized[name])): return None
             normalized[name] = normalized[name].strip()
         if "topic_id" in normalized and not self._valid_id(normalized["topic_id"], "topic_id"): return None
         if "status" in normalized and normalized["status"] not in {"planned", "not_planned", "answered", "completed"}: return None
@@ -272,7 +310,7 @@ class CommunityTools:
     def _comment_payload(self, comment: dict[str, object]) -> dict[str, object] | None:
         if not isinstance(comment, dict) or not comment or set(comment) - {"body", "official"}: return None
         normalized = dict(comment)
-        if "body" in normalized and (not isinstance(normalized["body"], str) or not normalized["body"].strip()): return None
+        if "body" in normalized and (not isinstance(normalized["body"], str) or not normalized["body"].strip() or not self._valid_html(normalized["body"])): return None
         if "body" in normalized: normalized["body"] = normalized["body"].strip()
         if "official" in normalized and not isinstance(normalized["official"], bool): return None
         return {"comment": normalized}
@@ -299,6 +337,11 @@ class CommunityTools:
         if "description" in normalized and not isinstance(normalized["description"], str): return None
         if "icon_upload_id" in normalized and normalized["icon_upload_id"] is not None and not self._valid_tag_id(normalized["icon_upload_id"]): return None
         return {"badge": normalized}
+    def _valid_html(self, value: str) -> bool:
+        validator = _CommunityHTMLValidator(self._settings.subdomain if self._settings else None)
+        try: validator.feed(value); validator.close()
+        except ValueError: return False
+        return validator.valid and not validator.stack
     def _load_user_image(self, image_path: object, content_type: object, brand_id: object, *, allowed_content_types: set[str] | None = None) -> tuple[dict[str, object], bytes] | dict[str, object]:
         if not isinstance(image_path, str) or not image_path or content_type not in (allowed_content_types or {"image/jpeg", "image/png", "image/gif"}) or not self._valid_id(brand_id, "brand_id"): return failure(ErrorCode.VALIDATION_ERROR, "valid image_path, content_type, and brand_id are required")
         if self._settings is None or self._settings.upload_root is None: return failure(ErrorCode.NOT_CONFIGURED, "ZENDESK_UPLOAD_ROOT is required for local image uploads")
