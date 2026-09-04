@@ -565,7 +565,8 @@ def create_server(environ: Mapping[str, str] | None = None) -> Server:
                 values = arguments or {}; result = tools.export_articles(values.get("locale"), values.get("max_articles", 100000))
             elif name == "zendesk_get_help_center_article": result = tools.get_article((arguments or {}).get("article_id"))
             elif name in {"zendesk_list_csat", "zendesk_export_satisfaction_ratings"}:
-                values = arguments or {}; result = tools.list_csat(values.get("backend", "auto"), score=values.get("score"), ticket_id=values.get("ticket_id"), responder_ids=values.get("responder_ids"), created_at_start=values.get("created_at_start"), created_at_end=values.get("created_at_end"))
+                values = arguments or {}
+                result = failure(ErrorCode.VALIDATION_ERROR, "format must be json or csv") if name == "zendesk_export_satisfaction_ratings" and values.get("format", "json") not in {"json", "csv"} else tools.list_csat(values.get("backend", "auto"), score=values.get("score"), ticket_id=values.get("ticket_id"), responder_ids=values.get("responder_ids"), created_at_start=values.get("created_at_start"), created_at_end=values.get("created_at_end"))
             elif name == "zendesk_list_guide_permission_groups": result = tools.list_permission_groups()
             elif name == "zendesk_list_guide_user_segments":
                 values = arguments or {}; result = tools.list_user_segments(built_in=values.get("built_in"), applicable=values.get("applicable", False))
