@@ -10,6 +10,7 @@ from typing import Mapping
 
 
 _SUBDOMAIN_PATTERN = re.compile(r"[a-z0-9][a-z0-9-]{0,62}")
+_CAPABILITIES = frozenset({"support", "operations", "guide", "community", "csat", "custom_objects", "git_zen", "time_tracking", "badges"})
 
 
 class AuthMode(str, Enum):
@@ -47,6 +48,7 @@ class Settings:
     email: str | None = None
     api_token: str | None = None
     oauth: OAuthConfig | None = None
+    capabilities: frozenset[str] = frozenset({"support", "operations", "guide", "community"})
 
     @classmethod
     def load(
@@ -70,6 +72,8 @@ class Settings:
         external_uploads_enabled = _parse_bool(environ, "ZENDESK_ENABLE_EXTERNAL_UPLOADS")
         upload_root = environ.get("ZENDESK_UPLOAD_ROOT")
         attachment_cache_root = environ.get("ZENDESK_ATTACHMENT_CACHE_ROOT")
+        capabilities = frozenset(value.strip() for value in environ.get("ZENDESK_CAPABILITIES", "support,operations,guide,community").split(",") if value.strip())
+        if not capabilities <= _CAPABILITIES: raise ConfigurationError("invalid_capabilities", "Zendesk capabilities contain an unknown value")
 
         subdomain = environ.get("ZENDESK_SUBDOMAIN")
         if subdomain is not None:
@@ -126,6 +130,7 @@ class Settings:
             email=email if selected_mode is AuthMode.API_TOKEN else None,
             api_token=api_token if selected_mode is AuthMode.API_TOKEN else None,
             oauth=oauth if selected_mode is AuthMode.OAUTH else None,
+            capabilities=capabilities,
         )
 
     def connection_status(self) -> dict[str, object]:
