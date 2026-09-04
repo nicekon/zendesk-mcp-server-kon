@@ -79,7 +79,17 @@ class CommunityTools:
     def get_comment(self, comment_id: int) -> dict[str, object]: return self._by_id("/api/v2/community/comments/{id}.json", comment_id, "comment_id")
     def list_topics(self) -> dict[str, object]: return self._get("/api/v2/community/topics.json")
     def get_topic(self, topic_id: int) -> dict[str, object]: return self._by_id("/api/v2/community/topics/{id}.json", topic_id, "topic_id")
-    def list_votes(self, post_id: int) -> dict[str, object]: return self._by_id("/api/v2/community/posts/{id}/votes.json", post_id, "post_id")
+    def list_votes(self, post_id: int) -> dict[str, object]: return self._by_id("/api/v2/help_center/posts/{id}/votes.json", post_id, "post_id")
+    def get_vote(self, vote_id: int) -> dict[str, object]: return self._by_id("/api/v2/help_center/votes/{id}.json", vote_id, "vote_id")
+    def cast_vote(self, content_type: str, post_id: int, comment_id: int | None, direction: str, *, execution_mode: str = "preview", approval_request_id: str | None = None, approval_token: str | None = None) -> dict[str, object]:
+        path = self._vote_path(content_type, post_id, comment_id, direction)
+        if path is None: return failure(ErrorCode.VALIDATION_ERROR, "valid content_type, post_id, comment_id, and direction are required")
+        payload: dict[str, object] = {"content_type": content_type, "post_id": post_id, "direction": direction}
+        if comment_id is not None: payload["comment_id"] = comment_id
+        return self._approved_request(f"zendesk_{direction}vote_community_content", payload, "POST", path, None, WriteRisk.PUBLIC, execution_mode, approval_request_id, approval_token)
+    def delete_vote(self, vote_id: int, *, execution_mode: str = "preview", approval_request_id: str | None = None, approval_token: str | None = None) -> dict[str, object]:
+        if not self._valid_id(vote_id, "vote_id"): return failure(ErrorCode.VALIDATION_ERROR, "vote_id must be a positive integer")
+        return self._approved_request("zendesk_remove_community_vote", {"vote_id": vote_id}, "DELETE", f"/api/v2/help_center/votes/{vote_id}.json", None, WriteRisk.DESTRUCTIVE, execution_mode, approval_request_id, approval_token)
     def list_post_subscriptions(self, post_id: int) -> dict[str, object]: return self._by_id("/api/v2/community/posts/{id}/subscriptions.json", post_id, "post_id")
     def list_topic_subscriptions(self, topic_id: int) -> dict[str, object]: return self._by_id("/api/v2/community/topics/{id}/subscriptions.json", topic_id, "topic_id")
     def search_content_tags(self, prefix: str) -> dict[str, object]:
@@ -94,6 +104,11 @@ class CommunityTools:
         return self._get(template.format(id=value))
     @staticmethod
     def _valid_id(value: object, name: str) -> bool: return isinstance(value, int) and not isinstance(value, bool) and value > 0
+    def _vote_path(self, content_type: str, post_id: int, comment_id: int | None, direction: str) -> str | None:
+        if direction not in {"up", "down"} or not self._valid_id(post_id, "post_id"): return None
+        if content_type == "post" and comment_id is None: return f"/api/v2/help_center/posts/{post_id}/{direction}.json"
+        if content_type == "post_comment" and self._valid_id(comment_id, "comment_id"): return f"/api/v2/community/posts/{post_id}/comments/{comment_id}/{direction}.json"
+        return None
     def _post_payload(self, post: dict[str, object]) -> dict[str, object] | None:
         if not isinstance(post, dict) or not post or set(post) - {"title", "details", "topic_id", "status", "closed", "featured", "pinned", "content_tag_ids"}: return None
         normalized = dict(post)
