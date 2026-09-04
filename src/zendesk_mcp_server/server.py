@@ -6,8 +6,10 @@ import asyncio
 import json
 import os
 from collections.abc import Mapping
+from pathlib import Path
 
-from mcp.server import InitializationOptions, NotificationOptions, Server, types
+from mcp import types
+from mcp.server import InitializationOptions, NotificationOptions, Server
 from mcp.server.stdio import stdio_server
 
 from .approvals import ApprovalStore
@@ -276,6 +278,26 @@ def build_community_tools(environ: Mapping[str, str]) -> CommunityTools | dict[s
     return CommunityTools(ZendeskClient(settings, authorization), settings, ApprovalStore.from_environment(environ))
 
 
+def attachment_download_content(result: dict[str, object]) -> list[object]:
+    data = result.get("data")
+    if not result.get("ok") or not isinstance(data, dict) or not isinstance(data.get("cache_path"), str):
+        return [types.TextContent(type="text", text=json.dumps(result))]
+    path = Path(data["cache_path"])
+    if not path.is_absolute():
+        return [types.TextContent(type="text", text=json.dumps(result))]
+    summary = {key: value for key, value in data.items() if key != "cache_path"}
+    content_type = data.get("content_type") if isinstance(data.get("content_type"), str) else None
+    return [
+        types.TextContent(type="text", text=json.dumps({**result, "data": summary})),
+        types.ResourceLink(
+            type="resource_link",
+            name=f"Zendesk ticket {data.get('ticket_id')} attachment {data.get('attachment_id')}",
+            uri=path.as_uri(),
+            mimeType=content_type,
+        ),
+    ]
+
+
 def create_server(environ: Mapping[str, str] | None = None) -> Server:
     environment = dict(os.environ) if environ is None else dict(environ)
     server = Server("Zendesk")
@@ -340,7 +362,7 @@ def create_server(environ: Mapping[str, str] | None = None) -> Server:
     async def handle_call_tool(
         name: str,
         arguments: dict[str, object] | None,
-    ) -> list[types.TextContent]:
+    ) -> list[object]:
         if name == "zendesk_get_connection_status":
             result = build_connection_status(environment)
         elif name in {"zendesk_list_community_posts", "zendesk_search_community_posts", "zendesk_get_community_post", "zendesk_create_community_post", "zendesk_update_community_post", "zendesk_delete_community_post", "zendesk_create_community_comment", "zendesk_update_community_comment", "zendesk_delete_community_comment", "zendesk_create_community_topic", "zendesk_update_community_topic", "zendesk_delete_community_topic", "zendesk_list_community_votes", "zendesk_get_community_vote", "zendesk_upvote_community_content", "zendesk_downvote_community_content", "zendesk_remove_community_vote", "zendesk_list_content_subscriptions", "zendesk_get_content_subscription", "zendesk_create_content_subscription", "zendesk_update_content_subscription", "zendesk_delete_content_subscription", "zendesk_list_community_comments", "zendesk_get_community_comment", "zendesk_list_community_topics", "zendesk_get_community_topic", "zendesk_search_content_tags", "zendesk_count_content_tags", "zendesk_get_content_tag", "zendesk_create_content_tag", "zendesk_update_content_tag", "zendesk_delete_content_tag", "zendesk_list_user_subscriptions", "zendesk_upsert_user_subscription", "zendesk_delete_user_subscription", "zendesk_list_badge_categories", "zendesk_get_badge_category", "zendesk_create_badge_category", "zendesk_delete_badge_category", "zendesk_list_badges", "zendesk_get_badge", "zendesk_create_badge", "zendesk_update_badge", "zendesk_delete_badge", "zendesk_list_badge_assignments", "zendesk_create_badge_assignment", "zendesk_delete_badge_assignment", "zendesk_upload_community_user_image", "zendesk_upload_badge_icon"}:
@@ -592,7 +614,7 @@ def create_server(environ: Mapping[str, str] | None = None) -> Server:
                     result = tools.get_conversation(ticket_id)
         else:
             result = failure(ErrorCode.NOT_FOUND, f"Unknown tool: {name}")
-        return [types.TextContent(type="text", text=json.dumps(result))]
+        return attachment_download_content(result) if name == "zendesk_download_ticket_attachment" else [types.TextContent(type="text", text=json.dumps(result))]
 
     return server
 

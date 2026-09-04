@@ -1,5 +1,28 @@
 import importlib
 
+from mcp import types
+
+
+def test_attachment_download_result_includes_a_resource_link():
+    from zendesk_mcp_server.server import attachment_download_content
+
+    content = attachment_download_content(
+        {
+            "ok": True,
+            "data": {
+                "ticket_id": 7,
+                "attachment_id": 5,
+                "cache_path": "/private/cache/5/attachment",
+                "content_type": "text/plain",
+            },
+        }
+    )
+
+    assert isinstance(content[0], types.TextContent)
+    assert isinstance(content[1], types.ResourceLink)
+    assert str(content[1].uri) == "file:///private/cache/5/attachment"
+    assert content[1].mimeType == "text/plain"
+
 
 def test_server_import_does_not_require_credentials(monkeypatch):
     for name in (
