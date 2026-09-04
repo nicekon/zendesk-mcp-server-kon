@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import base64
+import fcntl
 import json
 import os
 import stat
 import tempfile
 import time
 from dataclasses import dataclass, field
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Protocol
 from collections.abc import Callable
@@ -73,11 +75,14 @@ def refresh_oauth_tokens(request: Callable[[dict[str, str]], object], client_id:
     return oauth_tokens_from_refresh_response(request(oauth_refresh_payload(client_id, client_secret, refresh_token)), now=now, previous_refresh_token=refresh_token)
 
 
-def refresh_and_store_oauth_tokens(store: OAuthTokenStore, request: Callable[[dict[str, str]], object], client_id: str, client_secret: str, *, now: int) -> OAuthTokens:
-    current = store.load()
-    refreshed = refresh_oauth_tokens(request, client_id, client_secret, current.refresh_token, now=now)
-    store.save(refreshed)
-    return refreshed
+def refresh_and_store_oauth_tokens(store: OAuthTokenStore, request: Callable[[dict[str, str]], object], client_id: str, client_secret: str, *, now: int, expected_access_token: str | None = None) -> OAuthTokens:
+    with store.refresh_lock():
+        current = store.load()
+        if expected_access_token is not None and current.access_token != expected_access_token:
+            return current
+        refreshed = refresh_oauth_tokens(request, client_id, client_secret, current.refresh_token, now=now)
+        store.save(refreshed)
+        return refreshed
 
 
 class OAuthTokenStore:
@@ -125,6 +130,18 @@ class OAuthTokenStore:
             if temporary_path is not None and temporary_path.exists():
                 temporary_path.unlink()
 
+    @contextmanager
+    def refresh_lock(self):
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        descriptor = os.open(self.path.with_name(f".{self.path.name}.lock"), os.O_RDWR | os.O_CREAT, 0o600)
+        try:
+            os.chmod(descriptor, 0o600)
+            fcntl.flock(descriptor, fcntl.LOCK_EX)
+            yield
+        finally:
+            fcntl.flock(descriptor, fcntl.LOCK_UN)
+            os.close(descriptor)
+
     def _require_user_only_permissions(self) -> None:
         try:
             mode = stat.S_IMODE(self.path.stat().st_mode)
@@ -148,12 +165,13 @@ def build_authorization(settings: Settings, *, oauth_requester: Callable[[dict[s
     tokens = store.load()
     current_time = int(time.time()) if now is None else now
     requester = oauth_requester or _oauth_refresh_requester(settings.subdomain or "")
-    if tokens.is_expired(now=current_time): tokens = refresh_and_store_oauth_tokens(store, requester, settings.oauth.client_id, settings.oauth.client_secret, now=current_time)
+    if tokens.is_expired(now=current_time): tokens = refresh_and_store_oauth_tokens(store, requester, settings.oauth.client_id, settings.oauth.client_secret, now=current_time, expected_access_token=tokens.access_token)
 
     def refresh() -> str:
-        return refresh_and_store_oauth_tokens(store, requester, settings.oauth.client_id, settings.oauth.client_secret, now=int(time.time())).access_token
+        return refresh_and_store_oauth_tokens(store, requester, settings.oauth.client_id, settings.oauth.client_secret, now=int(time.time()), expected_access_token=authorization.access_token).access_token
 
-    return OAuthAuthorization(tokens.access_token, refresh)
+    authorization = OAuthAuthorization(tokens.access_token, refresh)
+    return authorization
 
 
 def _oauth_refresh_requester(subdomain: str) -> Callable[[dict[str, str]], object]:

@@ -68,6 +68,21 @@ def test_refresh_and_store_rotates_the_token_file(tmp_path: Path):
     assert store.load().refresh_token == "rotated"
 
 
+def test_refresh_reuses_a_concurrently_rotated_token(tmp_path: Path):
+    from zendesk_mcp_server.auth import refresh_and_store_oauth_tokens
+    store = OAuthTokenStore(tmp_path / "oauth.json"); store.save(OAuthTokens("old", "refresh", 1)); calls = 0
+    def request(_):
+        nonlocal calls
+        calls += 1
+        return {"access_token": "new", "refresh_token": "rotated", "expires_in": 100}
+
+    first = refresh_and_store_oauth_tokens(store, request, "id", "secret", now=1, expected_access_token="old")
+    second = refresh_and_store_oauth_tokens(store, request, "id", "secret", now=1, expected_access_token="old")
+
+    assert first.access_token == second.access_token == "new"
+    assert calls == 1
+
+
 def test_build_authorization_refreshes_expired_oauth_tokens(tmp_path: Path):
     from zendesk_mcp_server.auth import build_authorization
     from zendesk_mcp_server.config import Settings
