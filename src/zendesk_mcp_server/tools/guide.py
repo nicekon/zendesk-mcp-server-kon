@@ -60,15 +60,19 @@ class GuideTools:
         if current is None:
             if title is None or body is None: return failure(ErrorCode.VALIDATION_ERROR, "new translations require title and body")
             operation, translation = "create", {"locale": locale, "title": title.strip(), "body": body, "draft": True}
+            risks = (WriteRisk.STANDARD,)
         else:
             if title is None: return success({"translation": current, "outbound_write": False})
             operation, translation = "update", {"title": title.strip(), "draft": True}
+            risks = (WriteRisk.STANDARD, WriteRisk.PUBLIC, WriteRisk.DESTRUCTIVE) if current.get("draft") is not True else (WriteRisk.STANDARD,)
         payload = {"article_id": article_id, "locale": locale, "operation": operation, "translation": translation}
         if execution_mode == "preview":
             if self._approvals is None: return failure(ErrorCode.NOT_CONFIGURED, "Zendesk approval store is not configured")
-            return success({"approval_request_id": self._approvals.create("zendesk_upsert_article_translation", payload), "execution_mode": "preview", "standard": True, "outbound_write": False})
+            return success({"approval_request_id": self._approvals.create("zendesk_upsert_article_translation", payload), "execution_mode": "preview", "outbound_write": False, **{risk.value: True for risk in risks}})
         if execution_mode != "apply": return failure(ErrorCode.VALIDATION_ERROR, "execution_mode must be preview or apply")
-        if self._settings is None or (blocked := check_write_permission(self._settings, WriteRisk.STANDARD)) is not None: return blocked or failure(ErrorCode.WRITE_DISABLED, "Zendesk writes are disabled")
+        if self._settings is None: return failure(ErrorCode.WRITE_DISABLED, "Zendesk writes are disabled")
+        for risk in risks:
+            if (blocked := check_write_permission(self._settings, risk)) is not None: return blocked
         locale_check = self._validate_active_locale(locale)
         if locale_check is not None: return locale_check
         if self._approvals is None or not isinstance(approval_request_id, str) or not isinstance(approval_token, str) or not self._approvals.consume(approval_request_id, "zendesk_upsert_article_translation", payload, approval_token): return failure(ErrorCode.APPROVAL_REQUIRED, "a matching local approval is required")

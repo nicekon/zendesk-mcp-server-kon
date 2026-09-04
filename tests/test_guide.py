@@ -126,3 +126,16 @@ def test_publish_translation_requires_public_approval_and_reads_back(tmp_path):
         ("PUT", "/api/v2/help_center/articles/3/translations/en-us.json", {"translation": {"draft": False}}),
         ("/api/v2/help_center/articles/3/translations/en-us.json", None),
     ]
+
+
+def test_upsert_of_published_translation_requires_public_and_destructive_gates(tmp_path):
+    client = TranslationClient(existing=True); client.published = True; store = ApprovalStore(tmp_path / "approvals.json")
+    tools = GuideTools(client, Settings.load({"ZENDESK_WRITE_MODE": "standard"}), store)
+    preview = tools.upsert_article_translation(3, "en-us", title="New")
+    token = store.approve(preview["data"]["approval_request_id"])
+    blocked = tools.upsert_article_translation(3, "en-us", title="New", execution_mode="apply", approval_request_id=preview["data"]["approval_request_id"], approval_token=token)
+
+    assert preview["data"]["public"] is True
+    assert preview["data"]["destructive"] is True
+    assert blocked["error"]["code"] == "write_disabled"
+    assert not any(path[0] == "PUT" for path in client.paths)
