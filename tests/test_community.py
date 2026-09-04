@@ -38,3 +38,12 @@ def test_community_post_create_requires_local_public_approval(tmp_path):
     token = store.approve(preview["data"]["approval_request_id"])
     result = tools.create_post(4, "Title", "Body", execution_mode="apply", approval_request_id=preview["data"]["approval_request_id"], approval_token=token)
     assert result["data"]["post"]["id"] == 2
+
+
+def test_community_comment_create_requires_local_public_approval(tmp_path):
+    client = StubClient(); store = ApprovalStore(tmp_path / "approvals.json")
+    tools = CommunityTools(client, Settings.load({"ZENDESK_WRITE_MODE": "standard", "ZENDESK_ENABLE_PUBLIC_WRITES": "true"}), store)
+    preview = tools.create_comment(2, "Body")
+    token = store.approve(preview["data"]["approval_request_id"])
+    result = tools.create_comment(2, "Body", execution_mode="apply", approval_request_id=preview["data"]["approval_request_id"], approval_token=token)
+    assert result["data"]["post"]["id"] == 2
