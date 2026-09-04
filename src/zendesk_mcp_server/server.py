@@ -73,7 +73,7 @@ def build_tools() -> list[types.Tool]:
         ),
         types.Tool(
             name="zendesk_search_tickets",
-            description="Search Zendesk Support tickets without making changes.",
+            description="Search Zendesk Support tickets without making changes. Optional custom object projection requires the custom_objects capability.",
             inputSchema={"type": "object", "properties": {"query": TICKET_QUERY_SCHEMA, "projection": {"type": "object"}, "limit": {"type": "integer", "minimum": 1, "maximum": 100}}, "required": ["query"]},
         ),
         types.Tool(
