@@ -89,6 +89,7 @@ def test_support_read_tools_are_registered():
         "zendesk_export_help_center_articles",
         "zendesk_get_help_center_article",
         "zendesk_get_satisfaction_ratings",
+        "zendesk_list_csat",
         "zendesk_list_guide_permission_groups",
         "zendesk_list_guide_user_segments",
         "zendesk_create_help_center_article",

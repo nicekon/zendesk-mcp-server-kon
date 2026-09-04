@@ -56,6 +56,18 @@ def test_article_export_uses_locale_cursor_pagination():
     ]
 
 
+def test_csat_adapters_only_send_their_official_filters():
+    client = StubClient(); tools = GuideTools(client)
+
+    tools.list_csat("legacy", score="good", created_at_start="2026-09-01T00:00:00Z", created_at_end="2026-09-02T00:00:00Z")
+    tools.list_csat("survey", ticket_id=9, responder_ids=[3, 4], created_at_start="2026-09-01T00:00:00+00:00")
+
+    assert client.paths == [
+        ("/api/v2/satisfaction_ratings.json", {"score": "good", "start_time": "1788220800", "end_time": "1788307200"}),
+        ("/api/v2/guide/survey_responses.json", {"filter[subject_zrns]": "zen:ticket:9", "filter[responder_ids]": "3,4", "filter[created_at_start]": "1788220800000"}),
+    ]
+
+
 def test_draft_article_create_validates_locale_and_requires_local_approval(tmp_path):
     client = StubClient(); store = ApprovalStore(tmp_path / "approvals.json")
     tools = GuideTools(client, Settings.load({"ZENDESK_WRITE_MODE": "standard"}), store)

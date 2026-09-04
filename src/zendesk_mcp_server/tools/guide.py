@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from datetime import datetime
 from typing import Protocol
 
 from ..approvals import ApprovalStore
@@ -11,6 +12,7 @@ from ..contracts import ErrorCode, failure, success
 from ..write_policy import WriteRisk, check_write_permission
 
 _LOCALE = re.compile(r"[a-z]{2,3}(?:-[a-z0-9]+)*$")
+_CSAT_SCORES = {"offered", "unoffered", "received", "received_with_comment", "received_without_comment", "good", "good_with_comment", "good_without_comment", "bad", "bad_with_comment", "bad_without_comment"}
 
 
 class GuideClient(Protocol):
@@ -24,6 +26,16 @@ class GuideTools:
     def list_categories(self) -> dict[str, object]: return self._get("/api/v2/help_center/categories.json")
     def list_sections(self) -> dict[str, object]: return self._get("/api/v2/help_center/sections.json")
     def get_satisfaction_ratings(self) -> dict[str, object]: return self._get("/api/v2/satisfaction_ratings.json")
+    def list_csat(self, backend: str = "auto", *, score: str | None = None, ticket_id: int | None = None, responder_ids: list[int] | None = None, created_at_start: str | None = None, created_at_end: str | None = None) -> dict[str, object]:
+        if backend not in {"auto", "legacy", "survey"}: return failure(ErrorCode.VALIDATION_ERROR, "backend must be auto, legacy, or survey")
+        if backend == "auto": backend = "legacy" if score is not None else "survey"
+        start = _epoch(created_at_start, milliseconds=backend == "survey"); end = _epoch(created_at_end, milliseconds=backend == "survey")
+        if (created_at_start is not None and start is None) or (created_at_end is not None and end is None) or (start is not None and end is not None and start > end): return failure(ErrorCode.VALIDATION_ERROR, "CSAT dates must be ordered ISO-8601 timestamps with timezone")
+        if backend == "legacy":
+            if ticket_id is not None or responder_ids is not None or (score is not None and score not in _CSAT_SCORES): return failure(ErrorCode.VALIDATION_ERROR, "legacy CSAT accepts only a valid score and date range")
+            return self._get("/api/v2/satisfaction_ratings.json", {key: value for key, value in {"score": score, "start_time": str(start) if start is not None else None, "end_time": str(end) if end is not None else None}.items() if value is not None} or None)
+        if score is not None or (ticket_id is not None and not self._valid_id(ticket_id)) or (responder_ids is not None and (not isinstance(responder_ids, list) or not responder_ids or any(not self._valid_id(value) for value in responder_ids))): return failure(ErrorCode.VALIDATION_ERROR, "survey CSAT accepts ticket_id, responder_ids, and date range only")
+        return self._get("/api/v2/guide/survey_responses.json", {key: value for key, value in {"filter[subject_zrns]": f"zen:ticket:{ticket_id}" if ticket_id is not None else None, "filter[responder_ids]": ",".join(str(value) for value in responder_ids) if responder_ids is not None else None, "filter[created_at_start]": str(start) if start is not None else None, "filter[created_at_end]": str(end) if end is not None else None}.items() if value is not None} or None)
     def list_permission_groups(self) -> dict[str, object]: return self._get("/api/v2/guide/permission_groups.json")
     def list_user_segments(self, *, built_in: bool | None = None, applicable: bool = False) -> dict[str, object]:
         if not isinstance(applicable, bool) or (built_in is not None and not isinstance(built_in, bool)): return failure(ErrorCode.VALIDATION_ERROR, "built_in and applicable must be booleans")
@@ -160,3 +172,14 @@ class GuideTools:
     def _get(self, path: str, params: dict[str, str] | None = None) -> dict[str, object]:
         if self._client is None: return failure(ErrorCode.NOT_CONFIGURED, "Zendesk is not configured")
         return self._client.get(path, params=params)
+
+
+def _epoch(value: str | None, *, milliseconds: bool) -> int | None:
+    if value is None: return None
+    if not isinstance(value, str): return None
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        if parsed.tzinfo is None: return None
+        epoch = int(parsed.timestamp())
+        return epoch * 1000 if milliseconds else epoch
+    except ValueError: return None
