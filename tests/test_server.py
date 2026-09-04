@@ -174,3 +174,12 @@ def test_community_post_comment_and_topic_lists_expose_cursor_controls():
         properties = tools[name].inputSchema["properties"]
         assert properties["cursor"] == {"type": "string", "minLength": 1}
         assert properties["limit"] == {"type": "integer", "minimum": 1, "maximum": 100, "default": 100}
+
+
+def test_user_subscription_list_exposes_cursor_controls():
+    from zendesk_mcp_server.server import build_tools
+
+    tool = next(item for item in build_tools() if item.name == "zendesk_list_user_subscriptions")
+
+    assert tool.inputSchema["properties"]["cursor"] == {"type": "string", "minLength": 1}
+    assert tool.inputSchema["properties"]["limit"] == {"type": "integer", "minimum": 1, "maximum": 100, "default": 100}

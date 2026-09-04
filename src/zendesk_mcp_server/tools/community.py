@@ -197,10 +197,12 @@ class CommunityTools:
         path = self._subscription_path(content_type, content_id, subscription_id)
         if path is None: return failure(ErrorCode.VALIDATION_ERROR, "valid content_type, content_id, and subscription_id are required")
         return self._approved_request("zendesk_delete_content_subscription", {"content_type": content_type, "content_id": content_id, "subscription_id": subscription_id}, "DELETE", path, None, WriteRisk.DESTRUCTIVE, execution_mode, approval_request_id, approval_token)
-    def list_user_subscriptions(self, user_id: int | str, direction: str = "followers") -> dict[str, object]:
+    def list_user_subscriptions(self, user_id: int | str, direction: str = "followers", *, cursor: str | None = None, limit: int = 100) -> dict[str, object]:
         path = self._user_subscription_path(user_id)
-        if path is None or direction not in {"followers", "followings"}: return failure(ErrorCode.VALIDATION_ERROR, "valid user_id and direction are required")
-        return self._get(path, {"type": direction})
+        if path is None or direction not in {"followers", "followings"} or not isinstance(limit, int) or isinstance(limit, bool) or not 1 <= limit <= 100 or (cursor is not None and (not isinstance(cursor, str) or not cursor)): return failure(ErrorCode.VALIDATION_ERROR, "valid user_id, direction, cursor, and limit are required")
+        params = {"type": direction, "page[size]": str(limit)}
+        if cursor is not None: params["page[after]"] = cursor
+        return self._cursor_page(path, params, "user_subscriptions")
     def upsert_user_subscription(self, user_id: int | str, followed_id: int, *, include_comments: bool = False, execution_mode: str = "preview", approval_request_id: str | None = None, approval_token: str | None = None) -> dict[str, object]:
         path = self._user_subscription_path(user_id)
         if path is None or not self._valid_id(followed_id, "followed_id") or not isinstance(include_comments, bool): return failure(ErrorCode.VALIDATION_ERROR, "valid user subscription fields are required")

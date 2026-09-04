@@ -326,6 +326,19 @@ def test_user_subscription_list_and_upsert_require_fixed_path_and_public_approva
     ]
 
 
+def test_user_subscription_list_uses_cursor_envelope():
+    class SubscriptionClient:
+        def __init__(self): self.paths = []
+        def get(self, path, *, params=None):
+            self.paths.append((path, params)); return success({"user_subscriptions": [{"id": 5}], "meta": {"has_more": True, "after_cursor": "next"}})
+
+    client = SubscriptionClient()
+    result = CommunityTools(client).list_user_subscriptions("me", "followings", cursor="before", limit=2)
+
+    assert result == {"ok": True, "items": [{"id": 5}], "has_more": True, "next_cursor": "next", "truncated": False}
+    assert client.paths == [("/api/v2/help_center/users/me/user_subscriptions.json", {"type": "followings", "page[size]": "2", "page[after]": "before"})]
+
+
 def test_user_subscription_upsert_is_idempotent_when_the_setting_already_matches(tmp_path):
     class SubscriptionClient:
         def __init__(self): self.get_calls, self.write_calls = [], []
