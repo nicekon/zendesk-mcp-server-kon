@@ -74,3 +74,39 @@ def test_community_post_delete_requires_local_destructive_approval(tmp_path):
     token = store.approve(preview["data"]["approval_request_id"])
     tools.delete_post(2, execution_mode="apply", approval_request_id=preview["data"]["approval_request_id"], approval_token=token)
     assert client.paths[-1] == ("DELETE", "/api/v2/community/posts/2.json", None)
+
+
+def test_community_comment_update_requires_local_public_approval(tmp_path):
+    client = StubClient(); store = ApprovalStore(tmp_path / "approvals.json")
+    tools = CommunityTools(client, Settings.load({"ZENDESK_WRITE_MODE": "standard", "ZENDESK_ENABLE_PUBLIC_WRITES": "true"}), store)
+    preview = tools.update_comment(2, 3, {"official": True})
+    token = store.approve(preview["data"]["approval_request_id"])
+    tools.update_comment(2, 3, {"official": True}, execution_mode="apply", approval_request_id=preview["data"]["approval_request_id"], approval_token=token)
+    assert client.paths[-1] == ("PUT", "/api/v2/community/posts/2/comments/3.json", {"comment": {"official": True}})
+
+
+def test_community_comment_delete_requires_local_destructive_approval(tmp_path):
+    client = StubClient(); store = ApprovalStore(tmp_path / "approvals.json")
+    tools = CommunityTools(client, Settings.load({"ZENDESK_WRITE_MODE": "standard", "ZENDESK_ENABLE_DESTRUCTIVE_WRITES": "true"}), store)
+    preview = tools.delete_comment(2, 3)
+    token = store.approve(preview["data"]["approval_request_id"])
+    tools.delete_comment(2, 3, execution_mode="apply", approval_request_id=preview["data"]["approval_request_id"], approval_token=token)
+    assert client.paths[-1] == ("DELETE", "/api/v2/community/posts/2/comments/3.json", None)
+
+
+def test_community_topic_update_requires_local_public_approval(tmp_path):
+    client = StubClient(); store = ApprovalStore(tmp_path / "approvals.json")
+    tools = CommunityTools(client, Settings.load({"ZENDESK_WRITE_MODE": "standard", "ZENDESK_ENABLE_PUBLIC_WRITES": "true"}), store)
+    preview = tools.update_topic(4, {"manageable_by": "staff"})
+    token = store.approve(preview["data"]["approval_request_id"])
+    tools.update_topic(4, {"manageable_by": "staff"}, execution_mode="apply", approval_request_id=preview["data"]["approval_request_id"], approval_token=token)
+    assert client.paths[-1] == ("PUT", "/api/v2/community/topics/4.json", {"topic": {"manageable_by": "staff"}})
+
+
+def test_community_topic_delete_requires_local_destructive_approval(tmp_path):
+    client = StubClient(); store = ApprovalStore(tmp_path / "approvals.json")
+    tools = CommunityTools(client, Settings.load({"ZENDESK_WRITE_MODE": "standard", "ZENDESK_ENABLE_DESTRUCTIVE_WRITES": "true"}), store)
+    preview = tools.delete_topic(4)
+    token = store.approve(preview["data"]["approval_request_id"])
+    tools.delete_topic(4, execution_mode="apply", approval_request_id=preview["data"]["approval_request_id"], approval_token=token)
+    assert client.paths[-1] == ("DELETE", "/api/v2/community/topics/4.json", None)
