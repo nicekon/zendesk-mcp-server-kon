@@ -162,6 +162,16 @@ def test_help_center_listing_tools_accept_a_brand_id():
         assert tools[name].inputSchema["properties"]["brand_id"]["minimum"] == 1
 
 
+def test_help_center_search_and_article_read_accept_brand_scope():
+    from zendesk_mcp_server.server import build_tools
+
+    tools = {tool.name: tool for tool in build_tools()}
+
+    assert tools["zendesk_search_help_center_articles"].inputSchema["properties"]["brand_id"]["minimum"] == 1
+    assert tools["zendesk_search_help_center_articles"].inputSchema["properties"]["locale"]["minLength"] == 2
+    assert tools["zendesk_get_help_center_article"].inputSchema["properties"]["brand_id"]["minimum"] == 1
+
+
 def test_server_import_does_not_require_credentials(monkeypatch):
     for name in (
         "ZENDESK_SUBDOMAIN",

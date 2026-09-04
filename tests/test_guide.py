@@ -61,6 +61,29 @@ def test_guide_category_read_resolves_brand_id_to_its_subdomain():
     ]
 
 
+def test_guide_search_uses_official_brand_and_locale_filters():
+    client = StubClient()
+
+    GuideTools(client).search_articles("billing", brand_id=7, locale="en-us")
+
+    assert client.paths == [("/api/v2/help_center/articles/search.json", {"query": "billing", "brand_id": "7", "locale": "en-us"})]
+
+
+def test_guide_article_read_resolves_brand_id_to_its_subdomain():
+    class BrandClient:
+        def __init__(self): self.paths = []
+        def get(self, path, *, params=None):
+            self.paths.append((path, params)); return success({"brand": {"subdomain": "brand-one", "has_help_center": True}})
+        def get_for_subdomain(self, subdomain, path, *, params=None):
+            self.paths.append((subdomain, path, params)); return success({"article": {"id": "guide-1"}})
+
+    client = BrandClient()
+    result = GuideTools(client).get_article("guide-1", brand_id=7)
+
+    assert result["data"]["article"]["id"] == "guide-1"
+    assert client.paths[-1] == ("brand-one", "/api/v2/help_center/articles/guide-1.json", None)
+
+
 def test_article_export_uses_locale_cursor_pagination():
     class ExportClient:
         def __init__(self): self.paths = []

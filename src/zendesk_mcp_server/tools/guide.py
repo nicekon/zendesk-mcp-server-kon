@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 from datetime import datetime
 from typing import Protocol
+from urllib.parse import quote
 
 from ..approvals import ApprovalStore
 from ..config import Settings
@@ -59,9 +60,9 @@ class GuideTools:
     def list_user_segments(self, *, built_in: bool | None = None, applicable: bool = False) -> dict[str, object]:
         if not isinstance(applicable, bool) or (built_in is not None and not isinstance(built_in, bool)): return failure(ErrorCode.VALIDATION_ERROR, "built_in and applicable must be booleans")
         return self._get("/api/v2/help_center/user_segments/applicable.json" if applicable else "/api/v2/help_center/user_segments.json", {"built_in": str(built_in).lower()} if built_in is not None else None)
-    def search_articles(self, query: str) -> dict[str, object]:
-        if not isinstance(query, str) or not query.strip(): return failure(ErrorCode.VALIDATION_ERROR, "query must be a non-empty string")
-        return self._get("/api/v2/help_center/articles/search.json", {"query": query.strip()})
+    def search_articles(self, query: str, *, brand_id: int | None = None, locale: str | None = None) -> dict[str, object]:
+        if not isinstance(query, str) or not query.strip() or (brand_id is not None and not self._valid_id(brand_id)) or (locale is not None and (not isinstance(locale, str) or not _LOCALE.fullmatch(locale))): return failure(ErrorCode.VALIDATION_ERROR, "query, brand_id, and locale must be valid")
+        return self._get("/api/v2/help_center/articles/search.json", {key: value for key, value in {"query": query.strip(), "brand_id": str(brand_id) if brand_id is not None else None, "locale": locale}.items() if value is not None})
     def export_articles(self, locale: str, max_articles: int = 100000, *, brand_id: int | None = None) -> dict[str, object]:
         scoped = self._for_brand(brand_id)
         if isinstance(scoped, dict): return scoped
@@ -94,9 +95,13 @@ class GuideTools:
         cached = _cache_ticket_export(root, output_format, _serialize_ticket_export(articles, output_format), filename_prefix="help-center-export")
         if not cached.get("ok"): return cached
         return success({"format": output_format, "item_count": len(articles), "truncated": data.get("truncated", False), **cached["data"]})
-    def get_article(self, article_id: int) -> dict[str, object]:
-        if not self._valid_id(article_id): return failure(ErrorCode.VALIDATION_ERROR, "article_id must be a positive integer")
-        return self._get(f"/api/v2/help_center/articles/{article_id}.json")
+    def get_article(self, article_id: object, *, brand_id: int | None = None) -> dict[str, object]:
+        identifier = _help_center_id(article_id)
+        if identifier is None: return failure(ErrorCode.VALIDATION_ERROR, "article_id must be a valid Help Center ID")
+        scoped = self._for_brand(brand_id)
+        if isinstance(scoped, dict): return scoped
+        if scoped is not self: return scoped.get_article(article_id)
+        return self._get(f"/api/v2/help_center/articles/{identifier}.json")
     def create_article(self, section_id: int, locale: str, title: str, body: str, *, labels: list[str] | None = None, position: int | None = None, permission_group_id: int | None = None, user_segment_id: int | None = None, draft: bool = True, notify_subscribers: bool = False, execution_mode: str = "preview", approval_request_id: str | None = None, approval_token: str | None = None) -> dict[str, object]:
         payload = self._article_payload(section_id, locale, title, body, labels, position, permission_group_id, user_segment_id, draft, notify_subscribers)
         if payload is None: return failure(ErrorCode.VALIDATION_ERROR, "valid draft article fields are required; publish with zendesk_publish_help_center_article")
@@ -231,3 +236,8 @@ def _epoch(value: str | None, *, milliseconds: bool) -> int | None:
         epoch = int(parsed.timestamp())
         return epoch * 1000 if milliseconds else epoch
     except ValueError: return None
+
+
+def _help_center_id(value: object) -> str | None:
+    if isinstance(value, int) and not isinstance(value, bool) and value > 0: return str(value)
+    return quote(value, safe="") if isinstance(value, str) and value else None
