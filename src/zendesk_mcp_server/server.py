@@ -165,6 +165,13 @@ def build_tools() -> list[types.Tool]:
         types.Tool(name="zendesk_create_community_topic", description="Preview or create a public Community topic. Apply requires public-write gate and local approval.", inputSchema={"type": "object", "properties": {"name": {"type": "string", "minLength": 1}, "description": {"type": "string"}, "execution_mode": {"type": "string", "enum": ["preview", "apply"], "default": "preview"}, "approval_request_id": {"type": "string"}, "approval_token": {"type": "string"}}, "required": ["name", "description"]}),
         types.Tool(name="zendesk_list_community_votes", description="List votes for a Community post without making changes.", inputSchema={"type": "object", "properties": {"post_id": {"type": "integer", "minimum": 1}}, "required": ["post_id"]}),
         types.Tool(name="zendesk_list_content_subscriptions", description="List subscriptions for a Community post or topic without making changes.", inputSchema={"type": "object", "properties": {"content_type": {"type": "string", "enum": ["post", "topic"]}, "content_id": {"type": "integer", "minimum": 1}}, "required": ["content_type", "content_id"]}),
+        types.Tool(name="zendesk_list_community_comments", description="List comments for a Community post without making changes.", inputSchema={"type": "object", "properties": {"post_id": {"type": "integer", "minimum": 1}}, "required": ["post_id"]}),
+        types.Tool(name="zendesk_get_community_comment", description="Get a Community comment without making changes.", inputSchema={"type": "object", "properties": {"comment_id": {"type": "integer", "minimum": 1}}, "required": ["comment_id"]}),
+        types.Tool(name="zendesk_list_community_topics", description="List Community topics without making changes.", inputSchema={"type": "object", "properties": {}}),
+        types.Tool(name="zendesk_get_community_topic", description="Get a Community topic without making changes.", inputSchema={"type": "object", "properties": {"topic_id": {"type": "integer", "minimum": 1}}, "required": ["topic_id"]}),
+        types.Tool(name="zendesk_search_content_tags", description="Search Community content tags without making changes.", inputSchema={"type": "object", "properties": {"prefix": {"type": "string", "default": ""}}}),
+        types.Tool(name="zendesk_count_content_tags", description="Count Community content tags without making changes.", inputSchema={"type": "object", "properties": {}}),
+        types.Tool(name="zendesk_get_content_tag", description="Get a Community content tag without making changes.", inputSchema={"type": "object", "properties": {"tag_id": {"type": "string", "minLength": 1}}, "required": ["tag_id"]}),
     ]
 
 
@@ -283,7 +290,7 @@ def create_server(environ: Mapping[str, str] | None = None) -> Server:
     ) -> list[types.TextContent]:
         if name == "zendesk_get_connection_status":
             result = build_connection_status(environment)
-        elif name in {"zendesk_list_community_posts", "zendesk_search_community_posts", "zendesk_get_community_post", "zendesk_create_community_post", "zendesk_create_community_comment", "zendesk_create_community_topic", "zendesk_list_community_votes", "zendesk_list_content_subscriptions"}:
+        elif name in {"zendesk_list_community_posts", "zendesk_search_community_posts", "zendesk_get_community_post", "zendesk_create_community_post", "zendesk_create_community_comment", "zendesk_create_community_topic", "zendesk_list_community_votes", "zendesk_list_content_subscriptions", "zendesk_list_community_comments", "zendesk_get_community_comment", "zendesk_list_community_topics", "zendesk_get_community_topic", "zendesk_search_content_tags", "zendesk_count_content_tags", "zendesk_get_content_tag"}:
             tools = build_community_tools(environment)
             if isinstance(tools, dict): result = tools
             elif name == "zendesk_list_community_posts": result = tools.list_posts()
@@ -300,6 +307,13 @@ def create_server(environ: Mapping[str, str] | None = None) -> Server:
                 if values.get("content_type") == "post": result = tools.list_post_subscriptions(values.get("content_id"))
                 elif values.get("content_type") == "topic": result = tools.list_topic_subscriptions(values.get("content_id"))
                 else: result = failure(ErrorCode.VALIDATION_ERROR, "content_type must be post or topic")
+            elif name == "zendesk_list_community_comments": result = tools.list_comments((arguments or {}).get("post_id"))
+            elif name == "zendesk_get_community_comment": result = tools.get_comment((arguments or {}).get("comment_id"))
+            elif name == "zendesk_list_community_topics": result = tools.list_topics()
+            elif name == "zendesk_get_community_topic": result = tools.get_topic((arguments or {}).get("topic_id"))
+            elif name == "zendesk_search_content_tags": result = tools.search_content_tags((arguments or {}).get("prefix", ""))
+            elif name == "zendesk_count_content_tags": result = tools.count_content_tags()
+            elif name == "zendesk_get_content_tag": result = tools.get_content_tag((arguments or {}).get("tag_id"))
             else: result = tools.get_post((arguments or {}).get("post_id"))
         elif name in {"zendesk_list_help_center_categories", "zendesk_list_help_center_sections", "zendesk_search_help_center_articles", "zendesk_get_help_center_article", "zendesk_get_satisfaction_ratings"}:
             tools = build_guide_tools(environment)

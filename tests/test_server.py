@@ -92,4 +92,11 @@ def test_support_read_tools_are_registered():
         "zendesk_create_community_topic",
         "zendesk_list_community_votes",
         "zendesk_list_content_subscriptions",
+        "zendesk_list_community_comments",
+        "zendesk_get_community_comment",
+        "zendesk_list_community_topics",
+        "zendesk_get_community_topic",
+        "zendesk_search_content_tags",
+        "zendesk_count_content_tags",
+        "zendesk_get_content_tag",
     ]
