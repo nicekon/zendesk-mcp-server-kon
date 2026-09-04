@@ -530,10 +530,19 @@ class TicketTools:
             if not isinstance(value, str) or not value.strip(): return None
             client = self._configured_client()
             if isinstance(client, dict): return client
-            result = client.get("/api/v2/brands.json", params={"page[size]": "100"})
-            if not result.get("ok"): return result
-            data = result.get("data"); brands = data.get("brands") if isinstance(data, dict) else None
-            matches = [item for item in brands if isinstance(item, dict) and isinstance(item.get("name"), str) and item["name"].casefold() == value.casefold() and _valid_ticket_id(item.get("id"))] if isinstance(brands, list) else []
+            brands: list[object] = []; cursor = None; seen: set[str] = set()
+            while True:
+                params = {"page[size]": "100"}; params.update({"page[after]": cursor} if cursor else {})
+                result = client.get("/api/v2/brands.json", params=params)
+                if not result.get("ok"): return result
+                data = result.get("data"); page = data.get("brands") if isinstance(data, dict) else None; meta = data.get("meta") if isinstance(data, dict) else None
+                if not isinstance(page, list): return failure(ErrorCode.UPSTREAM_ERROR, "Zendesk returned an invalid brand list")
+                brands.extend(page)
+                cursor = meta.get("after_cursor") if isinstance(meta, dict) else None
+                if not (isinstance(meta, dict) and meta.get("has_more")): break
+                if not isinstance(cursor, str) or cursor in seen: return failure(ErrorCode.UPSTREAM_ERROR, "Zendesk returned an invalid brand cursor")
+                seen.add(cursor)
+            matches = [item for item in brands if isinstance(item, dict) and isinstance(item.get("name"), str) and item["name"].casefold() == value.casefold() and _valid_ticket_id(item.get("id"))]
             if len(matches) != 1: return failure(ErrorCode.VALIDATION_ERROR, "brand name must match exactly one brand", details={"candidate_ids": [item["id"] for item in matches]})
             resolved["brand"] = {"kind": "id", "value": matches[0]["id"]}
         return _ticket_query(resolved, include_type=include_type)
