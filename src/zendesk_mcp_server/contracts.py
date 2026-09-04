@@ -19,6 +19,7 @@ class ErrorCode(str, Enum):
     UNSUPPORTED = "unsupported"
     NOT_CONFIGURED = "not_configured"
     WRITE_DISABLED = "write_disabled"
+    APPROVAL_REQUIRED = "approval_required"
     OUTCOME_UNKNOWN = "outcome_unknown"
 
 

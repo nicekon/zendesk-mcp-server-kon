@@ -15,3 +15,9 @@ def test_failure_never_uses_a_success_string_for_an_error():
     assert result["ok"] is False
     assert result["error"]["code"] == "not_configured"
     assert result["error"]["operation_state"] == "not_applied"
+
+
+def test_approval_required_is_a_stable_error_code():
+    result = failure(ErrorCode.APPROVAL_REQUIRED, "approval required")
+
+    assert result["error"]["code"] == "approval_required"
