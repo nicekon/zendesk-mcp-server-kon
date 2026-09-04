@@ -196,9 +196,10 @@ class TicketTools:
         )
 
     def search_tickets(self, query: object, limit: int = 100, *, projection: Mapping[str, object] | None = None) -> dict[str, object]:
-        if projection is not None and (set(projection) != {"include_custom_objects"} or not isinstance(projection.get("include_custom_objects"), list) or not projection["include_custom_objects"] or not all(isinstance(value, str) and value for value in projection["include_custom_objects"])):
-            return failure(ErrorCode.VALIDATION_ERROR, "projection must contain include_custom_objects string array")
-        if projection is not None and (self._settings is None or not self._settings.has_capability("custom_objects")):
+        resolved_projection = _ticket_projection(projection)
+        if isinstance(resolved_projection, dict): return resolved_projection
+        fields, custom_objects = resolved_projection
+        if custom_objects and (self._settings is None or not self._settings.has_capability("custom_objects")):
             return failure(ErrorCode.UNSUPPORTED, "custom object projection is not enabled")
         ticket_query = self._resolve_ticket_query(query)
         if isinstance(ticket_query, dict): return ticket_query
@@ -221,10 +222,11 @@ class TicketTools:
             return failure(ErrorCode.UPSTREAM_ERROR, "Zendesk returned an invalid ticket search")
         has_more = bool(data.get("next_page"))
         items = data["results"]
-        if projection is not None:
-            projected = self._project_custom_objects(items, projection["include_custom_objects"])
+        if custom_objects:
+            projected = self._project_custom_objects(items, custom_objects)
             if isinstance(projected, dict): return projected
             items = projected
+        items = _select_ticket_fields(items, fields, include_custom_objects=bool(custom_objects))
         return {"ok": True, "items": items, "has_more": has_more, "next_cursor": None, "truncated": has_more}
 
     def count_tickets(self, query: object) -> dict[str, object]:
@@ -245,8 +247,10 @@ class TicketTools:
         return success({"count": count["value"], "refreshed_at": count.get("refreshed_at")})
 
     def export_tickets(self, query: object, *, cursor: str | None = None, limit: int = 100, projection: Mapping[str, object] | None = None) -> dict[str, object]:
-        if projection is not None and (set(projection) != {"include_custom_objects"} or not isinstance(projection.get("include_custom_objects"), list) or not projection["include_custom_objects"] or not all(isinstance(value, str) and value for value in projection["include_custom_objects"])): return failure(ErrorCode.VALIDATION_ERROR, "projection must contain include_custom_objects string array")
-        if projection is not None and (self._settings is None or not self._settings.has_capability("custom_objects")): return failure(ErrorCode.UNSUPPORTED, "custom object projection is not enabled")
+        resolved_projection = _ticket_projection(projection)
+        if isinstance(resolved_projection, dict): return resolved_projection
+        fields, custom_objects = resolved_projection
+        if custom_objects and (self._settings is None or not self._settings.has_capability("custom_objects")): return failure(ErrorCode.UNSUPPORTED, "custom object projection is not enabled")
         ticket_query = self._resolve_ticket_query(query, include_type=False)
         if isinstance(ticket_query, dict): return ticket_query
         if ticket_query is None:
@@ -266,10 +270,11 @@ class TicketTools:
             return result
         data = result.get("data"); items = data.get("results") if isinstance(data, dict) else None; meta = data.get("meta") if isinstance(data, dict) else None
         if not isinstance(items, list) or not isinstance(meta, dict): return failure(ErrorCode.UPSTREAM_ERROR, "Zendesk returned an invalid ticket export page")
-        if projection is not None:
-            projected = self._project_custom_objects(items, projection["include_custom_objects"])
+        if custom_objects:
+            projected = self._project_custom_objects(items, custom_objects)
             if isinstance(projected, dict): return projected
             items = projected
+        items = _select_ticket_fields(items, fields, include_custom_objects=bool(custom_objects))
         has_more = bool(meta.get("has_more")); next_upstream = meta.get("after_cursor")
         if has_more and (not isinstance(next_upstream, str) or not next_upstream): return failure(ErrorCode.UPSTREAM_ERROR, "Zendesk returned an invalid ticket export cursor")
         return success({"items": items, "has_more": has_more, "next_cursor": _encode_export_cursor(next_upstream, ticket_query) if has_more else None, "truncated": False})
@@ -646,6 +651,21 @@ class TicketTools:
 
 def _valid_ticket_id(ticket_id: int) -> bool:
     return isinstance(ticket_id, int) and not isinstance(ticket_id, bool) and ticket_id > 0
+
+
+def _ticket_projection(projection: Mapping[str, object] | None) -> tuple[list[str], list[str]] | dict[str, object]:
+    if projection is None: return [], []
+    if not isinstance(projection, Mapping) or not projection or not set(projection) <= {"fields", "include_custom_objects"}: return failure(ErrorCode.VALIDATION_ERROR, "projection accepts fields and include_custom_objects string arrays")
+    fields = projection.get("fields", []); custom_objects = projection.get("include_custom_objects", [])
+    if not isinstance(fields, list) or not isinstance(custom_objects, list) or (not fields and not custom_objects) or not all(isinstance(value, str) and value for value in [*fields, *custom_objects]): return failure(ErrorCode.VALIDATION_ERROR, "projection accepts fields and include_custom_objects string arrays")
+    return fields, custom_objects
+
+
+def _select_ticket_fields(items: list[object], fields: list[str], *, include_custom_objects: bool) -> list[object]:
+    if not fields: return items
+    selected = [*fields]
+    if include_custom_objects and "custom_objects" not in selected: selected.append("custom_objects")
+    return [{field: item[field] for field in selected if field in item} if isinstance(item, dict) else item for item in items]
 
 
 _EXPORT_CURSOR_KEY = secrets.token_bytes(32)

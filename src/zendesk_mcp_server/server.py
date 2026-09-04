@@ -64,6 +64,16 @@ TICKET_QUERY_SCHEMA = {
     ]
 }
 
+TICKET_PROJECTION_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "fields": {"type": "array", "items": {"type": "string", "minLength": 1}, "minItems": 1},
+        "include_custom_objects": {"type": "array", "items": {"type": "string", "minLength": 1}, "minItems": 1},
+    },
+    "minProperties": 1,
+    "additionalProperties": False,
+}
+
 
 def build_tools() -> list[types.Tool]:
     return [
@@ -81,14 +91,14 @@ def build_tools() -> list[types.Tool]:
         types.Tool(
             name="zendesk_search_tickets",
             description="Search Zendesk Support tickets without making changes. Optional custom object projection requires the custom_objects capability.",
-            inputSchema={"type": "object", "properties": {"query": TICKET_QUERY_SCHEMA, "projection": {"type": "object"}, "limit": {"type": "integer", "minimum": 1, "maximum": 100}}, "required": ["query"]},
+            inputSchema={"type": "object", "properties": {"query": TICKET_QUERY_SCHEMA, "projection": TICKET_PROJECTION_SCHEMA, "limit": {"type": "integer", "minimum": 1, "maximum": 100}}, "required": ["query"]},
         ),
         types.Tool(
             name="zendesk_count_tickets",
             description="Count Zendesk Support tickets matching a search query without making changes.",
             inputSchema={"type": "object", "properties": {"query": TICKET_QUERY_SCHEMA}, "required": ["query"]},
         ),
-        types.Tool(name="zendesk_export_tickets", description="Export one cursor-paginated ticket-only Search Export page without making changes.", inputSchema={"type": "object", "properties": {"query": TICKET_QUERY_SCHEMA, "projection": {"type": "object"}, "cursor": {"type": "string", "minLength": 1}, "limit": {"type": "integer", "minimum": 1, "maximum": 1000, "default": 100}}, "required": ["query"]}),
+        types.Tool(name="zendesk_export_tickets", description="Export one cursor-paginated ticket-only Search Export page without making changes.", inputSchema={"type": "object", "properties": {"query": TICKET_QUERY_SCHEMA, "projection": TICKET_PROJECTION_SCHEMA, "cursor": {"type": "string", "minLength": 1}, "limit": {"type": "integer", "minimum": 1, "maximum": 1000, "default": 100}}, "required": ["query"]}),
         types.Tool(name="zendesk_apply_ticket_macro", description="Preview or apply a ticket macro through the unified ticket update path. Apply requires local approval; public macro comments also require the public-write gate.", inputSchema={"type": "object", "properties": {"ticket_id": {"type": "integer", "minimum": 1}, "macro_id": {"type": "integer", "minimum": 1}, "execution_mode": {"type": "string", "enum": ["preview", "apply"], "default": "preview"}, "approval_request_id": {"type": "string"}, "approval_token": {"type": "string"}}, "required": ["ticket_id", "macro_id"]}),
         types.Tool(
             name="zendesk_get_ticket",

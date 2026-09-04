@@ -255,6 +255,22 @@ def test_custom_object_projection_validates_its_keys():
     assert TicketTools(None).search_tickets("status:open", projection={"include_custom_objects": []})["error"]["code"] == "validation_error"
 
 
+def test_ticket_projection_selects_requested_ticket_fields():
+    client = StubClient({"/api/v2/search.json": success({"results": [{"id": 1, "subject": "Login", "description": "Cannot sign in"}], "next_page": None})})
+
+    result = TicketTools(client).search_tickets("status:open", projection={"fields": ["id", "subject"]})
+
+    assert result["items"] == [{"id": 1, "subject": "Login"}]
+
+
+def test_ticket_export_projection_selects_requested_ticket_fields():
+    client = StubClient({"/api/v2/search/export.json": success({"results": [{"id": 1, "subject": "Login", "description": "Cannot sign in"}], "meta": {"has_more": False}})})
+
+    result = TicketTools(client).export_tickets("status:open", projection={"fields": ["subject"]})
+
+    assert result["data"]["items"] == [{"subject": "Login"}]
+
+
 def test_custom_object_projection_nests_ticket_lookup_records():
     settings = Settings.load({"ZENDESK_CAPABILITIES": "support,custom_objects"})
     client = StubClient({

@@ -44,6 +44,8 @@ def test_ticket_search_tools_accept_the_shared_structured_filter():
 
     for name in ("zendesk_search_tickets", "zendesk_count_tickets", "zendesk_export_tickets"):
         assert tools[name].inputSchema["properties"]["query"]["oneOf"][1]["type"] == "object"
+    for name in ("zendesk_search_tickets", "zendesk_export_tickets"):
+        assert set(tools[name].inputSchema["properties"]["projection"]["properties"]) == {"fields", "include_custom_objects"}
 
 
 def test_server_import_does_not_require_credentials(monkeypatch):
