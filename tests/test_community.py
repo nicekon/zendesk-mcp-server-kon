@@ -28,7 +28,77 @@ def test_community_post_reads_use_fixed_endpoints():
 def test_community_comment_topic_and_vote_reads_use_fixed_endpoints():
     client = StubClient(); tools = CommunityTools(client)
     tools.list_comments(2); tools.get_comment(3); tools.list_topics(); tools.get_topic(4); tools.list_votes(2); tools.get_vote(5)
-    assert client.paths == [("/api/v2/community/posts/2/comments.json", None), ("/api/v2/community/comments/3.json", None), ("/api/v2/community/topics.json", None), ("/api/v2/community/topics/4.json", None), ("/api/v2/help_center/posts/2/votes.json", None), ("/api/v2/help_center/votes/5.json", None)]
+    assert client.paths == [("/api/v2/community/posts/2/comments.json", None), ("/api/v2/community/comments/3.json", None), ("/api/v2/community/topics.json", None), ("/api/v2/community/topics/4.json", None), ("/api/v2/help_center/posts/2/votes.json", {"page[size]": "100"}), ("/api/v2/help_center/votes/5.json", None)]
+
+
+def test_community_user_votes_filter_mixed_pages_until_the_requested_limit():
+    class VoteClient:
+        def __init__(self): self.paths = []
+        def get(self, path, *, params=None):
+            self.paths.append((path, params))
+            if params.get("page[after]") == "next":
+                return success({"votes": [{"id": 3, "item_type": "PostComment"}], "meta": {"has_more": False}})
+            return success({"votes": [{"id": 1, "item_type": "Article"}, {"id": 2, "item_type": "Post"}], "meta": {"has_more": True, "after_cursor": "next"}})
+
+    client = VoteClient()
+    result = CommunityTools(client).list_votes(user_id="me", limit=2)
+
+    assert result == {"ok": True, "items": [{"id": 2, "item_type": "Post"}, {"id": 3, "item_type": "PostComment"}], "has_more": False, "next_cursor": None, "truncated": False, "scanned_count": 3}
+    assert client.paths == [
+        ("/api/v2/help_center/users/me/votes.json", {"page[size]": "100"}),
+        ("/api/v2/help_center/users/me/votes.json", {"page[size]": "100", "page[after]": "next"}),
+    ]
+
+
+def test_community_user_votes_return_a_resume_cursor_at_the_raw_scan_cap():
+    class VoteClient:
+        def __init__(self): self.calls = 0
+        def get(self, path, *, params=None):
+            self.calls += 1
+            return success({"votes": [{"id": self.calls * 100 + offset, "item_type": "Article"} for offset in range(100)], "meta": {"has_more": True, "after_cursor": str(self.calls)}})
+
+    client = VoteClient()
+    result = CommunityTools(client).list_votes(user_id=7)
+
+    assert result["items"] == []
+    assert result["has_more"] is True
+    assert result["truncated"] is True
+    assert isinstance(result["next_cursor"], str)
+    assert result["scanned_count"] == 1000
+    assert client.calls == 10
+
+
+def test_community_user_vote_cursor_resumes_an_unconsumed_mixed_page():
+    class VoteClient:
+        def __init__(self): self.paths = []
+        def get(self, path, *, params=None):
+            self.paths.append((path, params)); return success({"votes": [{"id": 1, "item_type": "Post"}, {"id": 2, "item_type": "PostComment"}], "meta": {"has_more": False}})
+
+    client = VoteClient(); tools = CommunityTools(client)
+    first = tools.list_votes(user_id="me", limit=1)
+    second = tools.list_votes(user_id="me", limit=1, cursor=first["next_cursor"])
+
+    assert first["items"] == [{"id": 1, "item_type": "Post"}]
+    assert second == {"ok": True, "items": [{"id": 2, "item_type": "PostComment"}], "has_more": False, "next_cursor": None, "truncated": False, "scanned_count": 2}
+    assert client.paths == [
+        ("/api/v2/help_center/users/me/votes.json", {"page[size]": "100"}),
+        ("/api/v2/help_center/users/me/votes.json", {"page[size]": "100"}),
+    ]
+
+
+def test_community_user_votes_stop_when_a_page_exactly_fills_the_limit():
+    class VoteClient:
+        def __init__(self): self.calls = 0
+        def get(self, path, *, params=None):
+            self.calls += 1; return success({"votes": [{"id": 1, "item_type": "Post"}], "meta": {"has_more": True, "after_cursor": "next"}})
+
+    client = VoteClient()
+    result = CommunityTools(client).list_votes(user_id="me", limit=1)
+
+    assert result["items"] == [{"id": 1, "item_type": "Post"}]
+    assert result["has_more"] is True
+    assert result["truncated"] is False
+    assert client.calls == 1
 
 
 def test_community_post_and_comment_lists_support_their_official_scopes_and_filters():

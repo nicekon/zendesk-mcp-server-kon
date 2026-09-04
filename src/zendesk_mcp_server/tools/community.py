@@ -1,6 +1,8 @@
 """Read-only Zendesk Community tools."""
 from __future__ import annotations
+import base64
 import hashlib
+import json
 import os
 import stat
 from datetime import datetime
@@ -126,7 +128,39 @@ class CommunityTools:
     def get_comment(self, comment_id: int) -> dict[str, object]: return self._by_id("/api/v2/community/comments/{id}.json", comment_id, "comment_id")
     def list_topics(self) -> dict[str, object]: return self._get("/api/v2/community/topics.json")
     def get_topic(self, topic_id: int) -> dict[str, object]: return self._by_id("/api/v2/community/topics/{id}.json", topic_id, "topic_id")
-    def list_votes(self, post_id: int) -> dict[str, object]: return self._by_id("/api/v2/help_center/posts/{id}/votes.json", post_id, "post_id")
+    def list_votes(self, post_id: int | None = None, *, user_id: int | str | None = None, cursor: str | None = None, limit: int = 100) -> dict[str, object]:
+        if (post_id is None) == (user_id is None) or (post_id is not None and not self._valid_id(post_id, "post_id")) or (user_id is not None and user_id != "me" and not self._valid_id(user_id, "user_id")) or not isinstance(limit, int) or isinstance(limit, bool) or not 1 <= limit <= 100:
+            return failure(ErrorCode.VALIDATION_ERROR, "exactly one valid post_id or user_id and a limit from 1 to 100 are required")
+        if post_id is not None:
+            params = {"page[size]": str(limit)}
+            if cursor is not None:
+                if not isinstance(cursor, str) or not cursor: return failure(ErrorCode.VALIDATION_ERROR, "cursor must be a non-empty string")
+                params["page[after]"] = cursor
+            return self._cursor_page(f"/api/v2/help_center/posts/{post_id}/votes.json", params, "votes")
+        state = _decode_vote_cursor(cursor, user_id)
+        if state is None: return failure(ErrorCode.VALIDATION_ERROR, "cursor is invalid for this user")
+        after, skip, scanned, items, seen = state["after"], state["skip"], 0, [], set()
+        while scanned < 1000:
+            params = {"page[size]": "100"}
+            if after is not None: params["page[after]"] = after
+            result = self._get(f"/api/v2/help_center/users/{user_id}/votes.json", params)
+            if not result.get("ok"): return result
+            data = result.get("data"); votes = data.get("votes") if isinstance(data, dict) else None; meta = data.get("meta", {}) if isinstance(data, dict) else None
+            if not isinstance(votes, list) or not isinstance(meta, dict): return failure(ErrorCode.UPSTREAM_ERROR, "Zendesk returned an invalid vote page")
+            scanned += len(votes)
+            community_votes = [vote for vote in votes if isinstance(vote, dict) and vote.get("item_type") in {"Post", "PostComment"}]
+            if skip > len(community_votes): return failure(ErrorCode.UPSTREAM_ERROR, "Zendesk returned an invalid vote cursor")
+            remaining = limit - len(items)
+            if len(community_votes) - skip > remaining:
+                items.extend(community_votes[skip:skip + remaining])
+                return {"ok": True, "items": items, "has_more": True, "next_cursor": _encode_vote_cursor(user_id, after, skip + remaining), "truncated": False, "scanned_count": scanned}
+            items.extend(community_votes[skip:]); skip = 0
+            if not meta.get("has_more"): return {"ok": True, "items": items, "has_more": False, "next_cursor": None, "truncated": False, "scanned_count": scanned}
+            next_after = meta.get("after_cursor")
+            if not isinstance(next_after, str) or not next_after or next_after in seen: return failure(ErrorCode.UPSTREAM_ERROR, "Zendesk returned an invalid vote cursor")
+            if len(items) == limit: return {"ok": True, "items": items, "has_more": True, "next_cursor": _encode_vote_cursor(user_id, next_after, 0), "truncated": False, "scanned_count": scanned}
+            seen.add(next_after); after = next_after
+        return {"ok": True, "items": items, "has_more": True, "next_cursor": _encode_vote_cursor(user_id, after, 0), "truncated": True, "scanned_count": scanned}
     def get_vote(self, vote_id: int) -> dict[str, object]: return self._by_id("/api/v2/help_center/votes/{id}.json", vote_id, "vote_id")
     def cast_vote(self, content_type: str, post_id: int, comment_id: int | None, direction: str, *, execution_mode: str = "preview", approval_request_id: str | None = None, approval_token: str | None = None) -> dict[str, object]:
         path = self._vote_path(content_type, post_id, comment_id, direction)
@@ -382,6 +416,13 @@ class CommunityTools:
     def _get(self, path: str, params: dict[str, str] | None = None) -> dict[str, object]:
         if self._client is None: return failure(ErrorCode.NOT_CONFIGURED, "Zendesk is not configured")
         return self._client.get(path, params=params)
+    def _cursor_page(self, path: str, params: dict[str, str], item_key: str) -> dict[str, object]:
+        result = self._get(path, params)
+        if not result.get("ok"): return result
+        data = result.get("data"); items = data.get(item_key) if isinstance(data, dict) else None; meta = data.get("meta", {}) if isinstance(data, dict) else None
+        if not isinstance(items, list) or not isinstance(meta, dict): return failure(ErrorCode.UPSTREAM_ERROR, "Zendesk returned an invalid cursor page")
+        next_cursor = meta.get("after_cursor") if isinstance(meta.get("after_cursor"), str) else None
+        return {"ok": True, "items": items, "has_more": bool(meta.get("has_more")), "next_cursor": next_cursor, "truncated": False}
 
 
 def _valid_timestamp(value: object) -> bool:
@@ -389,3 +430,17 @@ def _valid_timestamp(value: object) -> bool:
     if not isinstance(value, str): return False
     try: return datetime.fromisoformat(value.replace("Z", "+00:00")).tzinfo is not None
     except ValueError: return False
+
+
+def _encode_vote_cursor(user_id: int | str, after: str | None, skip: int) -> str:
+    raw = json.dumps({"user_id": str(user_id), "after": after, "skip": skip}, separators=(",", ":")).encode()
+    return base64.urlsafe_b64encode(raw).decode().rstrip("=")
+
+
+def _decode_vote_cursor(cursor: object, user_id: int | str) -> dict[str, object] | None:
+    if cursor is None: return {"after": None, "skip": 0}
+    if not isinstance(cursor, str) or not cursor: return None
+    try: value = json.loads(base64.urlsafe_b64decode(cursor + "=" * (-len(cursor) % 4)))
+    except (ValueError, UnicodeDecodeError): return None
+    if not isinstance(value, dict) or value.get("user_id") != str(user_id) or (value.get("after") is not None and (not isinstance(value.get("after"), str) or not value["after"])) or not isinstance(value.get("skip"), int) or isinstance(value.get("skip"), bool) or value["skip"] < 0: return None
+    return {"after": value["after"], "skip": value["skip"]}

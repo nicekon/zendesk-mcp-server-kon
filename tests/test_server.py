@@ -146,3 +146,20 @@ def test_support_read_tools_are_registered():
         "zendesk_upload_community_user_image",
         "zendesk_upload_badge_icon",
     ]
+
+
+def test_community_vote_tool_accepts_post_or_user_cursor_pagination():
+    from zendesk_mcp_server.server import build_tools
+
+    tool = next(item for item in build_tools() if item.name == "zendesk_list_community_votes")
+
+    assert tool.inputSchema == {
+        "type": "object",
+        "properties": {
+            "post_id": {"type": "integer", "minimum": 1},
+            "user_id": {"oneOf": [{"type": "integer", "minimum": 1}, {"type": "string", "enum": ["me"]}]},
+            "cursor": {"type": "string", "minLength": 1},
+            "limit": {"type": "integer", "minimum": 1, "maximum": 100, "default": 100},
+        },
+        "anyOf": [{"required": ["post_id"]}, {"required": ["user_id"]}],
+    }
