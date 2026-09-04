@@ -20,6 +20,15 @@ class CommunityTools:
     def list_topics(self) -> dict[str, object]: return self._get("/api/v2/community/topics.json")
     def get_topic(self, topic_id: int) -> dict[str, object]: return self._by_id("/api/v2/community/topics/{id}.json", topic_id, "topic_id")
     def list_votes(self, post_id: int) -> dict[str, object]: return self._by_id("/api/v2/community/posts/{id}/votes.json", post_id, "post_id")
+    def list_post_subscriptions(self, post_id: int) -> dict[str, object]: return self._by_id("/api/v2/community/posts/{id}/subscriptions.json", post_id, "post_id")
+    def list_topic_subscriptions(self, topic_id: int) -> dict[str, object]: return self._by_id("/api/v2/community/topics/{id}/subscriptions.json", topic_id, "topic_id")
+    def search_content_tags(self, prefix: str) -> dict[str, object]:
+        if not isinstance(prefix, str): return failure(ErrorCode.VALIDATION_ERROR, "prefix must be a string")
+        return self._get("/api/v2/guide/content_tags.json", {"prefix": prefix})
+    def count_content_tags(self) -> dict[str, object]: return self._get("/api/v2/guide/content_tags/count.json")
+    def get_content_tag(self, tag_id: str) -> dict[str, object]:
+        if not isinstance(tag_id, str) or not tag_id.strip(): return failure(ErrorCode.VALIDATION_ERROR, "tag_id must be a non-empty string")
+        return self._get(f"/api/v2/guide/content_tags/{tag_id}.json")
     def _by_id(self, template: str, value: int, name: str) -> dict[str, object]:
         if not isinstance(value, int) or isinstance(value, bool) or value < 1: return failure(ErrorCode.VALIDATION_ERROR, f"{name} must be a positive integer")
         return self._get(template.format(id=value))
