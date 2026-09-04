@@ -18,6 +18,8 @@ def test_guide_and_csat_reads_use_fixed_endpoints():
     tools.search_articles("billing")
     tools.get_article(3)
     tools.get_satisfaction_ratings()
+    tools.list_permission_groups()
+    tools.list_user_segments(built_in=False)
 
     assert client.paths == [
         ("/api/v2/help_center/categories.json", None),
@@ -25,4 +27,6 @@ def test_guide_and_csat_reads_use_fixed_endpoints():
         ("/api/v2/help_center/articles/search.json", {"query": "billing"}),
         ("/api/v2/help_center/articles/3.json", None),
         ("/api/v2/satisfaction_ratings.json", None),
+        ("/api/v2/guide/permission_groups.json", None),
+        ("/api/v2/help_center/user_segments.json", {"built_in": "false"}),
     ]

@@ -157,6 +157,8 @@ def build_tools() -> list[types.Tool]:
         types.Tool(name="zendesk_search_help_center_articles", description="Search Help Center articles without making changes.", inputSchema={"type": "object", "properties": {"query": {"type": "string", "minLength": 1}}, "required": ["query"]}),
         types.Tool(name="zendesk_get_help_center_article", description="Get a Help Center article without making changes.", inputSchema={"type": "object", "properties": {"article_id": {"type": "integer", "minimum": 1}}, "required": ["article_id"]}),
         types.Tool(name="zendesk_get_satisfaction_ratings", description="List Zendesk satisfaction ratings without making changes.", inputSchema={"type": "object", "properties": {}}),
+        types.Tool(name="zendesk_list_guide_permission_groups", description="List Guide management permission groups without making changes.", inputSchema={"type": "object", "properties": {}}),
+        types.Tool(name="zendesk_list_guide_user_segments", description="List Guide user segments without making changes.", inputSchema={"type": "object", "properties": {"built_in": {"type": "boolean"}, "applicable": {"type": "boolean", "default": False}}}),
         types.Tool(name="zendesk_list_community_posts", description="List Community posts without making changes.", inputSchema={"type": "object", "properties": {}}),
         types.Tool(name="zendesk_search_community_posts", description="Search Community posts without making changes.", inputSchema={"type": "object", "properties": {"query": {"type": "string", "minLength": 1}}, "required": ["query"]}),
         types.Tool(name="zendesk_get_community_post", description="Get a Community post without making changes.", inputSchema={"type": "object", "properties": {"post_id": {"type": "integer", "minimum": 1}}, "required": ["post_id"]}),
@@ -382,13 +384,16 @@ def create_server(environ: Mapping[str, str] | None = None) -> Server:
             elif name == "zendesk_delete_badge_category":
                 values = arguments or {}; result = tools.delete_badge_category(values.get("category_id"), execution_mode=values.get("execution_mode", "preview"), approval_request_id=values.get("approval_request_id"), approval_token=values.get("approval_token"))
             else: result = tools.get_post((arguments or {}).get("post_id"))
-        elif name in {"zendesk_list_help_center_categories", "zendesk_list_help_center_sections", "zendesk_search_help_center_articles", "zendesk_get_help_center_article", "zendesk_get_satisfaction_ratings"}:
+        elif name in {"zendesk_list_help_center_categories", "zendesk_list_help_center_sections", "zendesk_search_help_center_articles", "zendesk_get_help_center_article", "zendesk_get_satisfaction_ratings", "zendesk_list_guide_permission_groups", "zendesk_list_guide_user_segments"}:
             tools = build_guide_tools(environment)
             if isinstance(tools, dict): result = tools
             elif name == "zendesk_list_help_center_categories": result = tools.list_categories()
             elif name == "zendesk_list_help_center_sections": result = tools.list_sections()
             elif name == "zendesk_search_help_center_articles": result = tools.search_articles((arguments or {}).get("query"))
             elif name == "zendesk_get_help_center_article": result = tools.get_article((arguments or {}).get("article_id"))
+            elif name == "zendesk_list_guide_permission_groups": result = tools.list_permission_groups()
+            elif name == "zendesk_list_guide_user_segments":
+                values = arguments or {}; result = tools.list_user_segments(built_in=values.get("built_in"), applicable=values.get("applicable", False))
             else: result = tools.get_satisfaction_ratings()
         elif name in {"zendesk_search_users", "zendesk_list_groups", "zendesk_list_group_users", "zendesk_get_organization", "zendesk_list_brands", "zendesk_list_ticket_fields", "zendesk_list_ticket_forms", "zendesk_list_custom_statuses", "zendesk_list_views", "zendesk_get_view", "zendesk_list_view_tickets", "zendesk_list_macros", "zendesk_list_triggers"}:
             tools = build_metadata_tools(environment)
