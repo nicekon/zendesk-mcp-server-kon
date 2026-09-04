@@ -471,7 +471,7 @@ class TicketTools:
             if not result.get("ok"): return result
             data = result.get("data"); users = data.get("users") if isinstance(data, dict) else None
             matches = [user for user in users if isinstance(user, dict) and user.get(kind) == value and _valid_ticket_id(user.get("id"))] if isinstance(users, list) else []
-            if len(matches) != 1: return failure(ErrorCode.VALIDATION_ERROR, f"{field} {kind} must match exactly one user")
+            if len(matches) != 1: return failure(ErrorCode.VALIDATION_ERROR, f"{field} {kind} must match exactly one user", details={"candidate_ids": [user["id"] for user in matches]})
             resolved[field] = {"kind": "id", "value": matches[0]["id"]}
         return _ticket_query(resolved, include_type=include_type)
 

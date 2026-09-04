@@ -42,6 +42,7 @@ def failure(
     retryable: bool = False,
     operation_state: str = "not_applied",
     request_id: str | None = None,
+    details: Mapping[str, object] | None = None,
 ) -> dict[str, object]:
     error: dict[str, object] = {
         "code": code.value,
@@ -51,4 +52,6 @@ def failure(
     }
     if request_id is not None:
         error["request_id"] = request_id
+    if details is not None:
+        error["details"] = dict(details)
     return {"ok": False, "error": error}

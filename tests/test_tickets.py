@@ -165,6 +165,14 @@ def test_structured_ticket_filter_resolves_an_exact_user_email_before_searching(
     ]
 
 
+def test_named_ticket_user_filter_returns_candidate_ids_when_ambiguous():
+    client = StubClient({"/api/v2/users/search.json": success({"users": [{"id": 8, "email": "agent@example.test"}, {"id": 9, "email": "agent@example.test"}]})})
+
+    result = TicketTools(client).search_tickets({"assignee": {"kind": "email", "value": "agent@example.test"}})
+
+    assert result["error"]["details"] == {"candidate_ids": [8, 9]}
+
+
 def test_ticket_export_uses_dedicated_export_type_filter():
     client = StubClient({"/api/v2/search/export.json": success({"results": [{"id": 1}], "meta": {"has_more": True, "after_cursor": "next"}})})
 
