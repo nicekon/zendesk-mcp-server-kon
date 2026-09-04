@@ -18,14 +18,18 @@ _CSAT_SCORES = {"offered", "unoffered", "received", "received_with_comment", "re
 
 class GuideClient(Protocol):
     def get(self, path: str, *, params: dict[str, str] | None = None) -> dict[str, object]: ...
+    def get_for_subdomain(self, subdomain: str, path: str, *, params: dict[str, str] | None = None) -> dict[str, object]: ...
     def request(self, method: str, path: str, *, json_body: dict[str, object] | None = None) -> dict[str, object]: ...
 
 
 class GuideTools:
-    def __init__(self, client: GuideClient | None, settings: Settings | None = None, approvals: ApprovalStore | None = None) -> None: self._client, self._settings, self._approvals = client, settings, approvals
-    def list_locales(self) -> dict[str, object]: return self._get("/api/v2/help_center/locales.json")
-    def list_categories(self) -> dict[str, object]: return self._get("/api/v2/help_center/categories.json")
-    def list_sections(self) -> dict[str, object]: return self._get("/api/v2/help_center/sections.json")
+    def __init__(self, client: GuideClient | None, settings: Settings | None = None, approvals: ApprovalStore | None = None, brand_subdomain: str | None = None) -> None: self._client, self._settings, self._approvals, self._brand_subdomain = client, settings, approvals, brand_subdomain
+    def list_locales(self, *, brand_id: int | None = None) -> dict[str, object]:
+        scoped = self._for_brand(brand_id); return scoped if isinstance(scoped, dict) else scoped._get("/api/v2/help_center/locales.json")
+    def list_categories(self, *, brand_id: int | None = None) -> dict[str, object]:
+        scoped = self._for_brand(brand_id); return scoped if isinstance(scoped, dict) else scoped._get("/api/v2/help_center/categories.json")
+    def list_sections(self, *, brand_id: int | None = None) -> dict[str, object]:
+        scoped = self._for_brand(brand_id); return scoped if isinstance(scoped, dict) else scoped._get("/api/v2/help_center/sections.json")
     def get_satisfaction_ratings(self) -> dict[str, object]: return self._get("/api/v2/satisfaction_ratings.json")
     def list_csat(self, backend: str = "auto", *, score: str | None = None, ticket_id: int | None = None, responder_ids: list[int] | None = None, created_at_start: str | None = None, created_at_end: str | None = None) -> dict[str, object]:
         if backend not in {"auto", "legacy", "survey"}: return failure(ErrorCode.VALIDATION_ERROR, "backend must be auto, legacy, or survey")
@@ -58,7 +62,10 @@ class GuideTools:
     def search_articles(self, query: str) -> dict[str, object]:
         if not isinstance(query, str) or not query.strip(): return failure(ErrorCode.VALIDATION_ERROR, "query must be a non-empty string")
         return self._get("/api/v2/help_center/articles/search.json", {"query": query.strip()})
-    def export_articles(self, locale: str, max_articles: int = 100000) -> dict[str, object]:
+    def export_articles(self, locale: str, max_articles: int = 100000, *, brand_id: int | None = None) -> dict[str, object]:
+        scoped = self._for_brand(brand_id)
+        if isinstance(scoped, dict): return scoped
+        if scoped is not self: return scoped.export_articles(locale, max_articles)
         if not isinstance(locale, str) or not _LOCALE.fullmatch(locale) or not isinstance(max_articles, int) or isinstance(max_articles, bool) or not 1 <= max_articles <= 100000: return failure(ErrorCode.VALIDATION_ERROR, "locale and max_articles must be valid")
         articles: list[object] = []; cursor: str | None = None; seen: set[str] = set()
         while len(articles) < max_articles:
@@ -74,9 +81,9 @@ class GuideTools:
             if not isinstance(cursor, str) or not cursor or cursor in seen: return failure(ErrorCode.UPSTREAM_ERROR, "Zendesk returned an invalid article export cursor")
             seen.add(cursor)
         return success({"articles": articles, "truncated": True})
-    def export_article_artifact(self, locale: str, max_articles: int = 100000, *, output_format: str = "json") -> dict[str, object]:
+    def export_article_artifact(self, locale: str, max_articles: int = 100000, *, brand_id: int | None = None, output_format: str = "json") -> dict[str, object]:
         if output_format not in {"json", "csv"}: return failure(ErrorCode.VALIDATION_ERROR, "output_format must be json or csv")
-        result = self.export_articles(locale, max_articles)
+        result = self.export_articles(locale, max_articles, brand_id=brand_id)
         if not result.get("ok"): return result
         data = result.get("data")
         articles = data.get("articles") if isinstance(data, dict) else None
@@ -197,8 +204,21 @@ class GuideTools:
         return translation if isinstance(translation, dict) else failure(ErrorCode.UPSTREAM_ERROR, "Zendesk returned an invalid translation response")
     @staticmethod
     def _valid_id(value: object) -> bool: return isinstance(value, int) and not isinstance(value, bool) and value > 0
+    def _for_brand(self, brand_id: int | None) -> "GuideTools | dict[str, object]":
+        if brand_id is None: return self
+        if not self._valid_id(brand_id): return failure(ErrorCode.VALIDATION_ERROR, "brand_id must be a positive integer")
+        result = self._get(f"/api/v2/brands/{brand_id}.json")
+        if not result.get("ok"): return result
+        data = result.get("data"); brand = data.get("brand") if isinstance(data, dict) else None
+        subdomain = brand.get("subdomain") if isinstance(brand, dict) else None
+        if not isinstance(subdomain, str) or not subdomain or brand.get("has_help_center") is not True: return failure(ErrorCode.UNSUPPORTED, "brand does not have an enabled Help Center")
+        return GuideTools(self._client, self._settings, self._approvals, subdomain)
     def _get(self, path: str, params: dict[str, str] | None = None) -> dict[str, object]:
         if self._client is None: return failure(ErrorCode.NOT_CONFIGURED, "Zendesk is not configured")
+        if self._brand_subdomain is not None:
+            getter = getattr(self._client, "get_for_subdomain", None)
+            if not callable(getter): return failure(ErrorCode.UNSUPPORTED, "Zendesk client does not support brand-scoped Help Center reads")
+            return getter(self._brand_subdomain, path, params=params)
         return self._client.get(path, params=params)
 
 

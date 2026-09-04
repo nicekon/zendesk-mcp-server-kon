@@ -153,6 +153,15 @@ def test_help_center_export_accepts_an_artifact_format():
     assert tools["zendesk_export_help_center_articles"].inputSchema["properties"]["format"]["enum"] == ["json", "csv"]
 
 
+def test_help_center_listing_tools_accept_a_brand_id():
+    from zendesk_mcp_server.server import build_tools
+
+    tools = {tool.name: tool for tool in build_tools()}
+
+    for name in ("zendesk_list_help_center_locales", "zendesk_list_help_center_categories", "zendesk_list_help_center_sections", "zendesk_export_help_center_articles"):
+        assert tools[name].inputSchema["properties"]["brand_id"]["minimum"] == 1
+
+
 def test_server_import_does_not_require_credentials(monkeypatch):
     for name in (
         "ZENDESK_SUBDOMAIN",

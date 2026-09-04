@@ -84,7 +84,7 @@ def build_tools() -> list[types.Tool]:
             description="Report Zendesk configuration without exposing credentials or making a network request.",
             inputSchema={"type": "object", "properties": {}},
         ),
-        types.Tool(name="zendesk_list_help_center_locales", description="List enabled Help Center locales without making changes.", inputSchema={"type": "object", "properties": {}}),
+        types.Tool(name="zendesk_list_help_center_locales", description="List enabled Help Center locales without making changes.", inputSchema={"type": "object", "properties": {"brand_id": {"type": "integer", "minimum": 1}}}),
         types.Tool(
             name="zendesk_list_tickets",
             description="List Zendesk tickets without making changes.",
@@ -203,10 +203,10 @@ def build_tools() -> list[types.Tool]:
         types.Tool(name="zendesk_list_view_tickets", description="List tickets currently matching a Zendesk view without making changes.", inputSchema={"type": "object", "properties": {"view_id": {"type": "integer", "minimum": 1}}, "required": ["view_id"]}),
         types.Tool(name="zendesk_list_macros", description="List Zendesk macros without making changes.", inputSchema={"type": "object", "properties": {}}),
         types.Tool(name="zendesk_list_triggers", description="List Zendesk triggers without making changes.", inputSchema={"type": "object", "properties": {}}),
-        types.Tool(name="zendesk_list_help_center_categories", description="List Help Center categories without making changes.", inputSchema={"type": "object", "properties": {}}),
-        types.Tool(name="zendesk_list_help_center_sections", description="List Help Center sections without making changes.", inputSchema={"type": "object", "properties": {}}),
+        types.Tool(name="zendesk_list_help_center_categories", description="List Help Center categories without making changes.", inputSchema={"type": "object", "properties": {"brand_id": {"type": "integer", "minimum": 1}}}),
+        types.Tool(name="zendesk_list_help_center_sections", description="List Help Center sections without making changes.", inputSchema={"type": "object", "properties": {"brand_id": {"type": "integer", "minimum": 1}}}),
         types.Tool(name="zendesk_search_help_center_articles", description="Search Help Center articles without making changes.", inputSchema={"type": "object", "properties": {"query": {"type": "string", "minLength": 1}}, "required": ["query"]}),
-        types.Tool(name="zendesk_export_help_center_articles", description="Export Help Center articles for one locale with cursor pagination, up to a bounded total.", inputSchema={"type": "object", "properties": {"locale": {"type": "string", "minLength": 2}, "max_articles": {"type": "integer", "minimum": 1, "maximum": 100000}, "format": {"type": "string", "enum": ["json", "csv"], "default": "json"}}, "required": ["locale"]}),
+        types.Tool(name="zendesk_export_help_center_articles", description="Export Help Center articles for one locale with cursor pagination, up to a bounded total.", inputSchema={"type": "object", "properties": {"locale": {"type": "string", "minLength": 2}, "brand_id": {"type": "integer", "minimum": 1}, "max_articles": {"type": "integer", "minimum": 1, "maximum": 100000}, "format": {"type": "string", "enum": ["json", "csv"], "default": "json"}}, "required": ["locale"]}),
         types.Tool(name="zendesk_get_help_center_article", description="Get a Help Center article without making changes.", inputSchema={"type": "object", "properties": {"article_id": {"type": "integer", "minimum": 1}}, "required": ["article_id"]}),
         types.Tool(name="zendesk_get_satisfaction_ratings", description="List Zendesk satisfaction ratings without making changes.", inputSchema={"type": "object", "properties": {}}),
         types.Tool(name="zendesk_list_csat", description="List legacy or survey CSAT responses with backend-specific official filters.", inputSchema={"type": "object", "properties": {"backend": {"type": "string", "enum": ["auto", "legacy", "survey"], "default": "auto"}, "score": {"type": "string"}, "ticket_id": {"type": "integer", "minimum": 1}, "responder_ids": {"type": "array", "items": {"type": "integer", "minimum": 1}}, "created_at_start": {"type": "string", "format": "date-time"}, "created_at_end": {"type": "string", "format": "date-time"}}}),
@@ -567,12 +567,12 @@ def create_server(environ: Mapping[str, str] | None = None) -> Server:
         elif name in {"zendesk_list_help_center_locales", "zendesk_list_help_center_categories", "zendesk_list_help_center_sections", "zendesk_search_help_center_articles", "zendesk_export_help_center_articles", "zendesk_get_help_center_article", "zendesk_get_satisfaction_ratings", "zendesk_list_csat", "zendesk_export_satisfaction_ratings", "zendesk_list_guide_permission_groups", "zendesk_list_guide_user_segments", "zendesk_create_help_center_article", "zendesk_upsert_article_translation", "zendesk_replace_article_translation_body", "zendesk_publish_help_center_article"}:
             tools = build_guide_tools(environment)
             if isinstance(tools, dict): result = tools
-            elif name == "zendesk_list_help_center_locales": result = tools.list_locales()
-            elif name == "zendesk_list_help_center_categories": result = tools.list_categories()
-            elif name == "zendesk_list_help_center_sections": result = tools.list_sections()
+            elif name == "zendesk_list_help_center_locales": result = tools.list_locales(brand_id=(arguments or {}).get("brand_id"))
+            elif name == "zendesk_list_help_center_categories": result = tools.list_categories(brand_id=(arguments or {}).get("brand_id"))
+            elif name == "zendesk_list_help_center_sections": result = tools.list_sections(brand_id=(arguments or {}).get("brand_id"))
             elif name == "zendesk_search_help_center_articles": result = tools.search_articles((arguments or {}).get("query"))
             elif name == "zendesk_export_help_center_articles":
-                values = arguments or {}; result = tools.export_article_artifact(values.get("locale"), values.get("max_articles", 100000), output_format=values.get("format", "json"))
+                values = arguments or {}; result = tools.export_article_artifact(values.get("locale"), values.get("max_articles", 100000), brand_id=values.get("brand_id"), output_format=values.get("format", "json"))
             elif name == "zendesk_get_help_center_article": result = tools.get_article((arguments or {}).get("article_id"))
             elif name in {"zendesk_list_csat", "zendesk_export_satisfaction_ratings"}:
                 values = arguments or {}

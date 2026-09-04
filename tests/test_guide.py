@@ -41,6 +41,26 @@ def test_guide_and_csat_reads_use_fixed_endpoints():
     ]
 
 
+def test_guide_category_read_resolves_brand_id_to_its_subdomain():
+    class BrandClient:
+        def __init__(self): self.paths = []
+        def get(self, path, *, params=None):
+            self.paths.append((path, params))
+            return success({"brand": {"id": 7, "subdomain": "brand-one", "has_help_center": True}})
+        def get_for_subdomain(self, subdomain, path, *, params=None):
+            self.paths.append((subdomain, path, params))
+            return success({"categories": [{"id": "guide-1"}]})
+
+    client = BrandClient()
+    result = GuideTools(client).list_categories(brand_id=7)
+
+    assert result["data"]["categories"] == [{"id": "guide-1"}]
+    assert client.paths == [
+        ("/api/v2/brands/7.json", None),
+        ("brand-one", "/api/v2/help_center/categories.json", None),
+    ]
+
+
 def test_article_export_uses_locale_cursor_pagination():
     class ExportClient:
         def __init__(self): self.paths = []

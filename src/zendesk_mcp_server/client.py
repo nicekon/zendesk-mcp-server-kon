@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import ipaddress
 import random
+import re
 import socket
 import time
 from collections.abc import Callable, Mapping
@@ -14,6 +15,9 @@ import httpx
 from .auth import AuthorizationProvider
 from .config import ConfigurationError, Settings
 from .contracts import ErrorCode, failure, success
+
+
+_SUBDOMAIN = re.compile(r"[a-z0-9][a-z0-9-]{0,62}$")
 
 
 class ZendeskClient:
@@ -44,6 +48,15 @@ class ZendeskClient:
     ) -> dict[str, object]:
         return self.request("GET", path, params=params)
 
+    def get_for_subdomain(
+        self,
+        subdomain: str,
+        path: str,
+        *,
+        params: Mapping[str, str] | None = None,
+    ) -> dict[str, object]:
+        return self.request("GET", path, params=params, subdomain=subdomain)
+
     def request(
         self,
         method: str,
@@ -51,9 +64,10 @@ class ZendeskClient:
         *,
         params: Mapping[str, str] | None = None,
         json_body: Mapping[str, object] | None = None,
+        subdomain: str | None = None,
     ) -> dict[str, object]:
         method = method.upper()
-        url = self._build_url(path)
+        url = self._build_url(path, subdomain)
         if url is None:
             return failure(ErrorCode.VALIDATION_ERROR, "Zendesk path must be tenant-relative")
 
@@ -174,7 +188,7 @@ class ZendeskClient:
                 return failure(ErrorCode.UPSTREAM_ERROR, "Zendesk attachment download could not be completed", retryable=True)
         return failure(ErrorCode.UPSTREAM_ERROR, "Zendesk attachment redirected too many times")
 
-    def _build_url(self, path: str) -> str | None:
+    def _build_url(self, path: str, subdomain: str | None = None) -> str | None:
         parsed = urlsplit(path)
         if (
             parsed.scheme
@@ -184,6 +198,9 @@ class ZendeskClient:
             or parsed.path.startswith("//")
         ):
             return None
+        if subdomain is not None:
+            if not isinstance(subdomain, str) or not _SUBDOMAIN.fullmatch(subdomain): return None
+            return f"https://{subdomain}.zendesk.com{parsed.path}"
         return f"{self._base_url}{parsed.path}"
 
     def _is_attachment_url(self, value: str) -> bool:
