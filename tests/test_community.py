@@ -220,3 +220,49 @@ def test_badge_category_delete_requires_local_destructive_approval(tmp_path):
     token = store.approve(preview["data"]["approval_request_id"])
     tools.delete_badge_category("category-1", execution_mode="apply", approval_request_id=preview["data"]["approval_request_id"], approval_token=token)
     assert client.paths[-1] == ("DELETE", "/api/v2/gather/badge_categories/category-1.json", None)
+
+
+def test_badges_use_fixed_paths_and_local_approvals(tmp_path):
+    client = StubClient(); store = ApprovalStore(tmp_path / "approvals.json")
+    public_tools = CommunityTools(client, Settings.load({"ZENDESK_WRITE_MODE": "standard", "ZENDESK_ENABLE_PUBLIC_WRITES": "true"}), store)
+    public_tools.list_badges(4); public_tools.get_badge("badge-1")
+    preview = public_tools.create_badge("category-1", "Helper", "Helpful answers")
+    token = store.approve(preview["data"]["approval_request_id"])
+    public_tools.create_badge("category-1", "Helper", "Helpful answers", execution_mode="apply", approval_request_id=preview["data"]["approval_request_id"], approval_token=token)
+    update = public_tools.update_badge("badge-1", {"name": "Super Helper"})
+    token = store.approve(update["data"]["approval_request_id"])
+    public_tools.update_badge("badge-1", {"name": "Super Helper"}, execution_mode="apply", approval_request_id=update["data"]["approval_request_id"], approval_token=token)
+    delete_tools = CommunityTools(client, Settings.load({"ZENDESK_WRITE_MODE": "standard", "ZENDESK_ENABLE_DESTRUCTIVE_WRITES": "true"}), store)
+    delete = delete_tools.delete_badge("badge-1")
+    token = store.approve(delete["data"]["approval_request_id"])
+    delete_tools.delete_badge("badge-1", execution_mode="apply", approval_request_id=delete["data"]["approval_request_id"], approval_token=token)
+    assert client.paths[-5:] == [
+        ("/api/v2/gather/badges.json", {"brand_id": "4"}),
+        ("/api/v2/gather/badges/badge-1.json", None),
+        ("POST", "/api/v2/gather/badges.json", {"badge": {"badge_category_id": "category-1", "name": "Helper", "description": "Helpful answers"}}),
+        ("PUT", "/api/v2/gather/badges/badge-1.json", {"badge": {"name": "Super Helper"}}),
+        ("DELETE", "/api/v2/gather/badges/badge-1.json", None),
+    ]
+
+
+def test_badge_assignments_require_public_impersonation_and_destructive_gates(tmp_path):
+    client = StubClient(); store = ApprovalStore(tmp_path / "approvals.json")
+    blocked_tools = CommunityTools(client, Settings.load({"ZENDESK_WRITE_MODE": "standard", "ZENDESK_ENABLE_PUBLIC_WRITES": "true"}), store)
+    preview = blocked_tools.create_badge_assignment("badge-1", 7)
+    token = store.approve(preview["data"]["approval_request_id"])
+    blocked = blocked_tools.create_badge_assignment("badge-1", 7, execution_mode="apply", approval_request_id=preview["data"]["approval_request_id"], approval_token=token)
+    assert blocked["error"]["code"] == "write_disabled"
+    tools = CommunityTools(client, Settings.load({"ZENDESK_WRITE_MODE": "standard", "ZENDESK_ENABLE_PUBLIC_WRITES": "true", "ZENDESK_ENABLE_IMPERSONATION": "true"}), store)
+    tools.list_badge_assignments(user_id=7, badge_id="badge-1")
+    preview = tools.create_badge_assignment("badge-1", 7)
+    token = store.approve(preview["data"]["approval_request_id"])
+    tools.create_badge_assignment("badge-1", 7, execution_mode="apply", approval_request_id=preview["data"]["approval_request_id"], approval_token=token)
+    delete_tools = CommunityTools(client, Settings.load({"ZENDESK_WRITE_MODE": "standard", "ZENDESK_ENABLE_DESTRUCTIVE_WRITES": "true", "ZENDESK_ENABLE_IMPERSONATION": "true"}), store)
+    preview = delete_tools.delete_badge_assignment("assignment-1")
+    token = store.approve(preview["data"]["approval_request_id"])
+    delete_tools.delete_badge_assignment("assignment-1", execution_mode="apply", approval_request_id=preview["data"]["approval_request_id"], approval_token=token)
+    assert client.paths[-3:] == [
+        ("/api/v2/gather/badge_assignments.json", {"user_id": "7", "badge_id": "badge-1"}),
+        ("POST", "/api/v2/gather/badge_assignments.json", {"badge_assignment": {"badge_id": "badge-1", "user_id": "7"}}),
+        ("DELETE", "/api/v2/gather/badge_assignments/assignment-1.json", None),
+    ]

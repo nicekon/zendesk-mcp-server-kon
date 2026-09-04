@@ -125,4 +125,12 @@ def test_support_read_tools_are_registered():
         "zendesk_get_badge_category",
         "zendesk_create_badge_category",
         "zendesk_delete_badge_category",
+        "zendesk_list_badges",
+        "zendesk_get_badge",
+        "zendesk_create_badge",
+        "zendesk_update_badge",
+        "zendesk_delete_badge",
+        "zendesk_list_badge_assignments",
+        "zendesk_create_badge_assignment",
+        "zendesk_delete_badge_assignment",
     ]

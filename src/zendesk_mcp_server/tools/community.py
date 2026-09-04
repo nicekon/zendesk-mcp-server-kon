@@ -139,6 +139,34 @@ class CommunityTools:
     def delete_badge_category(self, category_id: str, *, execution_mode: str = "preview", approval_request_id: str | None = None, approval_token: str | None = None) -> dict[str, object]:
         if not self._valid_tag_id(category_id): return failure(ErrorCode.VALIDATION_ERROR, "category_id must be a non-empty path-safe string")
         return self._approved_request("zendesk_delete_badge_category", {"category_id": category_id}, "DELETE", f"/api/v2/gather/badge_categories/{category_id}.json", None, WriteRisk.DESTRUCTIVE, execution_mode, approval_request_id, approval_token)
+    def list_badges(self, brand_id: int | None = None) -> dict[str, object]:
+        if brand_id is not None and not self._valid_id(brand_id, "brand_id"): return failure(ErrorCode.VALIDATION_ERROR, "brand_id must be a positive integer")
+        return self._get("/api/v2/gather/badges.json", {"brand_id": str(brand_id)} if brand_id is not None else None)
+    def get_badge(self, badge_id: str) -> dict[str, object]:
+        if not self._valid_tag_id(badge_id): return failure(ErrorCode.VALIDATION_ERROR, "badge_id must be a non-empty path-safe string")
+        return self._get(f"/api/v2/gather/badges/{badge_id}.json")
+    def create_badge(self, badge_category_id: str, name: str, description: str, *, execution_mode: str = "preview", approval_request_id: str | None = None, approval_token: str | None = None) -> dict[str, object]:
+        payload = self._badge_payload({"badge_category_id": badge_category_id, "name": name, "description": description})
+        if payload is None or "badge_category_id" not in payload["badge"]: return failure(ErrorCode.VALIDATION_ERROR, "valid badge_category_id, name, and description are required")
+        return self._approved_request("zendesk_create_badge", payload, "POST", "/api/v2/gather/badges.json", payload, WriteRisk.PUBLIC, execution_mode, approval_request_id, approval_token)
+    def update_badge(self, badge_id: str, badge: dict[str, object], *, execution_mode: str = "preview", approval_request_id: str | None = None, approval_token: str | None = None) -> dict[str, object]:
+        payload = self._badge_payload(badge)
+        if not self._valid_tag_id(badge_id) or payload is None: return failure(ErrorCode.VALIDATION_ERROR, "badge_id and a valid badge update are required")
+        return self._approved_request("zendesk_update_badge", {"badge_id": badge_id, **payload}, "PUT", f"/api/v2/gather/badges/{badge_id}.json", payload, WriteRisk.PUBLIC, execution_mode, approval_request_id, approval_token)
+    def delete_badge(self, badge_id: str, *, execution_mode: str = "preview", approval_request_id: str | None = None, approval_token: str | None = None) -> dict[str, object]:
+        if not self._valid_tag_id(badge_id): return failure(ErrorCode.VALIDATION_ERROR, "badge_id must be a non-empty path-safe string")
+        return self._approved_request("zendesk_delete_badge", {"badge_id": badge_id}, "DELETE", f"/api/v2/gather/badges/{badge_id}.json", None, WriteRisk.DESTRUCTIVE, execution_mode, approval_request_id, approval_token)
+    def list_badge_assignments(self, *, user_id: int | None = None, badge_id: str | None = None, badge_category_id: str | None = None, brand_id: int | None = None) -> dict[str, object]:
+        if any(value is not None and not self._valid_id(value, name) for value, name in ((user_id, "user_id"), (brand_id, "brand_id"))) or any(value is not None and not self._valid_tag_id(value) for value in (badge_id, badge_category_id)): return failure(ErrorCode.VALIDATION_ERROR, "badge assignment filters must be valid")
+        params = {name: str(value) for name, value in {"user_id": user_id, "badge_id": badge_id, "badge_category_id": badge_category_id, "brand_id": brand_id}.items() if value is not None}
+        return self._get("/api/v2/gather/badge_assignments.json", params or None)
+    def create_badge_assignment(self, badge_id: str, user_id: int, *, execution_mode: str = "preview", approval_request_id: str | None = None, approval_token: str | None = None) -> dict[str, object]:
+        if not self._valid_tag_id(badge_id) or not self._valid_id(user_id, "user_id"): return failure(ErrorCode.VALIDATION_ERROR, "valid badge_id and user_id are required")
+        payload = {"badge_assignment": {"badge_id": badge_id, "user_id": str(user_id)}}
+        return self._approved_request("zendesk_create_badge_assignment", payload, "POST", "/api/v2/gather/badge_assignments.json", payload, (WriteRisk.PUBLIC, WriteRisk.IMPERSONATION), execution_mode, approval_request_id, approval_token)
+    def delete_badge_assignment(self, assignment_id: str, *, execution_mode: str = "preview", approval_request_id: str | None = None, approval_token: str | None = None) -> dict[str, object]:
+        if not self._valid_tag_id(assignment_id): return failure(ErrorCode.VALIDATION_ERROR, "assignment_id must be a non-empty path-safe string")
+        return self._approved_request("zendesk_delete_badge_assignment", {"assignment_id": assignment_id}, "DELETE", f"/api/v2/gather/badge_assignments/{assignment_id}.json", None, (WriteRisk.DESTRUCTIVE, WriteRisk.IMPERSONATION), execution_mode, approval_request_id, approval_token)
     def search_content_tags(self, prefix: str) -> dict[str, object]:
         if not isinstance(prefix, str): return failure(ErrorCode.VALIDATION_ERROR, "prefix must be a string")
         return self._get("/api/v2/guide/content_tags.json", {"filter[name_prefix]": prefix})
@@ -163,7 +191,7 @@ class CommunityTools:
     @staticmethod
     def _valid_id(value: object, name: str) -> bool: return isinstance(value, int) and not isinstance(value, bool) and value > 0
     @staticmethod
-    def _valid_tag_id(value: object) -> bool: return isinstance(value, str) and bool(value.strip()) and "/" not in value
+    def _valid_tag_id(value: object) -> bool: return isinstance(value, str) and bool(value.strip()) and value == value.strip() and not any(char in value for char in "/?#")
     def _vote_path(self, content_type: str, post_id: int, comment_id: int | None, direction: str) -> str | None:
         if direction not in {"up", "down"} or not self._valid_id(post_id, "post_id"): return None
         if content_type == "post" and comment_id is None: return f"/api/v2/help_center/posts/{post_id}/{direction}.json"
@@ -210,6 +238,14 @@ class CommunityTools:
     def _content_tag_payload(name: object) -> dict[str, object] | None:
         if not isinstance(name, str) or not name.strip(): return None
         return {"content_tag": {"name": name.strip()}}
+    def _badge_payload(self, badge: object) -> dict[str, object] | None:
+        if not isinstance(badge, dict) or not badge or set(badge) - {"badge_category_id", "name", "description"}: return None
+        normalized = dict(badge)
+        if "badge_category_id" in normalized and not self._valid_tag_id(normalized["badge_category_id"]): return None
+        if "name" in normalized and (not isinstance(normalized["name"], str) or not normalized["name"].strip()): return None
+        if "name" in normalized: normalized["name"] = normalized["name"].strip()
+        if "description" in normalized and not isinstance(normalized["description"], str): return None
+        return {"badge": normalized}
     def _approved_request(self, tool: str, approval_payload: dict[str, object], method: str, path: str, json_body: dict[str, object] | None, risk: WriteRisk | tuple[WriteRisk, ...], execution_mode: str, approval_request_id: str | None, approval_token: str | None) -> dict[str, object]:
         risks = risk if isinstance(risk, tuple) else (risk,)
         if execution_mode == "preview":
