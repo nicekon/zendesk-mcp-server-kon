@@ -11,14 +11,16 @@ transport before Support, Guide, CSAT, and Community tools are added.
 
 ## Current status
 
-The foundation exposes one safe tool:
+The current pre-release exposes these safe tools:
 
 - `zendesk_get_connection_status` reports whether the server is configured. It
   never sends a network request and never returns an email address, token, or
   OAuth secret.
+- `zendesk_list_tickets`, `zendesk_get_ticket`, and
+  `zendesk_get_ticket_conversation` provide read-only Support access.
 
-The server starts in `read_only` mode. Ticket, Help Center, CSAT, attachment,
-and Community tools are intentionally not available until their corresponding
+The server starts in `read_only` mode. Help Center, CSAT, attachment, and
+Community tools are intentionally not available until their corresponding
 implementation stages are complete.
 
 ## Setup
