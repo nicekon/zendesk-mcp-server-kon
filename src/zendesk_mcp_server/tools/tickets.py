@@ -473,6 +473,18 @@ class TicketTools:
             matches = [user for user in users if isinstance(user, dict) and user.get(kind) == value and _valid_ticket_id(user.get("id"))] if isinstance(users, list) else []
             if len(matches) != 1: return failure(ErrorCode.VALIDATION_ERROR, f"{field} {kind} must match exactly one user", details={"candidate_ids": [user["id"] for user in matches]})
             resolved[field] = {"kind": "id", "value": matches[0]["id"]}
+        organization = resolved.get("organization")
+        if isinstance(organization, Mapping) and organization.get("kind") == "name":
+            value = organization.get("value")
+            if not isinstance(value, str) or not value.strip(): return None
+            client = self._configured_client()
+            if isinstance(client, dict): return client
+            result = client.get("/api/v2/organizations/search.json", params={"name": value.strip()})
+            if not result.get("ok"): return result
+            data = result.get("data"); organizations = data.get("organizations") if isinstance(data, dict) else None
+            matches = [item for item in organizations if isinstance(item, dict) and isinstance(item.get("name"), str) and item["name"].casefold() == value.casefold() and _valid_ticket_id(item.get("id"))] if isinstance(organizations, list) else []
+            if len(matches) != 1: return failure(ErrorCode.VALIDATION_ERROR, "organization name must match exactly one organization", details={"candidate_ids": [item["id"] for item in matches]})
+            resolved["organization"] = {"kind": "id", "value": matches[0]["id"]}
         return _ticket_query(resolved, include_type=include_type)
 
     def _configured_mutation_client(self) -> TicketMutationClient | dict[str, object]:
@@ -529,7 +541,7 @@ def _ticket_query(query: object, *, include_type: bool = True) -> str | None:
     if isinstance(query, str):
         if not (cleaned := query.strip()): return None
         return f"type:ticket {cleaned}" if include_type else cleaned
-    if not isinstance(query, Mapping) or not set(query) <= {"status", "priority", "tags", "assignee", "requester"}: return None
+    if not isinstance(query, Mapping) or not set(query) <= {"status", "priority", "tags", "assignee", "requester", "organization"}: return None
     fragments: list[str] = []
     for key, allowed in (("status", {"new", "open", "pending", "hold", "solved", "closed"}), ("priority", {"low", "normal", "high", "urgent"})):
         value = query.get(key)
@@ -549,6 +561,12 @@ def _ticket_query(query: object, *, include_type: bool = True) -> str | None:
             fragment = _ticket_user_reference(field, value)
             if fragment is None: return None
             fragments.append(fragment)
+    organization = query.get("organization")
+    if organization is not None:
+        if not isinstance(organization, Mapping) or not isinstance(organization.get("kind"), str): return None
+        if organization.get("kind") == "none" and set(organization) == {"kind"}: fragments.append("organization:none")
+        elif organization.get("kind") == "id" and set(organization) == {"kind", "value"} and _valid_ticket_id(organization.get("value")): fragments.append(f"organization:{organization['value']}")
+        else: return None
     if not fragments: return None
     return " ".join((["type:ticket"] if include_type else []) + fragments)
 

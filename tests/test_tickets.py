@@ -173,6 +173,20 @@ def test_named_ticket_user_filter_returns_candidate_ids_when_ambiguous():
     assert result["error"]["details"] == {"candidate_ids": [8, 9]}
 
 
+def test_structured_ticket_filter_resolves_organization_name_exactly():
+    client = StubClient({
+        "/api/v2/organizations/search.json": success({"organizations": [{"id": 12, "name": "Acme"}]}),
+        "/api/v2/search.json": success({"results": [], "next_page": None}),
+    })
+
+    TicketTools(client).search_tickets({"organization": {"kind": "name", "value": "Acme"}})
+
+    assert client.paths == [
+        ("/api/v2/organizations/search.json", {"name": "Acme"}),
+        ("/api/v2/search.json", {"query": "type:ticket organization:12", "page[size]": "100"}),
+    ]
+
+
 def test_ticket_export_uses_dedicated_export_type_filter():
     client = StubClient({"/api/v2/search/export.json": success({"results": [{"id": 1}], "meta": {"has_more": True, "after_cursor": "next"}})})
 

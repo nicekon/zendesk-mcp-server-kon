@@ -49,6 +49,7 @@ TICKET_QUERY_SCHEMA = {
             "tags": {"type": "object", "properties": {"include": {"type": "array", "items": {"type": "string"}}, "exclude": {"type": "array", "items": {"type": "string"}}}, "additionalProperties": False},
             "assignee": {"type": "object", "properties": {"kind": {"type": "string", "enum": ["me", "none", "id", "name", "email", "phone"]}, "value": {"oneOf": [{"type": "integer", "minimum": 1}, {"type": "string", "minLength": 1}]}}, "required": ["kind"], "additionalProperties": False},
             "requester": {"type": "object", "properties": {"kind": {"type": "string", "enum": ["me", "none", "id", "name", "email", "phone"]}, "value": {"oneOf": [{"type": "integer", "minimum": 1}, {"type": "string", "minLength": 1}]}}, "required": ["kind"], "additionalProperties": False},
+            "organization": {"type": "object", "properties": {"kind": {"type": "string", "enum": ["none", "id", "name"]}, "value": {"oneOf": [{"type": "integer", "minimum": 1}, {"type": "string", "minLength": 1}]}}, "required": ["kind"], "additionalProperties": False},
         }, "additionalProperties": False},
     ]
 }
