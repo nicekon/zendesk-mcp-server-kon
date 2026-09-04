@@ -88,6 +88,8 @@ def test_support_read_tools_are_registered():
         "zendesk_search_community_posts",
         "zendesk_get_community_post",
         "zendesk_create_community_post",
+        "zendesk_update_community_post",
+        "zendesk_delete_community_post",
         "zendesk_create_community_comment",
         "zendesk_create_community_topic",
         "zendesk_list_community_votes",
