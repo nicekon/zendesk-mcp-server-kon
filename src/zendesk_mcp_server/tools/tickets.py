@@ -8,6 +8,7 @@ import stat
 import subprocess
 import sys
 import tarfile
+import time
 import zipfile
 import json
 from datetime import datetime
@@ -138,6 +139,7 @@ class TicketTools:
         content = response_data.get("content") if isinstance(response_data, dict) else None
         if not isinstance(content, bytes) or self._settings is None or self._settings.attachment_cache_root is None:
             return failure(ErrorCode.UPSTREAM_ERROR, "Zendesk returned an invalid attachment download")
+        _clean_attachment_cache(self._settings.attachment_cache_root)
         cached = _cache_attachment(self._settings.attachment_cache_root, attachment_id, content)
         if not cached.get("ok"):
             return cached
@@ -672,6 +674,24 @@ def _cache_attachment(root: Path, attachment_id: int, content: bytes) -> dict[st
             temporary.unlink(missing_ok=True)
     except OSError:
         return failure(ErrorCode.UPSTREAM_ERROR, "attachment cache could not be written")
+
+
+def _clean_attachment_cache(root: Path) -> None:
+    user_root = root / str(os.getuid())
+    try:
+        info = user_root.lstat()
+        if stat.S_ISLNK(info.st_mode) or not stat.S_ISDIR(info.st_mode): return
+        cutoff = time.time() - 24 * 60 * 60
+        for directory in user_root.iterdir():
+            info = directory.lstat()
+            if stat.S_ISLNK(info.st_mode) or not stat.S_ISDIR(info.st_mode): continue
+            attachment = directory / "attachment"
+            if not attachment.exists(): continue
+            info = attachment.lstat()
+            if stat.S_ISLNK(info.st_mode) or not stat.S_ISREG(info.st_mode) or info.st_mtime >= cutoff: continue
+            attachment.unlink(); directory.rmdir()
+    except OSError:
+        return
 
 
 def _safe_cache_open(path: Path):

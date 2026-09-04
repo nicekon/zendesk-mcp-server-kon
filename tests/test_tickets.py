@@ -3,6 +3,8 @@ from zendesk_mcp_server.contracts import success
 from zendesk_mcp_server.config import Settings
 from zendesk_mcp_server.tools.tickets import TicketTools
 import io
+import os
+import time
 import zipfile
 from pypdf import PdfWriter
 
@@ -318,6 +320,17 @@ def test_attachment_download_revalidates_ownership_and_uses_fixed_cache(tmp_path
     assert result["data"]["attachment_id"] == 5
     assert result["data"]["cache_path"].endswith("/5/attachment")
     assert open(result["data"]["cache_path"], "rb").read() == b"hello world"
+
+
+def test_attachment_download_removes_expired_cache_before_reusing_it(tmp_path):
+    client = AttachmentDownloadStub()
+    settings = Settings.load({"ZENDESK_ATTACHMENT_CACHE_ROOT": str(tmp_path / "cache")})
+    first = TicketTools(client, settings).download_attachment(7, 5)
+    os.utime(first["data"]["cache_path"], (time.time() - 25 * 60 * 60, ) * 2)
+
+    second = TicketTools(client, settings).download_attachment(7, 5)
+
+    assert second["data"]["cache_hit"] is False
 
 
 def test_attachment_inspection_is_bounded_and_uses_the_managed_cache(tmp_path):
