@@ -207,6 +207,14 @@ def test_structured_ticket_filter_resolves_group_name():
     assert client.paths == [("/api/v2/groups.json", {"page[size]": "100"}), ("/api/v2/search.json", {"query": "type:ticket group:3", "page[size]": "100"})]
 
 
+def test_structured_ticket_filter_resolves_form_name():
+    client = StubClient({"/api/v2/ticket_forms.json": success({"ticket_forms": [{"id": 4, "name": "Incident"}]}), "/api/v2/search.json": success({"results": [], "next_page": None})})
+
+    TicketTools(client).search_tickets({"form": {"kind": "name", "value": "Incident"}})
+
+    assert client.paths == [("/api/v2/ticket_forms.json", {"page[size]": "100"}), ("/api/v2/search.json", {"query": "type:ticket form:4", "page[size]": "100"})]
+
+
 def test_custom_object_projection_requires_its_capability():
     settings = Settings.load({})
     result = TicketTools(StubClient({}), settings).search_tickets("status:open", projection={"include_custom_objects": ["asset"]})
@@ -233,10 +241,36 @@ def test_custom_object_projection_nests_ticket_lookup_records():
 def test_ticket_export_uses_dedicated_export_type_filter():
     client = StubClient({"/api/v2/search/export.json": success({"results": [{"id": 1}], "meta": {"has_more": True, "after_cursor": "next"}})})
 
-    result = TicketTools(client).export_tickets("status:open", cursor="before", limit=50)
+    result = TicketTools(client).export_tickets("status:open", limit=50)
 
-    assert result["data"] == {"items": [{"id": 1}], "has_more": True, "next_cursor": "next", "truncated": False}
-    assert client.paths == [("/api/v2/search/export.json", {"filter[type]": "ticket", "query": "status:open", "page[size]": "50", "page[after]": "before"})]
+    assert result["data"]["items"] == [{"id": 1}]
+    assert result["data"]["has_more"] is True
+    assert result["data"]["next_cursor"] != "next"
+    assert client.paths == [("/api/v2/search/export.json", {"filter[type]": "ticket", "query": "status:open", "page[size]": "50"})]
+
+
+def test_ticket_export_uses_an_opaque_cursor_to_resume_the_same_query():
+    first = StubClient({"/api/v2/search/export.json": success({"results": [{"id": 1}], "meta": {"has_more": True, "after_cursor": "zendesk-next"}})})
+    cursor = TicketTools(first).export_tickets("status:open")["data"]["next_cursor"]
+    second = StubClient({"/api/v2/search/export.json": success({"results": [{"id": 2}], "meta": {"has_more": False}})})
+
+    TicketTools(second).export_tickets("status:open", cursor=cursor)
+
+    assert cursor != "zendesk-next"
+    assert second.paths == [("/api/v2/search/export.json", {"filter[type]": "ticket", "query": "status:open", "page[size]": "100", "page[after]": "zendesk-next"})]
+
+
+def test_ticket_export_rejects_an_expired_resume_cursor(monkeypatch):
+    monkeypatch.setattr("zendesk_mcp_server.tools.tickets.time.time", lambda: 0)
+    client = StubClient({"/api/v2/search/export.json": success({"results": [], "meta": {"has_more": True, "after_cursor": "zendesk-next"}})})
+    cursor = TicketTools(client).export_tickets("status:open")["data"]["next_cursor"]
+    monkeypatch.setattr("zendesk_mcp_server.tools.tickets.time.time", lambda: 3601)
+
+    result = TicketTools(client).export_tickets("status:open", cursor=cursor)
+
+    assert result["ok"] is False
+    assert result["error"]["code"] == "cursor_expired"
+    assert len(client.paths) == 1
 
 
 def test_search_rejects_blank_query_and_non_integer_limit_without_a_client():

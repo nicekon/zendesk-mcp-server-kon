@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import base64
+import hmac
 import os
 import secrets
 import stat
@@ -253,17 +255,24 @@ class TicketTools:
         if not isinstance(limit, int) or isinstance(limit, bool) or not 1 <= limit <= 1000: return failure(ErrorCode.VALIDATION_ERROR, "limit must be an integer from 1 to 1000")
         client = self._configured_client()
         if isinstance(client, dict): return client
+        upstream_cursor = _decode_export_cursor(cursor, ticket_query) if cursor is not None else None
+        if cursor is not None and upstream_cursor is None: return failure(ErrorCode.CURSOR_EXPIRED, "export cursor is expired or invalid")
         params = {"filter[type]": "ticket", "query": ticket_query, "page[size]": str(limit)}
-        if cursor is not None: params["page[after]"] = cursor
+        if upstream_cursor is not None: params["page[after]"] = upstream_cursor
         result = client.get("/api/v2/search/export.json", params=params)
-        if not result.get("ok"): return result
+        if not result.get("ok"):
+            if cursor is not None and result.get("error", {}).get("code") == ErrorCode.VALIDATION_ERROR.value:
+                return failure(ErrorCode.CURSOR_EXPIRED, "export cursor is expired or rejected")
+            return result
         data = result.get("data"); items = data.get("results") if isinstance(data, dict) else None; meta = data.get("meta") if isinstance(data, dict) else None
         if not isinstance(items, list) or not isinstance(meta, dict): return failure(ErrorCode.UPSTREAM_ERROR, "Zendesk returned an invalid ticket export page")
         if projection is not None:
             projected = self._project_custom_objects(items, projection["include_custom_objects"])
             if isinstance(projected, dict): return projected
             items = projected
-        return success({"items": items, "has_more": bool(meta.get("has_more")), "next_cursor": meta.get("after_cursor") if isinstance(meta.get("after_cursor"), str) else None, "truncated": False})
+        has_more = bool(meta.get("has_more")); next_upstream = meta.get("after_cursor")
+        if has_more and (not isinstance(next_upstream, str) or not next_upstream): return failure(ErrorCode.UPSTREAM_ERROR, "Zendesk returned an invalid ticket export cursor")
+        return success({"items": items, "has_more": has_more, "next_cursor": _encode_export_cursor(next_upstream, ticket_query) if has_more else None, "truncated": False})
 
     def apply_macro(
         self,
@@ -566,6 +575,27 @@ class TicketTools:
             matches = [item for item in groups if isinstance(item, dict) and isinstance(item.get("name"), str) and item["name"].casefold() == value.casefold() and _valid_ticket_id(item.get("id"))]
             if len(matches) != 1: return failure(ErrorCode.VALIDATION_ERROR, "group name must match exactly one group", details={"candidate_ids": [item["id"] for item in matches]})
             resolved["group"] = {"kind": "id", "value": matches[0]["id"]}
+        form = resolved.get("form")
+        if isinstance(form, Mapping) and form.get("kind") == "name":
+            value = form.get("value")
+            if not isinstance(value, str) or not value.strip(): return None
+            client = self._configured_client()
+            if isinstance(client, dict): return client
+            forms: list[object] = []; cursor = None; seen: set[str] = set()
+            while True:
+                params = {"page[size]": "100"}; params.update({"page[after]": cursor} if cursor else {})
+                result = client.get("/api/v2/ticket_forms.json", params=params)
+                if not result.get("ok"): return result
+                data = result.get("data"); page = data.get("ticket_forms") if isinstance(data, dict) else None; meta = data.get("meta") if isinstance(data, dict) else None
+                if not isinstance(page, list): return failure(ErrorCode.UPSTREAM_ERROR, "Zendesk returned an invalid ticket form list")
+                forms.extend(page)
+                cursor = meta.get("after_cursor") if isinstance(meta, dict) else None
+                if not (isinstance(meta, dict) and meta.get("has_more")): break
+                if not isinstance(cursor, str) or cursor in seen: return failure(ErrorCode.UPSTREAM_ERROR, "Zendesk returned an invalid ticket form cursor")
+                seen.add(cursor)
+            matches = [item for item in forms if isinstance(item, dict) and isinstance(item.get("name"), str) and item["name"].casefold() == value.casefold() and _valid_ticket_id(item.get("id"))]
+            if len(matches) != 1: return failure(ErrorCode.VALIDATION_ERROR, "form name must match exactly one ticket form", details={"candidate_ids": [item["id"] for item in matches]})
+            resolved["form"] = {"kind": "id", "value": matches[0]["id"]}
         return _ticket_query(resolved, include_type=include_type)
 
     def _configured_mutation_client(self) -> TicketMutationClient | dict[str, object]:
@@ -616,6 +646,30 @@ class TicketTools:
 
 def _valid_ticket_id(ticket_id: int) -> bool:
     return isinstance(ticket_id, int) and not isinstance(ticket_id, bool) and ticket_id > 0
+
+
+_EXPORT_CURSOR_KEY = secrets.token_bytes(32)
+_EXPORT_CURSOR_TTL = 60 * 60
+
+
+def _encode_export_cursor(upstream_cursor: str, query: str) -> str:
+    payload = json.dumps({"cursor": upstream_cursor, "expires_at": int(time.time()) + _EXPORT_CURSOR_TTL, "query": query}, separators=(",", ":"), sort_keys=True).encode()
+    encoded = base64.urlsafe_b64encode(payload).rstrip(b"=")
+    signature = hmac.digest(_EXPORT_CURSOR_KEY, encoded, "sha256")
+    return f"{encoded.decode()}.{base64.urlsafe_b64encode(signature).rstrip(b'=').decode()}"
+
+
+def _decode_export_cursor(cursor: str, query: str) -> str | None:
+    try:
+        encoded_text, signature_text = cursor.split(".")
+        encoded = encoded_text.encode(); padding = b"=" * (-len(encoded) % 4)
+        signature = base64.urlsafe_b64decode(signature_text + "=" * (-len(signature_text) % 4))
+        if not hmac.compare_digest(signature, hmac.digest(_EXPORT_CURSOR_KEY, encoded, "sha256")): return None
+        payload = json.loads(base64.urlsafe_b64decode(encoded + padding))
+        if not isinstance(payload, dict) or payload.get("query") != query or not isinstance(payload.get("cursor"), str) or not payload["cursor"] or not isinstance(payload.get("expires_at"), int) or payload["expires_at"] <= time.time(): return None
+        return payload["cursor"]
+    except (ValueError, TypeError, UnicodeDecodeError, json.JSONDecodeError):
+        return None
 
 
 def _ticket_query(query: object, *, include_type: bool = True) -> str | None:

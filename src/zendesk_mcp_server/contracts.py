@@ -21,6 +21,7 @@ class ErrorCode(str, Enum):
     WRITE_DISABLED = "write_disabled"
     APPROVAL_REQUIRED = "approval_required"
     ARTICLE_BODY_REPLACE_REQUIRED = "article_body_replace_required"
+    CURSOR_EXPIRED = "cursor_expired"
     OUTCOME_UNKNOWN = "outcome_unknown"
 
 
