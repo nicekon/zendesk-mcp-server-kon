@@ -10,7 +10,12 @@ class StubClient:
         self.paths.append((path, params)); return success({"posts": [{"id": 2}]})
 
     def request(self, method, path, *, json_body=None):
-        self.paths.append((method, path, json_body)); return success({"post": {"id": 2}})
+        self.paths.append((method, path, json_body))
+        if path == "/api/v2/guide/user_images/uploads": return success({"upload": {"url": "https://cdn.example.test/upload", "headers": {"Content-Type": "image/png"}, "token": "upload-token"}})
+        return success({"post": {"id": 2}})
+
+    def upload_presigned(self, url, headers, content):
+        self.paths.append(("PUT", url, headers, content)); return success({})
 
 
 def test_community_post_reads_use_fixed_endpoints():
@@ -266,3 +271,29 @@ def test_badge_assignments_require_public_impersonation_and_destructive_gates(tm
         ("POST", "/api/v2/gather/badge_assignments.json", {"badge_assignment": {"badge_id": "badge-1", "user_id": "7"}}),
         ("DELETE", "/api/v2/gather/badge_assignments/assignment-1.json", None),
     ]
+
+
+def test_user_image_upload_requires_approved_external_upload_and_safe_local_file(tmp_path):
+    root = tmp_path / "uploads"; root.mkdir(); image = root / "image.png"; image.write_bytes(b"image")
+    client = StubClient(); store = ApprovalStore(tmp_path / "approvals.json")
+    disabled = CommunityTools(client, Settings.load({"ZENDESK_WRITE_MODE": "standard", "ZENDESK_UPLOAD_ROOT": str(root)}), store)
+    preview = disabled.upload_user_image("image.png", "image/png", 4)
+    token = store.approve(preview["data"]["approval_request_id"])
+    result = disabled.upload_user_image("image.png", "image/png", 4, execution_mode="apply", approval_request_id=preview["data"]["approval_request_id"], approval_token=token)
+    assert result["error"]["code"] == "write_disabled"
+    enabled = CommunityTools(client, Settings.load({"ZENDESK_WRITE_MODE": "standard", "ZENDESK_ENABLE_EXTERNAL_UPLOADS": "true", "ZENDESK_UPLOAD_ROOT": str(root)}), store)
+    preview = enabled.upload_user_image("image.png", "image/png", 4)
+    token = store.approve(preview["data"]["approval_request_id"])
+    enabled.upload_user_image("image.png", "image/png", 4, execution_mode="apply", approval_request_id=preview["data"]["approval_request_id"], approval_token=token)
+    assert client.paths[-3:] == [
+        ("POST", "/api/v2/guide/user_images/uploads", {"content_type": "image/png", "file_size": 5}),
+        ("PUT", "https://cdn.example.test/upload", {"Content-Type": "image/png"}, b"image"),
+        ("POST", "/api/v2/guide/user_images", {"token": "upload-token", "brand_id": "4"}),
+    ]
+
+
+def test_user_image_upload_rejects_paths_outside_the_configured_root(tmp_path):
+    root = tmp_path / "uploads"; root.mkdir(); outside = tmp_path / "image.png"; outside.write_bytes(b"image")
+    tools = CommunityTools(StubClient(), Settings.load({"ZENDESK_WRITE_MODE": "standard", "ZENDESK_UPLOAD_ROOT": str(root)}), ApprovalStore(tmp_path / "approvals.json"))
+
+    assert tools.upload_user_image(str(outside), "image/png", 4)["error"]["code"] == "validation_error"

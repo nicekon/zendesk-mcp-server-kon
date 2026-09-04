@@ -85,3 +85,11 @@ def test_write_gates_are_disabled_by_default_and_redacted_in_status():
     assert settings.public_writes_enabled is True
     assert settings.destructive_writes_enabled is False
     assert settings.connection_status()["active_write_gates"] == ["standard", "public"]
+
+
+def test_external_upload_root_is_local_configuration_not_status_data(tmp_path):
+    root = tmp_path / "uploads"
+    settings = Settings.load({"ZENDESK_UPLOAD_ROOT": str(root)})
+
+    assert settings.upload_root == root
+    assert "uploads" not in repr(settings.connection_status())

@@ -1,5 +1,9 @@
 """Read-only Zendesk Community tools."""
 from __future__ import annotations
+import hashlib
+import os
+import stat
+from pathlib import Path
 from typing import Protocol
 from ..approvals import ApprovalStore
 from ..config import Settings
@@ -10,6 +14,7 @@ from ..write_policy import WriteRisk, check_write_permission
 class CommunityClient(Protocol):
     def get(self, path: str, *, params: dict[str, str] | None = None) -> dict[str, object]: ...
     def request(self, method: str, path: str, *, json_body: dict[str, object] | None = None) -> dict[str, object]: ...
+    def upload_presigned(self, url: str, headers: dict[str, str], content: bytes) -> dict[str, object]: ...
 
 class CommunityTools:
     def __init__(self, client: CommunityClient | None, settings: Settings | None = None, approvals: ApprovalStore | None = None) -> None: self._client, self._settings, self._approvals = client, settings, approvals
@@ -167,6 +172,25 @@ class CommunityTools:
     def delete_badge_assignment(self, assignment_id: str, *, execution_mode: str = "preview", approval_request_id: str | None = None, approval_token: str | None = None) -> dict[str, object]:
         if not self._valid_tag_id(assignment_id): return failure(ErrorCode.VALIDATION_ERROR, "assignment_id must be a non-empty path-safe string")
         return self._approved_request("zendesk_delete_badge_assignment", {"assignment_id": assignment_id}, "DELETE", f"/api/v2/gather/badge_assignments/{assignment_id}.json", None, (WriteRisk.DESTRUCTIVE, WriteRisk.IMPERSONATION), execution_mode, approval_request_id, approval_token)
+    def upload_user_image(self, image_path: str, content_type: str, brand_id: int, *, execution_mode: str = "preview", approval_request_id: str | None = None, approval_token: str | None = None) -> dict[str, object]:
+        loaded = self._load_user_image(image_path, content_type, brand_id)
+        if isinstance(loaded, dict): return loaded
+        payload, content = loaded
+        if execution_mode == "preview":
+            if self._approvals is None: return failure(ErrorCode.NOT_CONFIGURED, "Zendesk approval store is not configured")
+            return success({"approval_request_id": self._approvals.create("zendesk_upload_community_user_image", payload), "execution_mode": "preview", "external_upload": True, "outbound_write": False, **payload})
+        if execution_mode != "apply": return failure(ErrorCode.VALIDATION_ERROR, "execution_mode must be preview or apply")
+        if self._settings is None or (blocked := check_write_permission(self._settings, WriteRisk.EXTERNAL_UPLOAD)) is not None: return blocked or failure(ErrorCode.WRITE_DISABLED, "Zendesk external uploads are disabled")
+        if self._approvals is None or not isinstance(approval_request_id, str) or not isinstance(approval_token, str) or not self._approvals.consume(approval_request_id, "zendesk_upload_community_user_image", payload, approval_token): return failure(ErrorCode.APPROVAL_REQUIRED, "a matching local approval is required")
+        if self._client is None or not hasattr(self._client, "upload_presigned"): return failure(ErrorCode.NOT_CONFIGURED, "Zendesk upload client is not configured")
+        prepared = self._client.request("POST", "/api/v2/guide/user_images/uploads", json_body={"content_type": content_type, "file_size": len(content)})
+        upload = self._nested_data(prepared, "upload")
+        if upload is None: return prepared
+        url, headers, token = upload.get("url"), upload.get("headers"), upload.get("token")
+        if not isinstance(url, str) or not isinstance(headers, dict) or not isinstance(token, str) or any(not isinstance(name, str) or not isinstance(value, str) for name, value in headers.items()): return failure(ErrorCode.UPSTREAM_ERROR, "Zendesk returned an invalid user-image upload response")
+        uploaded = self._client.upload_presigned(url, headers, content)
+        if not uploaded.get("ok"): return uploaded
+        return self._client.request("POST", "/api/v2/guide/user_images", json_body={"token": token, "brand_id": str(brand_id)})
     def search_content_tags(self, prefix: str) -> dict[str, object]:
         if not isinstance(prefix, str): return failure(ErrorCode.VALIDATION_ERROR, "prefix must be a string")
         return self._get("/api/v2/guide/content_tags.json", {"filter[name_prefix]": prefix})
@@ -246,6 +270,35 @@ class CommunityTools:
         if "name" in normalized: normalized["name"] = normalized["name"].strip()
         if "description" in normalized and not isinstance(normalized["description"], str): return None
         return {"badge": normalized}
+    def _load_user_image(self, image_path: object, content_type: object, brand_id: object) -> tuple[dict[str, object], bytes] | dict[str, object]:
+        if not isinstance(image_path, str) or not image_path or content_type not in {"image/jpeg", "image/png", "image/gif"} or not self._valid_id(brand_id, "brand_id"): return failure(ErrorCode.VALIDATION_ERROR, "valid image_path, content_type, and brand_id are required")
+        if self._settings is None or self._settings.upload_root is None: return failure(ErrorCode.NOT_CONFIGURED, "ZENDESK_UPLOAD_ROOT is required for local image uploads")
+        try:
+            root = self._settings.upload_root.resolve(strict=True)
+            if not root.is_dir(): raise ValueError
+            candidate = Path(image_path).expanduser()
+            candidate = candidate if candidate.is_absolute() else root / candidate
+            relative = candidate.relative_to(root)
+            if not relative.parts or ".." in relative.parts: raise ValueError
+            current = root
+            for part in relative.parts:
+                current /= part
+                if stat.S_ISLNK(os.lstat(current).st_mode): raise ValueError
+            descriptor = os.open(current, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
+            try:
+                if not stat.S_ISREG(os.fstat(descriptor).st_mode): raise ValueError
+                with os.fdopen(descriptor, "rb", closefd=False) as source: content = source.read(2_000_001)
+            finally:
+                os.close(descriptor)
+            if len(content) > 2_000_000: raise ValueError
+        except (OSError, ValueError):
+            return failure(ErrorCode.VALIDATION_ERROR, "image_path must be a regular non-symlink file under ZENDESK_UPLOAD_ROOT and at most 2 MB")
+        return ({"filename": current.name, "content_type": content_type, "file_size": len(content), "sha256": hashlib.sha256(content).hexdigest(), "brand_id": str(brand_id)}, content)
+    @staticmethod
+    def _nested_data(result: dict[str, object], key: str) -> dict[str, object] | None:
+        data = result.get("data") if isinstance(result, dict) else None
+        value = data.get(key) if isinstance(data, dict) else None
+        return value if isinstance(value, dict) else None
     def _approved_request(self, tool: str, approval_payload: dict[str, object], method: str, path: str, json_body: dict[str, object] | None, risk: WriteRisk | tuple[WriteRisk, ...], execution_mode: str, approval_request_id: str | None, approval_token: str | None) -> dict[str, object]:
         risks = risk if isinstance(risk, tuple) else (risk,)
         if execution_mode == "preview":

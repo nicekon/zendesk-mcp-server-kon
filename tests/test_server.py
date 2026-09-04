@@ -133,4 +133,5 @@ def test_support_read_tools_are_registered():
         "zendesk_list_badge_assignments",
         "zendesk_create_badge_assignment",
         "zendesk_delete_badge_assignment",
+        "zendesk_upload_community_user_image",
     ]

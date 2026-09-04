@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import ipaddress
 import random
+import socket
 import time
 from collections.abc import Callable, Mapping
 from urllib.parse import urlsplit
@@ -125,6 +127,19 @@ class ZendeskClient:
     def close(self) -> None:
         self._client.close()
 
+    def upload_presigned(self, url: str, headers: Mapping[str, str], content: bytes) -> dict[str, object]:
+        if not _is_public_https_url(url) or not isinstance(content, bytes) or any(not isinstance(name, str) or not isinstance(value, str) for name, value in headers.items()) or any(name.lower() in {"authorization", "host"} for name in headers):
+            return failure(ErrorCode.VALIDATION_ERROR, "presigned upload URL, headers, or content is unsafe")
+        try:
+            response = self._client.request("PUT", url, headers=dict(headers), content=content)
+        except httpx.TimeoutException:
+            return failure(ErrorCode.TIMEOUT, "Zendesk upload timed out", operation_state="unknown")
+        except httpx.HTTPError:
+            return failure(ErrorCode.UPSTREAM_ERROR, "Zendesk upload could not be completed", operation_state="unknown")
+        if response.is_success:
+            return success({}, request_id=_request_id(response))
+        return failure(_error_code(response.status_code), f"Zendesk upload failed with HTTP {response.status_code}", operation_state="unknown", request_id=_request_id(response))
+
     def _build_url(self, path: str) -> str | None:
         parsed = urlsplit(path)
         if (
@@ -176,3 +191,17 @@ def _error_code(status_code: int) -> ErrorCode:
     if status_code == 429:
         return ErrorCode.RATE_LIMITED
     return ErrorCode.UPSTREAM_ERROR
+
+
+def _is_public_https_url(value: str) -> bool:
+    parsed = urlsplit(value)
+    if parsed.scheme != "https" or not parsed.hostname or parsed.username or parsed.password:
+        return False
+    try:
+        addresses = [ipaddress.ip_address(parsed.hostname)]
+    except ValueError:
+        try:
+            addresses = [ipaddress.ip_address(record[4][0]) for record in socket.getaddrinfo(parsed.hostname, parsed.port or 443, type=socket.SOCK_STREAM)]
+        except OSError:
+            return False
+    return bool(addresses) and all(address.is_global for address in addresses)

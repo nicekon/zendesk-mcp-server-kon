@@ -42,6 +42,7 @@ class Settings:
     destructive_writes_enabled: bool = False
     impersonation_enabled: bool = False
     external_uploads_enabled: bool = False
+    upload_root: Path | None = None
     email: str | None = None
     api_token: str | None = None
     oauth: OAuthConfig | None = None
@@ -66,6 +67,7 @@ class Settings:
         destructive_writes_enabled = _parse_bool(environ, "ZENDESK_ENABLE_DESTRUCTIVE_WRITES")
         impersonation_enabled = _parse_bool(environ, "ZENDESK_ENABLE_IMPERSONATION")
         external_uploads_enabled = _parse_bool(environ, "ZENDESK_ENABLE_EXTERNAL_UPLOADS")
+        upload_root = environ.get("ZENDESK_UPLOAD_ROOT")
 
         subdomain = environ.get("ZENDESK_SUBDOMAIN")
         if subdomain is not None:
@@ -117,6 +119,7 @@ class Settings:
             destructive_writes_enabled=destructive_writes_enabled,
             impersonation_enabled=impersonation_enabled,
             external_uploads_enabled=external_uploads_enabled,
+            upload_root=Path(upload_root).expanduser() if upload_root else None,
             email=email if selected_mode is AuthMode.API_TOKEN else None,
             api_token=api_token if selected_mode is AuthMode.API_TOKEN else None,
             oauth=oauth if selected_mode is AuthMode.OAUTH else None,

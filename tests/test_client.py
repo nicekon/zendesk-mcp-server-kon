@@ -130,3 +130,23 @@ def test_write_401_refreshes_without_replaying(settings):
     assert result["error"]["operation_state"] == "not_applied"
     assert authorization.refreshes == 1
     assert calls == 1
+
+
+def test_presigned_upload_never_sends_zendesk_authorization(settings, authorization, monkeypatch):
+    monkeypatch.setattr("zendesk_mcp_server.client.socket.getaddrinfo", lambda *args, **kwargs: [(0, 0, 0, "", ("8.8.8.8", 443))])
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.headers.get("Authorization") is None
+        assert request.headers["Content-Type"] == "image/png"
+        assert request.content == b"image"
+        return httpx.Response(200, request=request)
+
+    client = ZendeskClient(settings, authorization, transport=httpx.MockTransport(handler))
+
+    assert client.upload_presigned("https://cdn.example.test/upload", {"Content-Type": "image/png"}, b"image")["ok"] is True
+
+
+def test_presigned_upload_rejects_private_hosts(settings, authorization):
+    client = ZendeskClient(settings, authorization, transport=httpx.MockTransport(lambda request: None))
+
+    assert client.upload_presigned("https://127.0.0.1/upload", {"Content-Type": "image/png"}, b"image")["error"]["code"] == "validation_error"
