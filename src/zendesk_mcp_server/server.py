@@ -17,6 +17,7 @@ from .config import ConfigurationError, Settings
 from .contracts import ErrorCode, failure, success
 from .tools.tickets import TicketTools
 from .tools.metadata import MetadataTools
+from .tools.guide import GuideTools
 
 
 TICKET_ANALYSIS_TEMPLATE = """
@@ -147,6 +148,11 @@ def build_tools() -> list[types.Tool]:
         types.Tool(name="zendesk_list_view_tickets", description="List tickets currently matching a Zendesk view without making changes.", inputSchema={"type": "object", "properties": {"view_id": {"type": "integer", "minimum": 1}}, "required": ["view_id"]}),
         types.Tool(name="zendesk_list_macros", description="List Zendesk macros without making changes.", inputSchema={"type": "object", "properties": {}}),
         types.Tool(name="zendesk_list_triggers", description="List Zendesk triggers without making changes.", inputSchema={"type": "object", "properties": {}}),
+        types.Tool(name="zendesk_list_help_center_categories", description="List Help Center categories without making changes.", inputSchema={"type": "object", "properties": {}}),
+        types.Tool(name="zendesk_list_help_center_sections", description="List Help Center sections without making changes.", inputSchema={"type": "object", "properties": {}}),
+        types.Tool(name="zendesk_search_help_center_articles", description="Search Help Center articles without making changes.", inputSchema={"type": "object", "properties": {"query": {"type": "string", "minLength": 1}}, "required": ["query"]}),
+        types.Tool(name="zendesk_get_help_center_article", description="Get a Help Center article without making changes.", inputSchema={"type": "object", "properties": {"article_id": {"type": "integer", "minimum": 1}}, "required": ["article_id"]}),
+        types.Tool(name="zendesk_get_satisfaction_ratings", description="List Zendesk satisfaction ratings without making changes.", inputSchema={"type": "object", "properties": {}}),
     ]
 
 
@@ -177,6 +183,17 @@ def build_metadata_tools(environ: Mapping[str, str]) -> MetadataTools | dict[str
     if authorization is None:
         return failure(ErrorCode.NOT_CONFIGURED, "Zendesk is not configured")
     return MetadataTools(ZendeskClient(settings, authorization))
+
+
+def build_guide_tools(environ: Mapping[str, str]) -> GuideTools | dict[str, object]:
+    try:
+        settings = Settings.load(environ)
+        authorization = build_authorization(settings)
+    except ConfigurationError as error:
+        return failure(ErrorCode.VALIDATION_ERROR, str(error))
+    if authorization is None:
+        return failure(ErrorCode.NOT_CONFIGURED, "Zendesk is not configured")
+    return GuideTools(ZendeskClient(settings, authorization))
 
 
 def create_server(environ: Mapping[str, str] | None = None) -> Server:
@@ -246,6 +263,14 @@ def create_server(environ: Mapping[str, str] | None = None) -> Server:
     ) -> list[types.TextContent]:
         if name == "zendesk_get_connection_status":
             result = build_connection_status(environment)
+        elif name in {"zendesk_list_help_center_categories", "zendesk_list_help_center_sections", "zendesk_search_help_center_articles", "zendesk_get_help_center_article", "zendesk_get_satisfaction_ratings"}:
+            tools = build_guide_tools(environment)
+            if isinstance(tools, dict): result = tools
+            elif name == "zendesk_list_help_center_categories": result = tools.list_categories()
+            elif name == "zendesk_list_help_center_sections": result = tools.list_sections()
+            elif name == "zendesk_search_help_center_articles": result = tools.search_articles((arguments or {}).get("query"))
+            elif name == "zendesk_get_help_center_article": result = tools.get_article((arguments or {}).get("article_id"))
+            else: result = tools.get_satisfaction_ratings()
         elif name in {"zendesk_search_users", "zendesk_list_groups", "zendesk_list_group_users", "zendesk_get_organization", "zendesk_list_brands", "zendesk_list_ticket_fields", "zendesk_list_ticket_forms", "zendesk_list_custom_statuses", "zendesk_list_views", "zendesk_get_view", "zendesk_list_view_tickets", "zendesk_list_macros", "zendesk_list_triggers"}:
             tools = build_metadata_tools(environment)
             if isinstance(tools, dict):
