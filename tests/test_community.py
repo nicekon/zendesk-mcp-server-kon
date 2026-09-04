@@ -31,6 +31,20 @@ def test_community_comment_topic_and_vote_reads_use_fixed_endpoints():
     assert client.paths == [("/api/v2/community/posts/2/comments.json", None), ("/api/v2/community/comments/3.json", None), ("/api/v2/community/topics.json", None), ("/api/v2/community/topics/4.json", None), ("/api/v2/help_center/posts/2/votes.json", None), ("/api/v2/help_center/votes/5.json", None)]
 
 
+def test_community_post_and_comment_lists_support_their_official_scopes_and_filters():
+    client = StubClient(); tools = CommunityTools(client)
+
+    tools.list_posts(topic_id=4, status="completed", sort_by="votes")
+    tools.list_posts(user_id="me")
+    tools.list_comments(user_id="me")
+
+    assert client.paths == [
+        ("/api/v2/community/topics/4/posts.json", {"filter_by": "completed", "sort_by": "votes"}),
+        ("/api/v2/community/users/me/posts.json", None),
+        ("/api/v2/community/users/me/comments.json", None),
+    ]
+
+
 def test_subscription_and_content_tag_reads_use_official_endpoints():
     client = StubClient(); tools = CommunityTools(client)
     tools.list_post_subscriptions(2); tools.list_topic_subscriptions(4); tools.search_content_tags("bill"); tools.count_content_tags(); tools.get_content_tag("tag-1")
