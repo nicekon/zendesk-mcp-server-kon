@@ -152,10 +152,12 @@ class TicketTools:
             inspected = _inspect_text(Path(path))
         elif content_type == "application/pdf":
             inspected = _inspect_pdf(Path(path))
+        elif content_type in {"image/png", "image/jpeg", "image/gif"}:
+            inspected = _inspect_image(Path(path), content_type)
         elif _is_archive(content_type):
             inspected = _inspect_archive(Path(path))
         else:
-            return failure(ErrorCode.UNSUPPORTED, "attachment inspection supports text and archive files only")
+            return failure(ErrorCode.UNSUPPORTED, "attachment inspection supports text, PDF, image, and archive files only")
         if not inspected.get("ok"):
             return inspected
         return success({"ticket_id": ticket_id, "attachment_id": attachment_id, **inspected["data"]})
@@ -723,6 +725,55 @@ def _inspect_pdf(path: Path) -> dict[str, object]:
         data = None
     if not isinstance(data, dict) or not isinstance(data.get("page_count"), int) or not isinstance(data.get("text"), str) or not isinstance(data.get("truncated"), bool): return failure(ErrorCode.UNSUPPORTED, "PDF inspection requires a bounded parser subprocess")
     return success({"kind": "pdf", **data})
+
+
+_IMAGE_INSPECTOR = """
+import base64, json, os, resource, sys
+soft, hard = resource.getrlimit(resource.RLIMIT_AS)
+limits = [256 * 1024 * 1024]
+if soft > 0: limits.append(soft)
+if hard > 0: limits.append(hard)
+resource.setrlimit(resource.RLIMIT_AS, (min(limits), hard))
+with os.fdopen(int(sys.argv[1]), 'rb', closefd=False) as stream:
+    content = stream.read(20 * 1024 * 1024 + 1)
+if len(content) > 20 * 1024 * 1024: raise ValueError('image exceeds size limit')
+content_type = sys.argv[2]
+if content_type == 'image/png' and content[:8] == b'\\x89PNG\\r\\n\\x1a\\n' and len(content) >= 24:
+    width, height = int.from_bytes(content[16:20], 'big'), int.from_bytes(content[20:24], 'big')
+elif content_type == 'image/gif' and content[:6] in {b'GIF87a', b'GIF89a'} and len(content) >= 10:
+    width, height = int.from_bytes(content[6:8], 'little'), int.from_bytes(content[8:10], 'little')
+elif content_type == 'image/jpeg' and content[:2] == b'\\xff\\xd8':
+    index = 2; width = height = 0
+    while index + 4 <= len(content):
+        if content[index] != 0xff: index += 1; continue
+        while index < len(content) and content[index] == 0xff: index += 1
+        if index >= len(content): break
+        marker = content[index]; index += 1
+        if marker in {*range(0xd0, 0xd8), 0xd8, 0xd9}: continue
+        if index + 2 > len(content): break
+        length = int.from_bytes(content[index:index + 2], 'big')
+        if length < 7 or index + length > len(content): break
+        if marker in {0xc0, 0xc1, 0xc2, 0xc3, 0xc5, 0xc6, 0xc7, 0xc9, 0xca, 0xcb, 0xcd, 0xce, 0xcf}:
+            height, width = int.from_bytes(content[index + 3:index + 5], 'big'), int.from_bytes(content[index + 5:index + 7], 'big'); break
+        index += length
+else:
+    width = height = 0
+if not 0 < width <= 16384 or not 0 < height <= 16384 or width * height > 40_000_000: raise ValueError('invalid image dimensions')
+print(json.dumps({'width': width, 'height': height, 'image_data': base64.b64encode(content).decode('ascii')}))
+"""
+
+
+def _inspect_image(path: Path, content_type: str) -> dict[str, object]:
+    stream = _safe_cache_open(path)
+    if stream is None: return failure(ErrorCode.VALIDATION_ERROR, "attachment cache file is unsafe")
+    with stream:
+        try:
+            result = subprocess.run([sys.executable, "-c", _IMAGE_INSPECTOR, str(stream.fileno()), content_type], capture_output=True, text=True, timeout=10, check=False, pass_fds=(stream.fileno(),))
+            data = json.loads(result.stdout) if result.returncode == 0 else None
+        except (OSError, subprocess.TimeoutExpired, ValueError, json.JSONDecodeError):
+            data = None
+    if not isinstance(data, dict) or not all(isinstance(data.get(key), int) for key in ("width", "height")) or not isinstance(data.get("image_data"), str): return failure(ErrorCode.UNSUPPORTED, "Image inspection requires a bounded parser subprocess")
+    return success({"kind": "image", "mime_type": content_type, **data})
 
 
 def _is_archive(content_type: object) -> bool:

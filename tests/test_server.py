@@ -24,6 +24,19 @@ def test_attachment_download_result_includes_a_resource_link():
     assert content[1].mimeType == "text/plain"
 
 
+def test_attachment_image_result_uses_image_content():
+    from zendesk_mcp_server.server import attachment_inspection_content
+
+    content = attachment_inspection_content(
+        {"ok": True, "data": {"ticket_id": 7, "attachment_id": 5, "kind": "image", "mime_type": "image/png", "width": 1, "height": 1, "image_data": "iVBORw0KGgo="}}
+    )
+
+    assert isinstance(content[0], types.TextContent)
+    assert "image_data" not in content[0].text
+    assert isinstance(content[1], types.ImageContent)
+    assert content[1].mimeType == "image/png"
+
+
 def test_server_import_does_not_require_credentials(monkeypatch):
     for name in (
         "ZENDESK_SUBDOMAIN",

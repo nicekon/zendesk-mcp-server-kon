@@ -298,6 +298,17 @@ def attachment_download_content(result: dict[str, object]) -> list[object]:
     ]
 
 
+def attachment_inspection_content(result: dict[str, object]) -> list[object]:
+    data = result.get("data")
+    if not result.get("ok") or not isinstance(data, dict) or data.get("kind") != "image" or not isinstance(data.get("image_data"), str) or not isinstance(data.get("mime_type"), str):
+        return [types.TextContent(type="text", text=json.dumps(result))]
+    summary = {key: value for key, value in data.items() if key != "image_data"}
+    return [
+        types.TextContent(type="text", text=json.dumps({**result, "data": summary})),
+        types.ImageContent(type="image", data=data["image_data"], mimeType=data["mime_type"]),
+    ]
+
+
 def create_server(environ: Mapping[str, str] | None = None) -> Server:
     environment = dict(os.environ) if environ is None else dict(environ)
     server = Server("Zendesk")
@@ -614,7 +625,9 @@ def create_server(environ: Mapping[str, str] | None = None) -> Server:
                     result = tools.get_conversation(ticket_id)
         else:
             result = failure(ErrorCode.NOT_FOUND, f"Unknown tool: {name}")
-        return attachment_download_content(result) if name == "zendesk_download_ticket_attachment" else [types.TextContent(type="text", text=json.dumps(result))]
+        if name == "zendesk_download_ticket_attachment": return attachment_download_content(result)
+        if name == "zendesk_inspect_ticket_attachment": return attachment_inspection_content(result)
+        return [types.TextContent(type="text", text=json.dumps(result))]
 
     return server
 

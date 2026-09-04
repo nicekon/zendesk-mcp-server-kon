@@ -349,3 +349,17 @@ def test_attachment_pdf_inspection_runs_in_a_bounded_subprocess(tmp_path):
     result = TicketTools(AttachmentDownloadStub(document.getvalue(), "application/pdf"), settings).inspect_attachment(7, 5)
 
     assert result["error"]["code"] == "unsupported"
+
+
+def test_attachment_image_inspection_requires_a_bounded_subprocess(tmp_path):
+    image = b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01\x08\x06\x00\x00\x00\x1f\x15\xc4\x89"
+    settings = Settings.load({"ZENDESK_ATTACHMENT_CACHE_ROOT": str(tmp_path / "cache")})
+
+    result = TicketTools(AttachmentDownloadStub(image, "image/png"), settings).inspect_attachment(7, 5)
+
+    if result["ok"]:
+        assert result["data"].get("kind") == "image"
+        assert result["data"].get("width") == 1
+    else:
+        assert result["error"]["code"] == "unsupported"
+        assert result["error"]["message"] == "Image inspection requires a bounded parser subprocess"
