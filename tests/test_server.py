@@ -117,6 +117,14 @@ def test_macro_preview_has_a_canonical_tool_registration():
     assert tools["zendesk_preview_macro"].inputSchema["required"] == ["ticket_id", "macro_id"]
 
 
+def test_csat_export_has_a_canonical_tool_registration():
+    from zendesk_mcp_server.server import build_tools
+
+    tools = {tool.name: tool for tool in build_tools()}
+
+    assert tools["zendesk_export_satisfaction_ratings"].inputSchema["properties"]["format"]["enum"] == ["json", "csv"]
+
+
 def test_server_import_does_not_require_credentials(monkeypatch):
     for name in (
         "ZENDESK_SUBDOMAIN",
@@ -208,6 +216,7 @@ def test_support_read_tools_are_registered():
         "zendesk_get_help_center_article",
         "zendesk_get_satisfaction_ratings",
         "zendesk_list_csat",
+        "zendesk_export_satisfaction_ratings",
         "zendesk_list_guide_permission_groups",
         "zendesk_list_guide_user_segments",
         "zendesk_create_help_center_article",
