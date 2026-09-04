@@ -47,3 +47,9 @@ def test_oauth_refresh_response_rotates_tokens():
     from zendesk_mcp_server.auth import oauth_tokens_from_refresh_response
 
     assert oauth_tokens_from_refresh_response({"access_token": "new", "refresh_token": "rotated", "expires_in": 3600}, now=100) == OAuthTokens("new", "rotated", 3700)
+
+
+def test_oauth_refresh_payload_uses_refresh_token_grant():
+    from zendesk_mcp_server.auth import oauth_refresh_payload
+
+    assert oauth_refresh_payload("client", "secret", "refresh") == {"grant_type": "refresh_token", "client_id": "client", "client_secret": "secret", "refresh_token": "refresh"}

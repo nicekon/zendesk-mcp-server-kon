@@ -54,6 +54,10 @@ def oauth_tokens_from_refresh_response(value: object, *, now: int) -> OAuthToken
     return OAuthTokens(value["access_token"], value["refresh_token"], now + value["expires_in"])
 
 
+def oauth_refresh_payload(client_id: str, client_secret: str, refresh_token: str) -> dict[str, str]:
+    return {"grant_type": "refresh_token", "client_id": client_id, "client_secret": client_secret, "refresh_token": refresh_token}
+
+
 class OAuthTokenStore:
     def __init__(self, path: Path) -> None:
         self.path = path
