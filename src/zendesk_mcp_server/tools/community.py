@@ -150,8 +150,10 @@ class CommunityTools:
     def get_badge(self, badge_id: str) -> dict[str, object]:
         if not self._valid_tag_id(badge_id): return failure(ErrorCode.VALIDATION_ERROR, "badge_id must be a non-empty path-safe string")
         return self._get(f"/api/v2/gather/badges/{badge_id}.json")
-    def create_badge(self, badge_category_id: str, name: str, description: str, *, execution_mode: str = "preview", approval_request_id: str | None = None, approval_token: str | None = None) -> dict[str, object]:
-        payload = self._badge_payload({"badge_category_id": badge_category_id, "name": name, "description": description})
+    def create_badge(self, badge_category_id: str, name: str, description: str, *, icon_upload_id: str | None = None, execution_mode: str = "preview", approval_request_id: str | None = None, approval_token: str | None = None) -> dict[str, object]:
+        values: dict[str, object] = {"badge_category_id": badge_category_id, "name": name, "description": description}
+        if icon_upload_id is not None: values["icon_upload_id"] = icon_upload_id
+        payload = self._badge_payload(values)
         if payload is None or "badge_category_id" not in payload["badge"]: return failure(ErrorCode.VALIDATION_ERROR, "valid badge_category_id, name, and description are required")
         return self._approved_request("zendesk_create_badge", payload, "POST", "/api/v2/gather/badges.json", payload, WriteRisk.PUBLIC, execution_mode, approval_request_id, approval_token)
     def update_badge(self, badge_id: str, badge: dict[str, object], *, execution_mode: str = "preview", approval_request_id: str | None = None, approval_token: str | None = None) -> dict[str, object]:
@@ -191,6 +193,24 @@ class CommunityTools:
         uploaded = self._client.upload_presigned(url, headers, content)
         if not uploaded.get("ok"): return uploaded
         return self._client.request("POST", "/api/v2/guide/user_images", json_body={"token": token, "brand_id": str(brand_id)})
+    def upload_badge_icon(self, image_path: str, content_type: str, *, execution_mode: str = "preview", approval_request_id: str | None = None, approval_token: str | None = None) -> dict[str, object]:
+        loaded = self._load_user_image(image_path, content_type, 1, allowed_content_types={"image/svg+xml", "image/png", "image/jpeg", "image/gif"})
+        if isinstance(loaded, dict): return loaded
+        payload, content = loaded; payload.pop("brand_id")
+        if execution_mode == "preview":
+            if self._approvals is None: return failure(ErrorCode.NOT_CONFIGURED, "Zendesk approval store is not configured")
+            return success({"approval_request_id": self._approvals.create("zendesk_upload_badge_icon", payload), "execution_mode": "preview", "external_upload": True, "outbound_write": False, **payload})
+        if execution_mode != "apply": return failure(ErrorCode.VALIDATION_ERROR, "execution_mode must be preview or apply")
+        if self._settings is None or (blocked := check_write_permission(self._settings, WriteRisk.EXTERNAL_UPLOAD)) is not None: return blocked or failure(ErrorCode.WRITE_DISABLED, "Zendesk external uploads are disabled")
+        if self._approvals is None or not isinstance(approval_request_id, str) or not isinstance(approval_token, str) or not self._approvals.consume(approval_request_id, "zendesk_upload_badge_icon", payload, approval_token): return failure(ErrorCode.APPROVAL_REQUIRED, "a matching local approval is required")
+        if self._client is None or not hasattr(self._client, "upload_presigned"): return failure(ErrorCode.NOT_CONFIGURED, "Zendesk upload client is not configured")
+        prepared = self._client.request("POST", "/api/v2/gather/badges/icon_uploads", json_body={"content_type": content_type, "file_size": len(content)})
+        upload = self._nested_data(prepared, "badge_icon_upload")
+        if upload is None: return prepared
+        url, headers, upload_id = upload.get("url"), upload.get("headers"), upload.get("id")
+        if not isinstance(url, str) or not isinstance(headers, dict) or not self._valid_tag_id(upload_id) or any(not isinstance(name, str) or not isinstance(value, str) for name, value in headers.items()): return failure(ErrorCode.UPSTREAM_ERROR, "Zendesk returned an invalid badge-icon upload response")
+        uploaded = self._client.upload_presigned(url, headers, content)
+        return success({"badge_icon_upload_id": upload_id}) if uploaded.get("ok") else uploaded
     def search_content_tags(self, prefix: str) -> dict[str, object]:
         if not isinstance(prefix, str): return failure(ErrorCode.VALIDATION_ERROR, "prefix must be a string")
         return self._get("/api/v2/guide/content_tags.json", {"filter[name_prefix]": prefix})
@@ -263,15 +283,16 @@ class CommunityTools:
         if not isinstance(name, str) or not name.strip(): return None
         return {"content_tag": {"name": name.strip()}}
     def _badge_payload(self, badge: object) -> dict[str, object] | None:
-        if not isinstance(badge, dict) or not badge or set(badge) - {"badge_category_id", "name", "description"}: return None
+        if not isinstance(badge, dict) or not badge or set(badge) - {"badge_category_id", "name", "description", "icon_upload_id"}: return None
         normalized = dict(badge)
         if "badge_category_id" in normalized and not self._valid_tag_id(normalized["badge_category_id"]): return None
         if "name" in normalized and (not isinstance(normalized["name"], str) or not normalized["name"].strip()): return None
         if "name" in normalized: normalized["name"] = normalized["name"].strip()
         if "description" in normalized and not isinstance(normalized["description"], str): return None
+        if "icon_upload_id" in normalized and normalized["icon_upload_id"] is not None and not self._valid_tag_id(normalized["icon_upload_id"]): return None
         return {"badge": normalized}
-    def _load_user_image(self, image_path: object, content_type: object, brand_id: object) -> tuple[dict[str, object], bytes] | dict[str, object]:
-        if not isinstance(image_path, str) or not image_path or content_type not in {"image/jpeg", "image/png", "image/gif"} or not self._valid_id(brand_id, "brand_id"): return failure(ErrorCode.VALIDATION_ERROR, "valid image_path, content_type, and brand_id are required")
+    def _load_user_image(self, image_path: object, content_type: object, brand_id: object, *, allowed_content_types: set[str] | None = None) -> tuple[dict[str, object], bytes] | dict[str, object]:
+        if not isinstance(image_path, str) or not image_path or content_type not in (allowed_content_types or {"image/jpeg", "image/png", "image/gif"}) or not self._valid_id(brand_id, "brand_id"): return failure(ErrorCode.VALIDATION_ERROR, "valid image_path, content_type, and brand_id are required")
         if self._settings is None or self._settings.upload_root is None: return failure(ErrorCode.NOT_CONFIGURED, "ZENDESK_UPLOAD_ROOT is required for local image uploads")
         try:
             root = self._settings.upload_root.resolve(strict=True)

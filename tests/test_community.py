@@ -12,6 +12,7 @@ class StubClient:
     def request(self, method, path, *, json_body=None):
         self.paths.append((method, path, json_body))
         if path == "/api/v2/guide/user_images/uploads": return success({"upload": {"url": "https://cdn.example.test/upload", "headers": {"Content-Type": "image/png"}, "token": "upload-token"}})
+        if path == "/api/v2/gather/badges/icon_uploads": return success({"badge_icon_upload": {"url": "https://cdn.example.test/badge-icon", "headers": {"Content-Type": "image/png"}, "id": "badge-upload-id"}})
         return success({"post": {"id": 2}})
 
     def upload_presigned(self, url, headers, content):
@@ -231,9 +232,9 @@ def test_badges_use_fixed_paths_and_local_approvals(tmp_path):
     client = StubClient(); store = ApprovalStore(tmp_path / "approvals.json")
     public_tools = CommunityTools(client, Settings.load({"ZENDESK_WRITE_MODE": "standard", "ZENDESK_ENABLE_PUBLIC_WRITES": "true"}), store)
     public_tools.list_badges(4); public_tools.get_badge("badge-1")
-    preview = public_tools.create_badge("category-1", "Helper", "Helpful answers")
+    preview = public_tools.create_badge("category-1", "Helper", "Helpful answers", icon_upload_id="badge-upload-id")
     token = store.approve(preview["data"]["approval_request_id"])
-    public_tools.create_badge("category-1", "Helper", "Helpful answers", execution_mode="apply", approval_request_id=preview["data"]["approval_request_id"], approval_token=token)
+    public_tools.create_badge("category-1", "Helper", "Helpful answers", icon_upload_id="badge-upload-id", execution_mode="apply", approval_request_id=preview["data"]["approval_request_id"], approval_token=token)
     update = public_tools.update_badge("badge-1", {"name": "Super Helper"})
     token = store.approve(update["data"]["approval_request_id"])
     public_tools.update_badge("badge-1", {"name": "Super Helper"}, execution_mode="apply", approval_request_id=update["data"]["approval_request_id"], approval_token=token)
@@ -244,7 +245,7 @@ def test_badges_use_fixed_paths_and_local_approvals(tmp_path):
     assert client.paths[-5:] == [
         ("/api/v2/gather/badges.json", {"brand_id": "4"}),
         ("/api/v2/gather/badges/badge-1.json", None),
-        ("POST", "/api/v2/gather/badges.json", {"badge": {"badge_category_id": "category-1", "name": "Helper", "description": "Helpful answers"}}),
+        ("POST", "/api/v2/gather/badges.json", {"badge": {"badge_category_id": "category-1", "name": "Helper", "description": "Helpful answers", "icon_upload_id": "badge-upload-id"}}),
         ("PUT", "/api/v2/gather/badges/badge-1.json", {"badge": {"name": "Super Helper"}}),
         ("DELETE", "/api/v2/gather/badges/badge-1.json", None),
     ]
@@ -297,3 +298,18 @@ def test_user_image_upload_rejects_paths_outside_the_configured_root(tmp_path):
     tools = CommunityTools(StubClient(), Settings.load({"ZENDESK_WRITE_MODE": "standard", "ZENDESK_UPLOAD_ROOT": str(root)}), ApprovalStore(tmp_path / "approvals.json"))
 
     assert tools.upload_user_image(str(outside), "image/png", 4)["error"]["code"] == "validation_error"
+
+
+def test_badge_icon_upload_uses_the_secure_external_upload_flow(tmp_path):
+    root = tmp_path / "uploads"; root.mkdir(); image = root / "icon.png"; image.write_bytes(b"image")
+    client = StubClient(); store = ApprovalStore(tmp_path / "approvals.json")
+    tools = CommunityTools(client, Settings.load({"ZENDESK_WRITE_MODE": "standard", "ZENDESK_ENABLE_EXTERNAL_UPLOADS": "true", "ZENDESK_UPLOAD_ROOT": str(root)}), store)
+    preview = tools.upload_badge_icon("icon.png", "image/png")
+    token = store.approve(preview["data"]["approval_request_id"])
+    result = tools.upload_badge_icon("icon.png", "image/png", execution_mode="apply", approval_request_id=preview["data"]["approval_request_id"], approval_token=token)
+
+    assert result["data"]["badge_icon_upload_id"] == "badge-upload-id"
+    assert client.paths[-2:] == [
+        ("POST", "/api/v2/gather/badges/icon_uploads", {"content_type": "image/png", "file_size": 5}),
+        ("PUT", "https://cdn.example.test/badge-icon", {"Content-Type": "image/png"}, b"image"),
+    ]
