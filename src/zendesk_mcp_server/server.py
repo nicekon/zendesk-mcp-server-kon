@@ -98,6 +98,26 @@ def build_tools() -> list[types.Tool]:
             },
         ),
         types.Tool(
+            name="zendesk_set_ticket_status",
+            description="Set a Zendesk ticket status. Requires standard write mode and may trigger account automations.",
+            inputSchema={"type": "object", "properties": {"ticket_id": {"type": "integer", "minimum": 1}, "status": {"type": "string", "enum": ["new", "open", "pending", "hold", "solved", "closed"]}}, "required": ["ticket_id", "status"]},
+        ),
+        types.Tool(
+            name="zendesk_assign_ticket",
+            description="Assign a Zendesk ticket to an agent or group. Requires standard write mode and may trigger account automations.",
+            inputSchema={"type": "object", "properties": {"ticket_id": {"type": "integer", "minimum": 1}, "assignee_id": {"type": "integer", "minimum": 1}, "group_id": {"type": "integer", "minimum": 1}}, "required": ["ticket_id"]},
+        ),
+        types.Tool(
+            name="zendesk_add_ticket_tag",
+            description="Add a tag through the unified Zendesk ticket update path. Requires standard write mode.",
+            inputSchema={"type": "object", "properties": {"ticket_id": {"type": "integer", "minimum": 1}, "tag": {"type": "string", "minLength": 1}}, "required": ["ticket_id", "tag"]},
+        ),
+        types.Tool(
+            name="zendesk_remove_ticket_tag",
+            description="Remove a tag through the unified Zendesk ticket update path. Requires standard write mode.",
+            inputSchema={"type": "object", "properties": {"ticket_id": {"type": "integer", "minimum": 1}, "tag": {"type": "string", "minLength": 1}}, "required": ["ticket_id", "tag"]},
+        ),
+        types.Tool(
             name="zendesk_get_ticket_conversation",
             description="Retrieve a ticket conversation without making changes.",
             inputSchema={"type": "object", "properties": {"ticket_id": {"type": "integer", "minimum": 1}}, "required": ["ticket_id"]},
@@ -197,6 +217,10 @@ def create_server(environ: Mapping[str, str] | None = None) -> Server:
             "zendesk_get_ticket",
             "zendesk_create_ticket",
             "zendesk_update_ticket",
+            "zendesk_set_ticket_status",
+            "zendesk_assign_ticket",
+            "zendesk_add_ticket_tag",
+            "zendesk_remove_ticket_tag",
             "zendesk_get_ticket_conversation",
         }:
             tools = build_ticket_tools(environment)
@@ -235,6 +259,22 @@ def create_server(environ: Mapping[str, str] | None = None) -> Server:
                     organization_id=values.get("organization_id"),
                     tags=values.get("tags"),
                 )
+            elif name == "zendesk_set_ticket_status":
+                values = arguments or {}
+                result = tools.set_ticket_status(values.get("ticket_id"), values.get("status"))
+            elif name == "zendesk_assign_ticket":
+                values = arguments or {}
+                result = tools.assign_ticket(
+                    values.get("ticket_id"),
+                    assignee_id=values.get("assignee_id"),
+                    group_id=values.get("group_id"),
+                )
+            elif name == "zendesk_add_ticket_tag":
+                values = arguments or {}
+                result = tools.add_ticket_tag(values.get("ticket_id"), values.get("tag"))
+            elif name == "zendesk_remove_ticket_tag":
+                values = arguments or {}
+                result = tools.remove_ticket_tag(values.get("ticket_id"), values.get("tag"))
             else:
                 ticket_id = (arguments or {}).get("ticket_id")
                 if not isinstance(ticket_id, int) or isinstance(ticket_id, bool):

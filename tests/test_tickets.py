@@ -16,10 +16,15 @@ class StubClient:
 class MutationStub:
     def __init__(self):
         self.calls = []
+        self.get_paths = []
 
     def request(self, method, path, *, json_body=None):
         self.calls.append((method, path, json_body))
         return success({"ticket": {"id": 9}})
+
+    def get(self, path, *, params=None):
+        self.get_paths.append((path, params))
+        return success({"ticket": {"id": 9, "tags": ["billing"]}})
 
 
 def test_get_ticket_rejects_zero_without_a_client():
@@ -132,4 +137,35 @@ def test_update_ticket_reuses_the_standard_write_guard_and_endpoint():
     assert result["data"]["ticket"]["id"] == 9
     assert client.calls == [
         ("PUT", "/api/v2/tickets/9.json", {"ticket": {"status": "pending", "assignee_id": 3}})
+    ]
+
+
+def test_ticket_shortcuts_reuse_update_ticket():
+    client = MutationStub()
+    settings = Settings.load({"ZENDESK_WRITE_MODE": "standard"})
+    tools = TicketTools(client, settings)
+
+    tools.set_ticket_status(9, "solved")
+    tools.assign_ticket(9, group_id=4)
+
+    assert client.calls == [
+        ("PUT", "/api/v2/tickets/9.json", {"ticket": {"status": "solved"}}),
+        ("PUT", "/api/v2/tickets/9.json", {"ticket": {"group_id": 4}}),
+    ]
+
+
+def test_ticket_tag_shortcuts_read_then_reuse_update_ticket():
+    client = MutationStub()
+    tools = TicketTools(client, Settings.load({"ZENDESK_WRITE_MODE": "standard"}))
+
+    tools.add_ticket_tag(9, "priority")
+    tools.remove_ticket_tag(9, "billing")
+
+    assert client.get_paths == [
+        ("/api/v2/tickets/9.json", None),
+        ("/api/v2/tickets/9.json", None),
+    ]
+    assert client.calls == [
+        ("PUT", "/api/v2/tickets/9.json", {"ticket": {"tags": ["billing", "priority"]}}),
+        ("PUT", "/api/v2/tickets/9.json", {"ticket": {"tags": []}}),
     ]

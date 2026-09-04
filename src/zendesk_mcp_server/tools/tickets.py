@@ -179,6 +179,36 @@ class TicketTools:
             return client
         return _with_automation_notice(client.request("PUT", f"/api/v2/tickets/{ticket_id}.json", json_body={"ticket": payload}))
 
+    def set_ticket_status(self, ticket_id: int, status: str) -> dict[str, object]:
+        return self.update_ticket(ticket_id, status=status)
+
+    def assign_ticket(
+        self,
+        ticket_id: int,
+        *,
+        assignee_id: int | None = None,
+        group_id: int | None = None,
+    ) -> dict[str, object]:
+        if assignee_id is None and group_id is None:
+            return failure(ErrorCode.VALIDATION_ERROR, "assignee_id or group_id is required")
+        return self.update_ticket(ticket_id, assignee_id=assignee_id, group_id=group_id)
+
+    def add_ticket_tag(self, ticket_id: int, tag: str) -> dict[str, object]:
+        tags = self._current_tags(ticket_id, tag)
+        if isinstance(tags, dict):
+            return tags
+        if tag in tags:
+            return success({"ticket_id": ticket_id, "tags": tags, "idempotent": True})
+        return self.update_ticket(ticket_id, tags=[*tags, tag])
+
+    def remove_ticket_tag(self, ticket_id: int, tag: str) -> dict[str, object]:
+        tags = self._current_tags(ticket_id, tag)
+        if isinstance(tags, dict):
+            return tags
+        if tag not in tags:
+            return success({"ticket_id": ticket_id, "tags": tags, "idempotent": True})
+        return self.update_ticket(ticket_id, tags=[value for value in tags if value != tag])
+
     def _configured_client(self) -> TicketClient | dict[str, object]:
         if self._client is None:
             return failure(ErrorCode.NOT_CONFIGURED, "Zendesk is not configured")
@@ -196,6 +226,24 @@ class TicketTools:
         if self._settings is None:
             return failure(ErrorCode.WRITE_DISABLED, "Zendesk writes require configured write policy")
         return check_write_permission(self._settings, risk)
+
+    def _current_tags(self, ticket_id: int, tag: str) -> list[str] | dict[str, object]:
+        if not _valid_ticket_id(ticket_id):
+            return failure(ErrorCode.VALIDATION_ERROR, "ticket_id must be a positive integer")
+        if not _valid_tag(tag):
+            return failure(ErrorCode.VALIDATION_ERROR, "tag must be a non-empty string without spaces")
+        permitted = self._write_permitted(WriteRisk.STANDARD)
+        if permitted is not None:
+            return permitted
+        result = self.get_ticket(ticket_id)
+        if not result.get("ok"):
+            return result
+        data = result.get("data", {})
+        ticket = data.get("ticket") if isinstance(data, dict) else None
+        tags = ticket.get("tags") if isinstance(ticket, dict) else None
+        if not isinstance(tags, list) or any(not isinstance(value, str) for value in tags):
+            return failure(ErrorCode.UPSTREAM_ERROR, "Zendesk returned invalid ticket tags")
+        return tags
 
 
 def _valid_ticket_id(ticket_id: int) -> bool:

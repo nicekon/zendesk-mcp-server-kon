@@ -56,5 +56,9 @@ def test_support_read_tools_are_registered():
         "zendesk_get_ticket",
         "zendesk_create_ticket",
         "zendesk_update_ticket",
+        "zendesk_set_ticket_status",
+        "zendesk_assign_ticket",
+        "zendesk_add_ticket_tag",
+        "zendesk_remove_ticket_tag",
         "zendesk_get_ticket_conversation",
     ]
