@@ -187,6 +187,7 @@ def test_help_center_translation_tools_accept_brand_scope():
 
     for name in ("zendesk_upsert_article_translation", "zendesk_replace_article_translation_body", "zendesk_publish_help_center_article"):
         assert tools[name].inputSchema["properties"]["brand_id"]["minimum"] == 1
+        assert tools[name].inputSchema["properties"]["article_id"]["oneOf"][1]["type"] == "string"
 
 
 def test_server_import_does_not_require_credentials(monkeypatch):

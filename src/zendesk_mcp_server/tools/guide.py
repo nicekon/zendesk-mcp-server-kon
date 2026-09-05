@@ -121,8 +121,9 @@ class GuideTools:
         if locale_check is not None: return locale_check
         if self._approvals is None or not isinstance(approval_request_id, str) or not isinstance(approval_token, str) or not self._approvals.consume(approval_request_id, "zendesk_create_help_center_article", payload, approval_token): return failure(ErrorCode.APPROVAL_REQUIRED, "a matching local approval is required")
         return scoped._request("POST", f"/api/v2/help_center/sections/{section_id}/articles.json", {"article": payload["article"], "notify_subscribers": notify_subscribers})
-    def upsert_article_translation(self, article_id: int, locale: str, *, brand_id: int | None = None, title: str | None = None, body: str | None = None, draft: bool = True, execution_mode: str = "preview", approval_request_id: str | None = None, approval_token: str | None = None) -> dict[str, object]:
-        if not self._valid_id(article_id) or (brand_id is not None and not self._valid_id(brand_id)) or not isinstance(locale, str) or not _LOCALE.fullmatch(locale) or not isinstance(draft, bool) or not draft or (title is not None and (not isinstance(title, str) or not title.strip())) or (body is not None and not isinstance(body, str)): return failure(ErrorCode.VALIDATION_ERROR, "valid draft translation fields are required; publish with zendesk_publish_help_center_article")
+    def upsert_article_translation(self, article_id: object, locale: str, *, brand_id: int | None = None, title: str | None = None, body: str | None = None, draft: bool = True, execution_mode: str = "preview", approval_request_id: str | None = None, approval_token: str | None = None) -> dict[str, object]:
+        identifier = _help_center_id(article_id)
+        if identifier is None or (brand_id is not None and not self._valid_id(brand_id)) or not isinstance(locale, str) or not _LOCALE.fullmatch(locale) or not isinstance(draft, bool) or not draft or (title is not None and (not isinstance(title, str) or not title.strip())) or (body is not None and not isinstance(body, str)): return failure(ErrorCode.VALIDATION_ERROR, "valid draft translation fields are required; publish with zendesk_publish_help_center_article")
         scoped = self._for_brand(brand_id)
         if isinstance(scoped, dict): return scoped
         current = scoped._get_translation(article_id, locale)
@@ -149,10 +150,11 @@ class GuideTools:
         locale_check = scoped._validate_active_locale(locale)
         if locale_check is not None: return locale_check
         if self._approvals is None or not isinstance(approval_request_id, str) or not isinstance(approval_token, str) or not self._approvals.consume(approval_request_id, "zendesk_upsert_article_translation", payload, approval_token): return failure(ErrorCode.APPROVAL_REQUIRED, "a matching local approval is required")
-        path = f"/api/v2/help_center/articles/{article_id}/translations.json" if operation == "create" else f"/api/v2/help_center/articles/{article_id}/translations/{locale}.json"
+        path = f"/api/v2/help_center/articles/{identifier}/translations.json" if operation == "create" else f"/api/v2/help_center/articles/{identifier}/translations/{locale}.json"
         return scoped._request("POST" if operation == "create" else "PUT", path, {"translation": translation})
-    def replace_article_translation_body(self, article_id: int, locale: str, body: str, *, brand_id: int | None = None, execution_mode: str = "preview", approval_request_id: str | None = None, approval_token: str | None = None) -> dict[str, object]:
-        if not self._valid_id(article_id) or (brand_id is not None and not self._valid_id(brand_id)) or not isinstance(locale, str) or not _LOCALE.fullmatch(locale) or not isinstance(body, str): return failure(ErrorCode.VALIDATION_ERROR, "valid article_id, locale, and body are required")
+    def replace_article_translation_body(self, article_id: object, locale: str, body: str, *, brand_id: int | None = None, execution_mode: str = "preview", approval_request_id: str | None = None, approval_token: str | None = None) -> dict[str, object]:
+        identifier = _help_center_id(article_id)
+        if identifier is None or (brand_id is not None and not self._valid_id(brand_id)) or not isinstance(locale, str) or not _LOCALE.fullmatch(locale) or not isinstance(body, str): return failure(ErrorCode.VALIDATION_ERROR, "valid article_id, locale, and body are required")
         scoped = self._for_brand(brand_id)
         if isinstance(scoped, dict): return scoped
         current = scoped._get_translation(article_id, locale)
@@ -169,9 +171,10 @@ class GuideTools:
         locale_check = scoped._validate_active_locale(locale)
         if locale_check is not None: return locale_check
         if self._approvals is None or not isinstance(approval_request_id, str) or not isinstance(approval_token, str) or not self._approvals.consume(approval_request_id, "zendesk_replace_article_translation_body", payload, approval_token): return failure(ErrorCode.APPROVAL_REQUIRED, "a matching local approval is required")
-        return scoped._request("PUT", f"/api/v2/help_center/articles/{article_id}/translations/{locale}.json", {"translation": {"body": body}})
-    def publish_article(self, article_id: int, locale: str, *, brand_id: int | None = None, execution_mode: str = "preview", approval_request_id: str | None = None, approval_token: str | None = None) -> dict[str, object]:
-        if not self._valid_id(article_id) or (brand_id is not None and not self._valid_id(brand_id)) or not isinstance(locale, str) or not _LOCALE.fullmatch(locale): return failure(ErrorCode.VALIDATION_ERROR, "valid article_id and locale are required")
+        return scoped._request("PUT", f"/api/v2/help_center/articles/{identifier}/translations/{locale}.json", {"translation": {"body": body}})
+    def publish_article(self, article_id: object, locale: str, *, brand_id: int | None = None, execution_mode: str = "preview", approval_request_id: str | None = None, approval_token: str | None = None) -> dict[str, object]:
+        identifier = _help_center_id(article_id)
+        if identifier is None or (brand_id is not None and not self._valid_id(brand_id)) or not isinstance(locale, str) or not _LOCALE.fullmatch(locale): return failure(ErrorCode.VALIDATION_ERROR, "valid article_id and locale are required")
         scoped = self._for_brand(brand_id)
         if isinstance(scoped, dict): return scoped
         current = scoped._get_translation(article_id, locale)
@@ -186,7 +189,7 @@ class GuideTools:
         locale_check = scoped._validate_active_locale(locale)
         if locale_check is not None: return locale_check
         if self._approvals is None or not isinstance(approval_request_id, str) or not isinstance(approval_token, str) or not self._approvals.consume(approval_request_id, "zendesk_publish_help_center_article", payload, approval_token): return failure(ErrorCode.APPROVAL_REQUIRED, "a matching local approval is required")
-        updated = scoped._request("PUT", f"/api/v2/help_center/articles/{article_id}/translations/{locale}.json", {"translation": {"draft": False}})
+        updated = scoped._request("PUT", f"/api/v2/help_center/articles/{identifier}/translations/{locale}.json", {"translation": {"draft": False}})
         if not updated.get("ok"): return updated
         read_back = scoped._get_translation(article_id, locale)
         return success({"translation": read_back}) if isinstance(read_back, dict) and "ok" not in read_back else read_back
@@ -208,8 +211,10 @@ class GuideTools:
         result = self.list_locales(); data = result.get("data") if isinstance(result, dict) else None; locales = data.get("locales") if isinstance(data, dict) else None
         if not result.get("ok"): return result
         return None if isinstance(locales, list) and locale in locales else failure(ErrorCode.VALIDATION_ERROR, "locale is not enabled for this Help Center")
-    def _get_translation(self, article_id: int, locale: str) -> dict[str, object] | None:
-        result = self._get(f"/api/v2/help_center/articles/{article_id}/translations/{locale}.json")
+    def _get_translation(self, article_id: object, locale: str) -> dict[str, object] | None:
+        identifier = _help_center_id(article_id)
+        if identifier is None: return failure(ErrorCode.VALIDATION_ERROR, "article_id must be a valid Help Center ID")
+        result = self._get(f"/api/v2/help_center/articles/{identifier}/translations/{locale}.json")
         if not result.get("ok"): return result
         data = result.get("data"); translation = data.get("translation") if isinstance(data, dict) else None
         return translation if isinstance(translation, dict) else failure(ErrorCode.UPSTREAM_ERROR, "Zendesk returned an invalid translation response")

@@ -207,6 +207,19 @@ def test_article_publish_binds_brand_to_approval_and_uses_its_subdomain(tmp_path
     assert ("brand-one", "PUT", "/api/v2/help_center/articles/3/translations/en-us.json", {"translation": {"draft": False}}) in client.paths
 
 
+def test_article_translation_accepts_a_string_help_center_id(tmp_path):
+    class TranslationClient:
+        def __init__(self): self.paths = []
+        def get(self, path, *, params=None):
+            self.paths.append((path, params)); return failure(ErrorCode.NOT_FOUND, "missing")
+
+    client = TranslationClient()
+    result = GuideTools(client, approvals=ApprovalStore(tmp_path / "approvals.json")).upsert_article_translation("guide-1", "en-us", title="Title", body="Body")
+
+    assert result["data"]["outbound_write"] is False
+    assert client.paths == [("/api/v2/help_center/articles/guide-1/translations/en-us.json", None)]
+
+
 class TranslationClient(StubClient):
     def __init__(self, existing): super().__init__(); self.existing, self.published = existing, False
     def get(self, path, *, params=None):
