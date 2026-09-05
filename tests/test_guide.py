@@ -62,11 +62,32 @@ def test_guide_category_read_resolves_brand_id_to_its_subdomain():
 
 
 def test_guide_search_uses_official_brand_and_locale_filters():
-    client = StubClient()
+    class SearchClient:
+        def __init__(self): self.paths = []
+        def get(self, path, *, params=None):
+            self.paths.append((path, params))
+            return success({"brand": {"subdomain": "brand-one", "has_help_center": True}}) if path.startswith("/api/v2/brands/") else success({"articles": []})
+        def get_for_subdomain(self, subdomain, path, *, params=None):
+            self.paths.append((subdomain, path, params)); return success({"locales": ["en-us"]})
+
+    client = SearchClient()
 
     GuideTools(client).search_articles("billing", brand_id=7, locale="en-us")
 
-    assert client.paths == [("/api/v2/help_center/articles/search.json", {"query": "billing", "brand_id": "7", "locale": "en-us"})]
+    assert client.paths == [
+        ("/api/v2/brands/7.json", None),
+        ("brand-one", "/api/v2/help_center/locales.json", None),
+        ("/api/v2/help_center/articles/search.json", {"query": "billing", "brand_id": "7", "locale": "en-us"}),
+    ]
+
+
+def test_guide_search_rejects_a_disabled_locale_before_search():
+    client = StubClient()
+
+    result = GuideTools(client).search_articles("billing", locale="ko")
+
+    assert result["error"]["code"] == "validation_error"
+    assert client.paths == [("/api/v2/help_center/locales.json", None)]
 
 
 def test_guide_article_read_resolves_brand_id_to_its_subdomain():

@@ -63,6 +63,11 @@ class GuideTools:
         return self._get("/api/v2/help_center/user_segments/applicable.json" if applicable else "/api/v2/help_center/user_segments.json", {"built_in": str(built_in).lower()} if built_in is not None else None)
     def search_articles(self, query: str, *, brand_id: int | None = None, locale: str | None = None) -> dict[str, object]:
         if not isinstance(query, str) or not query.strip() or (brand_id is not None and not self._valid_id(brand_id)) or (locale is not None and (not isinstance(locale, str) or not _LOCALE.fullmatch(locale))): return failure(ErrorCode.VALIDATION_ERROR, "query, brand_id, and locale must be valid")
+        if locale is not None:
+            scoped = self._for_brand(brand_id)
+            if isinstance(scoped, dict): return scoped
+            locale_check = scoped._validate_active_locale(locale)
+            if locale_check is not None: return locale_check
         return self._get("/api/v2/help_center/articles/search.json", {key: value for key, value in {"query": query.strip(), "brand_id": str(brand_id) if brand_id is not None else None, "locale": locale}.items() if value is not None})
     def export_articles(self, locale: str, max_articles: int = 100000, *, brand_id: int | None = None) -> dict[str, object]:
         scoped = self._for_brand(brand_id)
