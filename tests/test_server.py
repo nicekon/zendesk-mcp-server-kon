@@ -178,6 +178,7 @@ def test_help_center_article_create_accepts_brand_scope():
     tools = {tool.name: tool for tool in build_tools()}
 
     assert tools["zendesk_create_help_center_article"].inputSchema["properties"]["brand_id"]["minimum"] == 1
+    assert tools["zendesk_create_help_center_article"].inputSchema["properties"]["section_id"]["oneOf"][1]["type"] == "string"
 
 
 def test_help_center_translation_tools_accept_brand_scope():

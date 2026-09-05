@@ -220,6 +220,14 @@ def test_article_translation_accepts_a_string_help_center_id(tmp_path):
     assert client.paths == [("/api/v2/help_center/articles/guide-1/translations/en-us.json", None)]
 
 
+def test_article_create_accepts_a_string_help_center_section_id(tmp_path):
+    tools = GuideTools(StubClient(), approvals=ApprovalStore(tmp_path / "approvals.json"))
+
+    result = tools.create_article("section-1", "en-us", "Title", "Body")
+
+    assert result["data"]["outbound_write"] is False
+
+
 class TranslationClient(StubClient):
     def __init__(self, existing): super().__init__(); self.existing, self.published = existing, False
     def get(self, path, *, params=None):

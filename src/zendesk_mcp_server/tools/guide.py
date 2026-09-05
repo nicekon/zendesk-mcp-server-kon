@@ -103,9 +103,10 @@ class GuideTools:
         if isinstance(scoped, dict): return scoped
         if scoped is not self: return scoped.get_article(article_id)
         return self._get(f"/api/v2/help_center/articles/{identifier}.json")
-    def create_article(self, section_id: int, locale: str, title: str, body: str, *, brand_id: int | None = None, labels: list[str] | None = None, position: int | None = None, permission_group_id: int | None = None, user_segment_id: int | None = None, draft: bool = True, notify_subscribers: bool = False, execution_mode: str = "preview", approval_request_id: str | None = None, approval_token: str | None = None) -> dict[str, object]:
+    def create_article(self, section_id: object, locale: str, title: str, body: str, *, brand_id: int | None = None, labels: list[str] | None = None, position: int | None = None, permission_group_id: int | None = None, user_segment_id: int | None = None, draft: bool = True, notify_subscribers: bool = False, execution_mode: str = "preview", approval_request_id: str | None = None, approval_token: str | None = None) -> dict[str, object]:
+        section_identifier = _help_center_id(section_id)
         payload = self._article_payload(section_id, locale, title, body, labels, position, permission_group_id, user_segment_id, draft, notify_subscribers)
-        if payload is None or (brand_id is not None and not self._valid_id(brand_id)): return failure(ErrorCode.VALIDATION_ERROR, "valid draft article fields are required; publish with zendesk_publish_help_center_article")
+        if section_identifier is None or payload is None or (brand_id is not None and not self._valid_id(brand_id)): return failure(ErrorCode.VALIDATION_ERROR, "valid draft article fields are required; publish with zendesk_publish_help_center_article")
         if brand_id is not None: payload["brand_id"] = brand_id
         risks = (WriteRisk.STANDARD, WriteRisk.PUBLIC) if notify_subscribers else (WriteRisk.STANDARD,)
         if execution_mode == "preview":
@@ -120,7 +121,7 @@ class GuideTools:
         locale_check = scoped._validate_active_locale(locale)
         if locale_check is not None: return locale_check
         if self._approvals is None or not isinstance(approval_request_id, str) or not isinstance(approval_token, str) or not self._approvals.consume(approval_request_id, "zendesk_create_help_center_article", payload, approval_token): return failure(ErrorCode.APPROVAL_REQUIRED, "a matching local approval is required")
-        return scoped._request("POST", f"/api/v2/help_center/sections/{section_id}/articles.json", {"article": payload["article"], "notify_subscribers": notify_subscribers})
+        return scoped._request("POST", f"/api/v2/help_center/sections/{section_identifier}/articles.json", {"article": payload["article"], "notify_subscribers": notify_subscribers})
     def upsert_article_translation(self, article_id: object, locale: str, *, brand_id: int | None = None, title: str | None = None, body: str | None = None, draft: bool = True, execution_mode: str = "preview", approval_request_id: str | None = None, approval_token: str | None = None) -> dict[str, object]:
         identifier = _help_center_id(article_id)
         if identifier is None or (brand_id is not None and not self._valid_id(brand_id)) or not isinstance(locale, str) or not _LOCALE.fullmatch(locale) or not isinstance(draft, bool) or not draft or (title is not None and (not isinstance(title, str) or not title.strip())) or (body is not None and not isinstance(body, str)): return failure(ErrorCode.VALIDATION_ERROR, "valid draft translation fields are required; publish with zendesk_publish_help_center_article")
@@ -194,7 +195,7 @@ class GuideTools:
         read_back = scoped._get_translation(article_id, locale)
         return success({"translation": read_back}) if isinstance(read_back, dict) and "ok" not in read_back else read_back
     def _article_payload(self, section_id: object, locale: object, title: object, body: object, labels: object, position: object, permission_group_id: object, user_segment_id: object, draft: object, notify_subscribers: object) -> dict[str, object] | None:
-        if not self._valid_id(section_id) or not isinstance(locale, str) or not _LOCALE.fullmatch(locale) or not isinstance(title, str) or not title.strip() or not isinstance(body, str) or not isinstance(draft, bool) or not draft or not isinstance(notify_subscribers, bool): return None
+        if _help_center_id(section_id) is None or not isinstance(locale, str) or not _LOCALE.fullmatch(locale) or not isinstance(title, str) or not title.strip() or not isinstance(body, str) or not isinstance(draft, bool) or not draft or not isinstance(notify_subscribers, bool): return None
         article: dict[str, object] = {"title": title.strip(), "body": body, "locale": locale, "draft": True}
         if labels is not None:
             if not isinstance(labels, list) or not all(isinstance(label, str) and label.strip() for label in labels): return None
