@@ -80,6 +80,13 @@ using it.
 present, otherwise a complete API-token configuration. A partial OAuth
 configuration is an error and never falls back to API token credentials.
 
+Validate the current environment without a Zendesk network request or secret
+output before starting the server:
+
+```bash
+zendesk check
+```
+
 For OAuth, configure `ZENDESK_SUBDOMAIN`, `ZENDESK_AUTH_MODE=oauth`,
 `ZENDESK_OAUTH_CLIENT_ID`, `ZENDESK_OAUTH_CLIENT_SECRET`, and a user-only
 `ZENDESK_OAUTH_TOKEN_STORE` path. Then use the redirect URI registered in

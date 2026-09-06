@@ -7,6 +7,11 @@ import time
 
 
 def main():
+    if len(sys.argv) == 2 and sys.argv[1] == "check":
+        from .server import build_connection_status
+
+        print(json.dumps(build_connection_status(os.environ), ensure_ascii=False))
+        return
     if len(sys.argv) == 3 and sys.argv[1] == "approve":
         from .approvals import ApprovalStore
 
@@ -36,7 +41,7 @@ def main():
         print("OAuth token stored.")
         return
     if len(sys.argv) > 1:
-        raise SystemExit("usage: zendesk [approve <approval_request_id> | oauth-start <redirect_uri> | oauth-finish <redirect_uri> <state>]")
+        raise SystemExit("usage: zendesk [check | approve <approval_request_id> | oauth-start <redirect_uri> | oauth-finish <redirect_uri> <state>]")
     from .server import main as run_server
 
     asyncio.run(run_server())

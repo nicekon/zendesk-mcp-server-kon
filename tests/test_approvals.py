@@ -1,4 +1,5 @@
 import sys
+import json
 
 import pytest
 
@@ -95,3 +96,22 @@ def test_oauth_finish_cli_reads_the_code_from_an_interactive_terminal(tmp_path, 
     main()
 
     assert calls == [("code", "state", "https://app.example.test/callback")]
+
+
+def test_check_cli_reports_unconfigured_state_without_network_or_secrets(monkeypatch, capsys):
+    for name in ("ZENDESK_SUBDOMAIN", "ZENDESK_EMAIL", "ZENDESK_API_TOKEN", "ZENDESK_OAUTH_CLIENT_ID", "ZENDESK_OAUTH_CLIENT_SECRET", "ZENDESK_OAUTH_TOKEN_STORE"):
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setattr(sys, "argv", ["zendesk", "check"])
+
+    main()
+
+    assert json.loads(capsys.readouterr().out) == {
+        "ok": True,
+        "data": {
+            "configured": False,
+            "auth_mode": None,
+            "write_mode": "read_only",
+            "active_write_gates": [],
+            "capabilities": ["community", "guide", "operations", "support"],
+        },
+    }

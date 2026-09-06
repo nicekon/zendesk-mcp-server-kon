@@ -76,6 +76,13 @@ Zendesk 자격증명 없이도 서버를 시작할 수 있습니다. API token �
 그렇지 않으면 완전한 API token 설정을 선택합니다. OAuth 설정이 일부만 있으면
 오류가 나며 API token으로 fallback하지 않습니다.
 
+서버를 시작하기 전에 Zendesk 네트워크 요청이나 비밀값 출력 없이 현재 환경을
+검사하려면 다음을 실행합니다.
+
+```bash
+zendesk check
+```
+
 OAuth를 사용하려면 `ZENDESK_SUBDOMAIN`, `ZENDESK_AUTH_MODE=oauth`,
 `ZENDESK_OAUTH_CLIENT_ID`, `ZENDESK_OAUTH_CLIENT_SECRET`, 사용자 전용
 `ZENDESK_OAUTH_TOKEN_STORE` 경로를 설정합니다. Zendesk에 등록한 redirect URI를
