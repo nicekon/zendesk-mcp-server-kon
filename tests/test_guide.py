@@ -97,6 +97,20 @@ def test_guide_search_uses_official_brand_and_locale_filters():
     ]
 
 
+def test_article_read_validates_locale_and_uses_the_translation_endpoint():
+    class TranslationClient:
+        def __init__(self): self.paths = []
+        def get(self, path, *, params=None):
+            self.paths.append((path, params))
+            return success({"locales": ["en-us"]}) if path.endswith("locales.json") else success({"translation": {"locale": "en-us", "body": "Body"}})
+
+    client = TranslationClient()
+    result = GuideTools(client).get_article(3, locale="en-us")
+
+    assert result["data"]["translation"]["body"] == "Body"
+    assert client.paths == [("/api/v2/help_center/locales.json", None), ("/api/v2/help_center/articles/3/translations/en-us.json", None)]
+
+
 def test_guide_search_rejects_a_disabled_locale_before_search():
     client = StubClient()
 

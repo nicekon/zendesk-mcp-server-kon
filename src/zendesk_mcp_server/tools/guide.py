@@ -105,12 +105,17 @@ class GuideTools:
         cached = _cache_ticket_export(root, output_format, _serialize_ticket_export(articles, output_format), filename_prefix="help-center-export")
         if not cached.get("ok"): return cached
         return success({"format": output_format, "item_count": len(articles), "truncated": data.get("truncated", False), **cached["data"]})
-    def get_article(self, article_id: object, *, brand_id: int | None = None, embed_images: bool = False) -> dict[str, object]:
+    def get_article(self, article_id: object, *, brand_id: int | None = None, locale: str | None = None, embed_images: bool = False) -> dict[str, object]:
         identifier = _help_center_id(article_id)
-        if identifier is None or not isinstance(embed_images, bool): return failure(ErrorCode.VALIDATION_ERROR, "article_id and embed_images must be valid")
+        if identifier is None or not isinstance(embed_images, bool) or (locale is not None and (not isinstance(locale, str) or not _LOCALE.fullmatch(locale))): return failure(ErrorCode.VALIDATION_ERROR, "article_id, locale, and embed_images must be valid")
         scoped = self._for_brand(brand_id)
         if isinstance(scoped, dict): return scoped
-        if scoped is not self: return scoped.get_article(article_id, embed_images=embed_images)
+        if scoped is not self: return scoped.get_article(article_id, locale=locale, embed_images=embed_images)
+        if locale is not None:
+            locale_check = self._validate_active_locale(locale)
+            if locale_check is not None: return locale_check
+            translation = self._get_translation(article_id, locale)
+            return success({"translation": translation}) if isinstance(translation, dict) and "ok" not in translation else translation
         result = self._get(f"/api/v2/help_center/articles/{identifier}.json")
         if not embed_images or not result.get("ok"): return result
         data = result.get("data"); article = data.get("article") if isinstance(data, dict) else None; body = article.get("body") if isinstance(article, dict) else None

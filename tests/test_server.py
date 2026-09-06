@@ -185,6 +185,7 @@ def test_help_center_search_and_article_read_accept_brand_scope():
     assert tools["zendesk_search_help_center_articles"].inputSchema["properties"]["brand_id"]["minimum"] == 1
     assert tools["zendesk_search_help_center_articles"].inputSchema["properties"]["locale"]["minLength"] == 2
     assert tools["zendesk_get_help_center_article"].inputSchema["properties"]["brand_id"]["minimum"] == 1
+    assert tools["zendesk_get_help_center_article"].inputSchema["properties"]["locale"]["minLength"] == 2
     assert tools["zendesk_get_help_center_article"].inputSchema["properties"]["embed_images"]["default"] is False
 
 
