@@ -11,6 +11,15 @@ from typing import Mapping
 
 _SUBDOMAIN_PATTERN = re.compile(r"[a-z0-9][a-z0-9-]{0,62}")
 _CAPABILITIES = frozenset({"support", "operations", "guide", "community", "csat", "custom_objects", "git_zen", "time_tracking", "badges"})
+_OAUTH_SCOPES = {
+    "support": {"tickets:read", "users:read", "groups:read", "organizations:read", "brands:read", "ticket_attachments:read"},
+    "operations": {"ticket_views:read", "macros:read", "triggers:read"},
+    "guide": {"hc:read"},
+    "community": {"hc:read"},
+    "csat": {"satisfaction_ratings:read"},
+    "custom_objects": {"custom_objects:read"},
+    "badges": {"hc:read"},
+}
 
 
 class AuthMode(str, Enum):
@@ -32,6 +41,7 @@ class OAuthConfig:
     client_id: str
     client_secret: str
     token_store_path: Path
+    scopes: tuple[str, ...]
 
 
 @dataclass(frozen=True)
@@ -115,6 +125,7 @@ class Settings:
                 client_id=oauth_values[0],
                 client_secret=oauth_values[1],
                 token_store_path=Path(oauth_values[2]),
+                scopes=_oauth_scopes(capabilities, write_mode, public_writes_enabled, destructive_writes_enabled, impersonation_enabled, external_uploads_enabled),
             )
 
         selected_mode = _select_auth_mode(
@@ -214,3 +225,11 @@ def _parse_bool(environ: Mapping[str, str], name: str) -> bool:
     if value in {"false", "0"}:
         return False
     raise ConfigurationError("invalid_boolean", f"{name} must be true or false")
+
+
+def _oauth_scopes(capabilities: frozenset[str], write_mode: str, public: bool, destructive: bool, impersonation: bool, external_upload: bool) -> tuple[str, ...]:
+    scopes = set().union(*(_OAUTH_SCOPES.get(capability, set()) for capability in capabilities))
+    if write_mode == "standard": scopes.add("tickets:write")
+    if public or destructive or external_upload: scopes.add("hc:write")
+    if impersonation: scopes.add("impersonate")
+    return tuple(sorted(scopes))

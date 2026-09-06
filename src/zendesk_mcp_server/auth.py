@@ -81,6 +81,12 @@ def create_oauth_authorization_request(subdomain: str, client_id: str, redirect_
     return {"state": state, "authorization_url": f"https://{subdomain}.zendesk.com/oauth/authorizations/new?{query}"}
 
 
+def create_settings_oauth_authorization_request(settings: Settings, redirect_uri: str, state_store: "OAuthStateStore", *, now: int) -> dict[str, str]:
+    if settings.auth_mode is not AuthMode.OAUTH or settings.oauth is None or settings.subdomain is None:
+        raise ConfigurationError("missing_oauth", "OAuth configuration is missing")
+    return create_oauth_authorization_request(settings.subdomain, settings.oauth.client_id, redirect_uri, settings.oauth.scopes, state_store, now=now)
+
+
 def exchange_oauth_authorization_code(request: Callable[[dict[str, str]], object], client_id: str, client_secret: str, code: str, state: str, redirect_uri: str, scopes: tuple[str, ...], state_store: "OAuthStateStore", token_store: "OAuthTokenStore", *, now: int) -> OAuthTokens:
     if not isinstance(client_secret, str) or not client_secret or not isinstance(code, str) or not code:
         raise ConfigurationError("invalid_oauth_authorization", "OAuth authorization response is invalid")

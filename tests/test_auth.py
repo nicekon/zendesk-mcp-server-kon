@@ -5,6 +5,7 @@ import pytest
 
 from zendesk_mcp_server.auth import (
     ApiTokenAuthorization,
+    OAuthStateStore,
     OAuthTokenStore,
     OAuthTokens,
 )
@@ -95,6 +96,23 @@ def test_oauth_authorization_code_state_is_single_use_and_binds_redirect(tmp_pat
     assert tokens.access_token == "access"
     with pytest.raises(ConfigurationError, match="state"):
         exchange_oauth_authorization_code(lambda _: pytest.fail("unexpected exchange"), "client", "secret", "code", request["state"], "https://app.example.test/callback", ("tickets:read",), state_store, token_store, now=102)
+
+
+def test_settings_oauth_authorization_request_uses_calculated_scopes(tmp_path: Path):
+    from zendesk_mcp_server.auth import create_settings_oauth_authorization_request
+    from zendesk_mcp_server.config import Settings
+
+    settings = Settings.load({
+        "ZENDESK_SUBDOMAIN": "acme",
+        "ZENDESK_AUTH_MODE": "oauth",
+        "ZENDESK_OAUTH_CLIENT_ID": "client",
+        "ZENDESK_OAUTH_CLIENT_SECRET": "secret",
+        "ZENDESK_OAUTH_TOKEN_STORE": str(tmp_path / "oauth.json"),
+        "ZENDESK_CAPABILITIES": "guide",
+    })
+    request = create_settings_oauth_authorization_request(settings, "https://app.example.test/callback", OAuthStateStore(tmp_path / "state.json"), now=100)
+
+    assert parse_qs(urlsplit(request["authorization_url"]).query)["scope"] == ["hc:read"]
 
 
 def test_oauth_state_store_rejects_group_readable_file(tmp_path: Path):

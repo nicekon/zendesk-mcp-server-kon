@@ -50,6 +50,35 @@ def test_auto_prefers_complete_oauth_without_api_token():
     assert settings.auth_mode is AuthMode.OAUTH
 
 
+def test_oauth_scopes_are_limited_to_enabled_capabilities_and_gates():
+    settings = Settings.load(
+        {
+            "ZENDESK_SUBDOMAIN": "acme",
+            "ZENDESK_AUTH_MODE": "oauth",
+            "ZENDESK_OAUTH_CLIENT_ID": "client-id",
+            "ZENDESK_OAUTH_CLIENT_SECRET": "client-secret",
+            "ZENDESK_OAUTH_TOKEN_STORE": "/tmp/zendesk-oauth.json",
+            "ZENDESK_CAPABILITIES": "support,guide,csat",
+            "ZENDESK_WRITE_MODE": "standard",
+            "ZENDESK_ENABLE_PUBLIC_WRITES": "true",
+        }
+    )
+
+    assert settings.oauth is not None
+    assert settings.oauth.scopes == (
+        "brands:read",
+        "groups:read",
+        "hc:read",
+        "hc:write",
+        "organizations:read",
+        "satisfaction_ratings:read",
+        "ticket_attachments:read",
+        "tickets:read",
+        "tickets:write",
+        "users:read",
+    )
+
+
 def test_empty_environment_is_unconfigured_not_an_import_error():
     settings = Settings.load({})
 
