@@ -52,6 +52,7 @@ jobs:
               async with stdio_client(params) as (read, write):
                   async with ClientSession(read, write) as session:
                       assert (await session.initialize()).serverInfo.name == "Zendesk"
+                      assert len((await session.list_tools()).tools) == 101
 
           asyncio.run(main())
           PY
@@ -89,6 +90,7 @@ jobs:
               async with stdio_client(params) as (read, write):
                   async with ClientSession(read, write) as session:
                       assert (await session.initialize()).serverInfo.name == "Zendesk"
+                      assert len((await session.list_tools()).tools) == 101
 
           asyncio.run(main())
           PY
@@ -114,6 +116,7 @@ jobs:
               async with stdio_client(params) as (read, write):
                   async with ClientSession(read, write) as session:
                       assert (await session.initialize()).serverInfo.name == "Zendesk"
+                      assert len((await session.list_tools()).tools) == 101
 
           asyncio.run(main())
           '@ | & .wheel-venv\Scripts\python.exe
