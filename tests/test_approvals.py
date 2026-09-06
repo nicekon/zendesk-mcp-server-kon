@@ -2,6 +2,7 @@ import sys
 
 from zendesk_mcp_server import main
 from zendesk_mcp_server.approvals import ApprovalStore
+from zendesk_mcp_server.auth import OAuthTokens
 
 
 def test_approval_token_is_bound_to_one_payload_and_consumed_once(tmp_path):
@@ -42,3 +43,35 @@ def test_approve_cli_displays_the_preview_before_issuing_a_token(tmp_path, monke
     main()
 
     assert '"payload": {' in capsys.readouterr().out
+
+
+def test_oauth_start_cli_prints_a_state_bound_authorization_url(tmp_path, monkeypatch, capsys):
+    monkeypatch.setenv("ZENDESK_SUBDOMAIN", "acme")
+    monkeypatch.setenv("ZENDESK_AUTH_MODE", "oauth")
+    monkeypatch.setenv("ZENDESK_OAUTH_CLIENT_ID", "client")
+    monkeypatch.setenv("ZENDESK_OAUTH_CLIENT_SECRET", "secret")
+    monkeypatch.setenv("ZENDESK_OAUTH_TOKEN_STORE", str(tmp_path / "oauth.json"))
+    monkeypatch.setattr(sys, "argv", ["zendesk", "oauth-start", "https://app.example.test/callback"])
+
+    main()
+
+    assert "https://acme.zendesk.com/oauth/authorizations/new?" in capsys.readouterr().out
+
+
+def test_oauth_finish_cli_reads_the_code_from_an_interactive_terminal(tmp_path, monkeypatch):
+    import zendesk_mcp_server.auth as auth
+
+    monkeypatch.setenv("ZENDESK_SUBDOMAIN", "acme")
+    monkeypatch.setenv("ZENDESK_AUTH_MODE", "oauth")
+    monkeypatch.setenv("ZENDESK_OAUTH_CLIENT_ID", "client")
+    monkeypatch.setenv("ZENDESK_OAUTH_CLIENT_SECRET", "secret")
+    monkeypatch.setenv("ZENDESK_OAUTH_TOKEN_STORE", str(tmp_path / "oauth.json"))
+    monkeypatch.setattr(sys, "argv", ["zendesk", "oauth-finish", "https://app.example.test/callback", "state"])
+    monkeypatch.setattr(sys.stdin, "isatty", lambda: True)
+    monkeypatch.setattr("getpass.getpass", lambda _: "code")
+    calls = []
+    monkeypatch.setattr(auth, "exchange_settings_oauth_authorization_code", lambda settings, code, state, redirect_uri: calls.append((code, state, redirect_uri)) or OAuthTokens("access", "refresh", 3600))
+
+    main()
+
+    assert calls == [("code", "state", "https://app.example.test/callback")]

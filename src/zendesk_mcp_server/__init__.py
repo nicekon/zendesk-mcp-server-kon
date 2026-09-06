@@ -1,7 +1,9 @@
 import asyncio
+import getpass
 import json
 import os
 import sys
+import time
 
 
 def main():
@@ -16,8 +18,25 @@ def main():
             raise SystemExit("approval cancelled")
         print(store.approve(sys.argv[2]))
         return
+    if len(sys.argv) == 3 and sys.argv[1] == "oauth-start":
+        from .auth import create_settings_oauth_authorization_request, oauth_state_store
+        from .config import Settings
+
+        settings = Settings.load(os.environ)
+        request = create_settings_oauth_authorization_request(settings, sys.argv[2], oauth_state_store(settings), now=int(time.time()))
+        print(json.dumps({"authorization_url": request["authorization_url"]}, ensure_ascii=False, indent=2))
+        return
+    if len(sys.argv) == 4 and sys.argv[1] == "oauth-finish":
+        from .auth import exchange_settings_oauth_authorization_code
+        from .config import Settings
+
+        if not sys.stdin.isatty():
+            raise SystemExit("OAuth completion requires an interactive terminal")
+        exchange_settings_oauth_authorization_code(Settings.load(os.environ), getpass.getpass("Authorization code: "), sys.argv[3], sys.argv[2])
+        print("OAuth token stored.")
+        return
     if len(sys.argv) > 1:
-        raise SystemExit("usage: zendesk [approve <approval_request_id>]")
+        raise SystemExit("usage: zendesk [approve <approval_request_id> | oauth-start <redirect_uri> | oauth-finish <redirect_uri> <state>]")
     from .server import main as run_server
 
     asyncio.run(run_server())

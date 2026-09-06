@@ -74,6 +74,21 @@ using it.
 present, otherwise a complete API-token configuration. A partial OAuth
 configuration is an error and never falls back to API token credentials.
 
+For OAuth, configure `ZENDESK_SUBDOMAIN`, `ZENDESK_AUTH_MODE=oauth`,
+`ZENDESK_OAUTH_CLIENT_ID`, `ZENDESK_OAUTH_CLIENT_SECRET`, and a user-only
+`ZENDESK_OAUTH_TOKEN_STORE` path. Then use the redirect URI registered in
+Zendesk exactly in both commands:
+
+```bash
+zendesk oauth-start https://your-app.example/callback
+zendesk oauth-finish https://your-app.example/callback <state>
+```
+
+`oauth-start` prints the authorization URL and saves its one-time state. After
+Zendesk redirects back, pass the returned `state` to `oauth-finish`; it prompts
+for the authorization code without echoing it and stores refreshed tokens with
+user-only permissions.
+
 Enable optional domains with `ZENDESK_CAPABILITIES`; disabled tools remain
 listed but return `not_configured` before making a Zendesk request. Set
 `ZENDESK_GIT_ZEN_FIELD_ID` only when `git_zen` is enabled. Time logging uses

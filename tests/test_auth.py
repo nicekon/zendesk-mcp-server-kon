@@ -115,6 +115,42 @@ def test_settings_oauth_authorization_request_uses_calculated_scopes(tmp_path: P
     assert parse_qs(urlsplit(request["authorization_url"]).query)["scope"] == ["hc:read"]
 
 
+def test_settings_oauth_code_exchange_reuses_the_configured_state_and_token_stores(tmp_path: Path):
+    from zendesk_mcp_server.auth import (
+        create_settings_oauth_authorization_request,
+        exchange_settings_oauth_authorization_code,
+        oauth_state_store,
+    )
+    from zendesk_mcp_server.config import Settings
+
+    token_path = tmp_path / "oauth.json"
+    settings = Settings.load({
+        "ZENDESK_SUBDOMAIN": "acme",
+        "ZENDESK_AUTH_MODE": "oauth",
+        "ZENDESK_OAUTH_CLIENT_ID": "client",
+        "ZENDESK_OAUTH_CLIENT_SECRET": "secret",
+        "ZENDESK_OAUTH_TOKEN_STORE": str(token_path),
+    })
+    request = create_settings_oauth_authorization_request(
+        settings,
+        "https://app.example.test/callback",
+        oauth_state_store(settings),
+        now=100,
+    )
+
+    tokens = exchange_settings_oauth_authorization_code(
+        settings,
+        "code",
+        request["state"],
+        "https://app.example.test/callback",
+        requester=lambda _: {"access_token": "access", "refresh_token": "refresh", "expires_in": 300},
+        now=101,
+    )
+
+    assert tokens.access_token == "access"
+    assert OAuthTokenStore(token_path).load().refresh_token == "refresh"
+
+
 def test_oauth_state_store_rejects_group_readable_file(tmp_path: Path):
     from zendesk_mcp_server.auth import OAuthStateStore
     store = OAuthStateStore(tmp_path / "oauth-state.json")

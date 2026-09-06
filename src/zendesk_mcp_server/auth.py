@@ -87,6 +87,13 @@ def create_settings_oauth_authorization_request(settings: Settings, redirect_uri
     return create_oauth_authorization_request(settings.subdomain, settings.oauth.client_id, redirect_uri, settings.oauth.scopes, state_store, now=now)
 
 
+def oauth_state_store(settings: Settings) -> "OAuthStateStore":
+    if settings.auth_mode is not AuthMode.OAUTH or settings.oauth is None:
+        raise ConfigurationError("missing_oauth", "OAuth configuration is missing")
+    path = settings.oauth.token_store_path
+    return OAuthStateStore(path.with_name(f".{path.name}.state"))
+
+
 def exchange_oauth_authorization_code(request: Callable[[dict[str, str]], object], client_id: str, client_secret: str, code: str, state: str, redirect_uri: str, scopes: tuple[str, ...], state_store: "OAuthStateStore", token_store: "OAuthTokenStore", *, now: int) -> OAuthTokens:
     if not isinstance(client_secret, str) or not client_secret or not isinstance(code, str) or not code:
         raise ConfigurationError("invalid_oauth_authorization", "OAuth authorization response is invalid")
@@ -94,6 +101,23 @@ def exchange_oauth_authorization_code(request: Callable[[dict[str, str]], object
     tokens = oauth_tokens_from_refresh_response(request({"grant_type": "authorization_code", "code": code, "client_id": client_id, "client_secret": client_secret, "redirect_uri": redirect_uri, "scope": " ".join(scopes)}), now=now)
     token_store.save(tokens)
     return tokens
+
+
+def exchange_settings_oauth_authorization_code(settings: Settings, code: str, state: str, redirect_uri: str, *, requester: Callable[[dict[str, str]], object] | None = None, now: int | None = None) -> OAuthTokens:
+    if settings.auth_mode is not AuthMode.OAUTH or settings.oauth is None or settings.subdomain is None:
+        raise ConfigurationError("missing_oauth", "OAuth configuration is missing")
+    return exchange_oauth_authorization_code(
+        requester or _oauth_refresh_requester(settings.subdomain),
+        settings.oauth.client_id,
+        settings.oauth.client_secret,
+        code,
+        state,
+        redirect_uri,
+        settings.oauth.scopes,
+        oauth_state_store(settings),
+        OAuthTokenStore(settings.oauth.token_store_path),
+        now=int(time.time()) if now is None else now,
+    )
 
 
 def refresh_oauth_tokens(request: Callable[[dict[str, str]], object], client_id: str, client_secret: str, refresh_token: str, *, now: int) -> OAuthTokens:

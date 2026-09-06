@@ -70,6 +70,20 @@ Zendesk 자격증명 없이도 서버를 시작할 수 있습니다. API token �
 그렇지 않으면 완전한 API token 설정을 선택합니다. OAuth 설정이 일부만 있으면
 오류가 나며 API token으로 fallback하지 않습니다.
 
+OAuth를 사용하려면 `ZENDESK_SUBDOMAIN`, `ZENDESK_AUTH_MODE=oauth`,
+`ZENDESK_OAUTH_CLIENT_ID`, `ZENDESK_OAUTH_CLIENT_SECRET`, 사용자 전용
+`ZENDESK_OAUTH_TOKEN_STORE` 경로를 설정합니다. Zendesk에 등록한 redirect URI를
+두 명령에서 정확히 동일하게 사용합니다.
+
+```bash
+zendesk oauth-start https://your-app.example/callback
+zendesk oauth-finish https://your-app.example/callback <state>
+```
+
+`oauth-start`는 authorization URL을 출력하고 일회성 state를 저장합니다.
+Zendesk가 redirect한 뒤 반환된 `state`를 `oauth-finish`에 넘기면 authorization
+code를 화면에 보이지 않게 입력받아 user-only 권한의 token store에 저장합니다.
+
 `ZENDESK_CAPABILITIES`로 조건부 도메인을 활성화할 수 있습니다. 비활성 도구도
 목록에는 남지만 Zendesk 요청 전에 `not_configured`를 반환합니다. `git_zen`을
 활성화한 경우에만 `ZENDESK_GIT_ZEN_FIELD_ID`를 설정합니다. 시간 기록은 항상
