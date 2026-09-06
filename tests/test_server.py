@@ -265,6 +265,28 @@ def test_connection_status_does_not_expose_credentials():
     assert "agent@example.test" not in repr(result)
 
 
+def test_oauth_authorization_failure_requires_reauthorization(monkeypatch):
+    from zendesk_mcp_server import server as server_module
+    from zendesk_mcp_server.config import ConfigurationError
+
+    def fail_refresh(_):
+        raise ConfigurationError("oauth_refresh_failed", "OAuth token refresh failed")
+
+    monkeypatch.setattr(server_module, "build_authorization", fail_refresh)
+
+    result = server_module.build_ticket_tools(
+        {
+            "ZENDESK_SUBDOMAIN": "acme",
+            "ZENDESK_AUTH_MODE": "oauth",
+            "ZENDESK_OAUTH_CLIENT_ID": "id",
+            "ZENDESK_OAUTH_CLIENT_SECRET": "secret",
+            "ZENDESK_OAUTH_TOKEN_STORE": "/private/oauth.json",
+        }
+    )
+
+    assert result["error"]["code"] == "reauthorization_required"
+
+
 def test_connection_status_tool_probes_the_authenticated_user(monkeypatch):
     import zendesk_mcp_server.server as module
 

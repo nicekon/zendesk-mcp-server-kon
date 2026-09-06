@@ -299,6 +299,14 @@ def _capability_gate(environ: Mapping[str, str], name: str) -> dict[str, object]
     return failure(ErrorCode.NOT_CONFIGURED, f"Zendesk {capability} capability is not enabled") if capability is not None and not settings.has_capability(capability) else None
 
 
+def _configuration_failure(error: ConfigurationError) -> dict[str, object]:
+    code = ErrorCode.REAUTHORIZATION_REQUIRED if error.code in {
+        "missing_oauth_tokens", "invalid_oauth_tokens", "oauth_refresh_failed",
+        "invalid_oauth_refresh", "oauth_refresh_unavailable",
+    } else ErrorCode.VALIDATION_ERROR
+    return failure(code, str(error))
+
+
 def build_connection_status(environ: Mapping[str, str], *, probe: bool = False) -> dict[str, object]:
     try:
         settings = Settings.load(environ)
@@ -312,7 +320,7 @@ def build_connection_status(environ: Mapping[str, str], *, probe: bool = False) 
         if not isinstance(user, dict): return failure(ErrorCode.UPSTREAM_ERROR, "Zendesk returned an invalid authenticated user")
         return success({**status, "verified_user": {key: user.get(key) for key in ("id", "role")}})
     except ConfigurationError as error:
-        return failure(ErrorCode.VALIDATION_ERROR, str(error))
+        return _configuration_failure(error)
 
 
 def build_ticket_tools(environ: Mapping[str, str]) -> TicketTools | dict[str, object]:
@@ -320,7 +328,7 @@ def build_ticket_tools(environ: Mapping[str, str]) -> TicketTools | dict[str, ob
         settings = Settings.load(environ)
         authorization = build_authorization(settings)
     except ConfigurationError as error:
-        return failure(ErrorCode.VALIDATION_ERROR, str(error))
+        return _configuration_failure(error)
     if authorization is None:
         return failure(ErrorCode.NOT_CONFIGURED, "Zendesk is not configured")
     return TicketTools(ZendeskClient(settings, authorization), settings, ApprovalStore.from_environment(environ))
@@ -331,7 +339,7 @@ def build_metadata_tools(environ: Mapping[str, str]) -> MetadataTools | dict[str
         settings = Settings.load(environ)
         authorization = build_authorization(settings)
     except ConfigurationError as error:
-        return failure(ErrorCode.VALIDATION_ERROR, str(error))
+        return _configuration_failure(error)
     if authorization is None:
         return failure(ErrorCode.NOT_CONFIGURED, "Zendesk is not configured")
     return MetadataTools(ZendeskClient(settings, authorization))
@@ -342,7 +350,7 @@ def build_guide_tools(environ: Mapping[str, str]) -> GuideTools | dict[str, obje
         settings = Settings.load(environ)
         authorization = build_authorization(settings)
     except ConfigurationError as error:
-        return failure(ErrorCode.VALIDATION_ERROR, str(error))
+        return _configuration_failure(error)
     if authorization is None:
         return failure(ErrorCode.NOT_CONFIGURED, "Zendesk is not configured")
     return GuideTools(ZendeskClient(settings, authorization), settings, ApprovalStore.from_environment(environ))
@@ -351,7 +359,7 @@ def build_guide_tools(environ: Mapping[str, str]) -> GuideTools | dict[str, obje
 def build_community_tools(environ: Mapping[str, str]) -> CommunityTools | dict[str, object]:
     try:
         settings = Settings.load(environ); authorization = build_authorization(settings)
-    except ConfigurationError as error: return failure(ErrorCode.VALIDATION_ERROR, str(error))
+    except ConfigurationError as error: return _configuration_failure(error)
     if authorization is None: return failure(ErrorCode.NOT_CONFIGURED, "Zendesk is not configured")
     return CommunityTools(ZendeskClient(settings, authorization), settings, ApprovalStore.from_environment(environ))
 
