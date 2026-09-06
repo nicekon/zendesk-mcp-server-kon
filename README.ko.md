@@ -12,14 +12,16 @@ Zendesk용 Model Context Protocol 서버이며,
 
 현재 pre-release는 다음의 guard된 도메인을 제공합니다.
 
-- `zendesk_get_connection_status`: 설정 여부만 알려줍니다. 네트워크 요청을 보내지
-  않고 이메일, token, OAuth secret을 반환하지 않습니다.
+- `zendesk_get_connection_status`: 비밀값 없이 설정을 보고하고, 자격증명이 있으면
+  인증된 Zendesk 사용자를 확인합니다.
 - Support: 티켓 조회·검색·건수·export, guard된 수정, 댓글, 매크로 preview/apply,
   metadata, 안전한 첨부 다운로드·검사를 제공합니다.
 - Guide·CSAT: locale, category, section, 문서 검색·export, 권한 metadata,
   만족도, draft 문서·번역 workflow를 제공합니다.
 - Community: 게시물·댓글·topic, vote, subscription, content tag, badge,
   안전한 user image/badge icon upload workflow를 제공합니다.
+- 조건부 Support 도구: ticket audit 시간 추적과 명시적으로 설정한 custom field의
+  Git-Zen 링크 추출을 제공합니다.
 
 서버는 기본 `read_only` 모드로 시작합니다. 표준 쓰기는
 `ZENDESK_WRITE_MODE=standard`가 필요하고, public·destructive·impersonation·external
@@ -67,6 +69,11 @@ Zendesk 자격증명 없이도 서버를 시작할 수 있습니다. API token �
 `ZENDESK_AUTH_MODE`의 기본값은 `auto`입니다. 완전한 OAuth 설정이 있으면 OAuth를,
 그렇지 않으면 완전한 API token 설정을 선택합니다. OAuth 설정이 일부만 있으면
 오류가 나며 API token으로 fallback하지 않습니다.
+
+`ZENDESK_CAPABILITIES`로 조건부 도메인을 활성화할 수 있습니다. 비활성 도구도
+목록에는 남지만 Zendesk 요청 전에 `not_configured`를 반환합니다. `git_zen`을
+활성화한 경우에만 `ZENDESK_GIT_ZEN_FIELD_ID`를 설정합니다. 시간 기록은 항상
+내부 note와 함께 Zendesk ticket audit metadata에 남깁니다.
 
 ## 프롬프트
 

@@ -11,15 +11,16 @@ A Zendesk Model Context Protocol server implementing the evolving
 
 The current pre-release provides the following guarded domains:
 
-- `zendesk_get_connection_status` reports whether the server is configured. It
-  never sends a network request and never returns an email address, token, or
-  OAuth secret.
+- `zendesk_get_connection_status` reports configuration without secrets and,
+  when credentials are configured, verifies the authenticated Zendesk user.
 - Support: ticket reads, search/count/export, guarded mutations, comments,
   macro preview/apply, metadata, and safe attachment download/inspection.
 - Guide and CSAT: locales, categories, sections, article search/export,
   permission metadata, ratings, draft article and translation workflows.
 - Community: posts, comments, topics, votes, subscriptions, content tags,
   badges, and secure user-image/badge-icon upload flows.
+- Conditional Support tools: ticket audit time tracking and Git-Zen link
+  extraction from an explicitly configured custom field.
 
 The server starts in `read_only` mode. Standard writes require
 `ZENDESK_WRITE_MODE=standard`; public, destructive, impersonation, and external
@@ -69,6 +70,11 @@ using it.
 `ZENDESK_AUTH_MODE` defaults to `auto`. It selects complete OAuth settings when
 present, otherwise a complete API-token configuration. A partial OAuth
 configuration is an error and never falls back to API token credentials.
+
+Enable optional domains with `ZENDESK_CAPABILITIES`; disabled tools remain
+listed but return `not_configured` before making a Zendesk request. Set
+`ZENDESK_GIT_ZEN_FIELD_ID` only when `git_zen` is enabled. Time logging uses
+Zendesk ticket audit metadata and always includes an internal note.
 
 ## Prompts
 
