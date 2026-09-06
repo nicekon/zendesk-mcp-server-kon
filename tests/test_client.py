@@ -205,3 +205,17 @@ def test_attachment_download_rejects_non_https_tenant_url(settings, authorizatio
     client = ZendeskClient(settings, authorization, transport=httpx.MockTransport(lambda request: None))
 
     assert client.download_attachment("http://acme.zendesk.com/attachments/token/file", max_bytes=20)["error"]["code"] == "validation_error"
+
+
+def test_help_center_image_download_allows_only_tenant_user_images(settings, authorization):
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.headers["Authorization"].startswith("Basic ")
+        return httpx.Response(200, content=b"image", headers={"Content-Type": "image/png"}, request=request)
+
+    client = ZendeskClient(settings, authorization, transport=httpx.MockTransport(handler))
+
+    result = client.download_help_center_image("https://acme.zendesk.com/hc/user_images/image.png", max_bytes=10)
+
+    assert result["data"] == {"content": b"image", "content_type": "image/png", "size": 5}
+    assert client.download_help_center_image("https://outside.example/image.png", max_bytes=10)["error"]["code"] == "validation_error"
+    assert client.download_help_center_image("https://acme.zendesk.com:invalid/hc/user_images/image.png", max_bytes=10)["error"]["code"] == "validation_error"

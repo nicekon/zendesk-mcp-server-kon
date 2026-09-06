@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import json
 import os
 import time
@@ -207,7 +208,7 @@ def build_tools() -> list[types.Tool]:
         types.Tool(name="zendesk_list_help_center_sections", description="List Help Center sections without making changes.", inputSchema={"type": "object", "properties": {"brand_id": {"type": "integer", "minimum": 1}}}),
         types.Tool(name="zendesk_search_help_center_articles", description="Search Help Center articles without making changes.", inputSchema={"type": "object", "properties": {"query": {"type": "string", "minLength": 1}, "brand_id": {"type": "integer", "minimum": 1}, "locale": {"type": "string", "minLength": 2}}, "required": ["query"]}),
         types.Tool(name="zendesk_export_help_center_articles", description="Export Help Center articles for one locale with cursor pagination, up to a bounded total.", inputSchema={"type": "object", "properties": {"locale": {"type": "string", "minLength": 2}, "brand_id": {"type": "integer", "minimum": 1}, "max_articles": {"type": "integer", "minimum": 1, "maximum": 100000}, "format": {"type": "string", "enum": ["json", "csv"], "default": "json"}}, "required": ["locale"]}),
-        types.Tool(name="zendesk_get_help_center_article", description="Get a Help Center article without making changes.", inputSchema={"type": "object", "properties": {"article_id": {"oneOf": [{"type": "integer", "minimum": 1}, {"type": "string", "minLength": 1}]}, "brand_id": {"type": "integer", "minimum": 1}}, "required": ["article_id"]}),
+        types.Tool(name="zendesk_get_help_center_article", description="Get a Help Center article without making changes. Optional image embedding is limited to validated tenant Help Center images.", inputSchema={"type": "object", "properties": {"article_id": {"oneOf": [{"type": "integer", "minimum": 1}, {"type": "string", "minLength": 1}]}, "brand_id": {"type": "integer", "minimum": 1}, "embed_images": {"type": "boolean", "default": False}}, "required": ["article_id"]}),
         types.Tool(name="zendesk_get_satisfaction_ratings", description="List Zendesk satisfaction ratings without making changes.", inputSchema={"type": "object", "properties": {}}),
         types.Tool(name="zendesk_list_csat", description="List legacy or survey CSAT responses with backend-specific official filters.", inputSchema={"type": "object", "properties": {"backend": {"type": "string", "enum": ["auto", "legacy", "survey"], "default": "auto"}, "score": {"type": "string"}, "ticket_id": {"type": "integer", "minimum": 1}, "responder_ids": {"type": "array", "items": {"type": "integer", "minimum": 1}}, "created_at_start": {"type": "string", "format": "date-time"}, "created_at_end": {"type": "string", "format": "date-time"}}}),
         types.Tool(name="zendesk_export_satisfaction_ratings", description="Export legacy or survey CSAT responses with backend-specific official filters.", inputSchema={"type": "object", "properties": {"backend": {"type": "string", "enum": ["auto", "legacy", "survey"], "default": "auto"}, "score": {"type": "string"}, "ticket_id": {"type": "integer", "minimum": 1}, "responder_ids": {"type": "array", "items": {"type": "integer", "minimum": 1}}, "created_at_start": {"type": "string", "format": "date-time"}, "created_at_end": {"type": "string", "format": "date-time"}, "format": {"type": "string", "enum": ["json", "csv"], "default": "json"}}}),
@@ -359,6 +360,18 @@ def csat_export_content(result: dict[str, object]) -> list[object]:
 
 
 def help_center_export_content(result: dict[str, object]) -> list[object]: return _export_content(result, "Zendesk Help Center export")
+
+
+def help_center_article_content(result: dict[str, object]) -> list[object]:
+    data = result.get("data")
+    images = data.get("images") if result.get("ok") and isinstance(data, dict) else None
+    if not isinstance(images, list): return [types.TextContent(type="text", text=json.dumps(result))]
+    summary_images = [{key: value for key, value in image.items() if key != "content"} for image in images if isinstance(image, dict)]
+    content: list[object] = [types.TextContent(type="text", text=json.dumps({**result, "data": {**data, "images": summary_images}}))]
+    for image in images:
+        if not isinstance(image, dict) or not isinstance(image.get("content"), bytes) or not isinstance(image.get("content_type"), str): continue
+        content.append(types.ImageContent(type="image", data=base64.b64encode(image["content"]).decode(), mimeType=image["content_type"]))
+    return content
 
 
 def attachment_inspection_content(result: dict[str, object]) -> list[object]:
@@ -576,7 +589,7 @@ def create_server(environ: Mapping[str, str] | None = None) -> Server:
             elif name == "zendesk_export_help_center_articles":
                 values = arguments or {}; result = tools.export_article_artifact(values.get("locale"), values.get("max_articles", 100000), brand_id=values.get("brand_id"), output_format=values.get("format", "json"))
             elif name == "zendesk_get_help_center_article":
-                values = arguments or {}; result = tools.get_article(values.get("article_id"), brand_id=values.get("brand_id"))
+                values = arguments or {}; result = tools.get_article(values.get("article_id"), brand_id=values.get("brand_id"), embed_images=values.get("embed_images", False))
             elif name in {"zendesk_list_csat", "zendesk_export_satisfaction_ratings"}:
                 values = arguments or {}
                 result = tools.export_csat(values.get("backend", "auto"), score=values.get("score"), ticket_id=values.get("ticket_id"), responder_ids=values.get("responder_ids"), created_at_start=values.get("created_at_start"), created_at_end=values.get("created_at_end"), output_format=values.get("format", "json")) if name == "zendesk_export_satisfaction_ratings" else tools.list_csat(values.get("backend", "auto"), score=values.get("score"), ticket_id=values.get("ticket_id"), responder_ids=values.get("responder_ids"), created_at_start=values.get("created_at_start"), created_at_end=values.get("created_at_end"))
@@ -734,6 +747,7 @@ def create_server(environ: Mapping[str, str] | None = None) -> Server:
         if name == "zendesk_export_tickets": return ticket_export_content(result)
         if name == "zendesk_export_satisfaction_ratings": return csat_export_content(result)
         if name == "zendesk_export_help_center_articles": return help_center_export_content(result)
+        if name == "zendesk_get_help_center_article": return help_center_article_content(result)
         return [types.TextContent(type="text", text=json.dumps(result))]
 
     return server

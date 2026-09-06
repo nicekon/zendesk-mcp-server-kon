@@ -38,6 +38,20 @@ def test_attachment_image_result_uses_image_content():
     assert content[1].mimeType == "image/png"
 
 
+def test_help_center_article_image_result_uses_image_content():
+    from zendesk_mcp_server.server import help_center_article_content
+
+    content = help_center_article_content(
+        {"ok": True, "data": {"article": {"id": 3}, "images": [{"src": "https://acme.zendesk.com/hc/user_images/image.png", "content": b"image", "content_type": "image/png"}]}}
+    )
+
+    assert isinstance(content[0], types.TextContent)
+    assert '"content":' not in content[0].text
+    assert isinstance(content[1], types.ImageContent)
+    assert content[1].data == "aW1hZ2U="
+    assert content[1].mimeType == "image/png"
+
+
 def test_ticket_export_result_includes_a_resource_link_without_its_cache_path():
     from zendesk_mcp_server.server import ticket_export_content
 
@@ -170,6 +184,7 @@ def test_help_center_search_and_article_read_accept_brand_scope():
     assert tools["zendesk_search_help_center_articles"].inputSchema["properties"]["brand_id"]["minimum"] == 1
     assert tools["zendesk_search_help_center_articles"].inputSchema["properties"]["locale"]["minLength"] == 2
     assert tools["zendesk_get_help_center_article"].inputSchema["properties"]["brand_id"]["minimum"] == 1
+    assert tools["zendesk_get_help_center_article"].inputSchema["properties"]["embed_images"]["default"] is False
 
 
 def test_help_center_article_create_accepts_brand_scope():

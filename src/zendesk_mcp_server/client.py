@@ -200,6 +200,28 @@ class ZendeskClient:
                 return failure(ErrorCode.UPSTREAM_ERROR, "Zendesk attachment download could not be completed", retryable=True)
         return failure(ErrorCode.UPSTREAM_ERROR, "Zendesk attachment redirected too many times")
 
+    def download_help_center_image(self, image_url: str, *, max_bytes: int, subdomain: str | None = None) -> dict[str, object]:
+        if not isinstance(max_bytes, int) or isinstance(max_bytes, bool) or max_bytes < 1 or not self._is_help_center_image_url(image_url, subdomain):
+            return failure(ErrorCode.VALIDATION_ERROR, "Help Center image URL or size limit is unsafe")
+        try:
+            with self._client.stream("GET", image_url, headers=self._authorization.headers()) as response:
+                if not response.is_success:
+                    return failure(_error_code(response.status_code), f"Zendesk Help Center image download failed with HTTP {response.status_code}", retryable=response.status_code >= 500, request_id=_request_id(response))
+                try:
+                    declared_size = int(response.headers.get("Content-Length", "0"))
+                except ValueError:
+                    declared_size = 0
+                if declared_size > max_bytes: return failure(ErrorCode.VALIDATION_ERROR, "Help Center image exceeds the download size limit")
+                content = bytearray()
+                for chunk in response.iter_bytes():
+                    content.extend(chunk)
+                    if len(content) > max_bytes: return failure(ErrorCode.VALIDATION_ERROR, "Help Center image exceeds the download size limit")
+                return success({"content": bytes(content), "content_type": response.headers.get("Content-Type") or "application/octet-stream", "size": len(content)}, request_id=_request_id(response))
+        except httpx.TimeoutException:
+            return failure(ErrorCode.TIMEOUT, "Zendesk Help Center image download timed out", retryable=True)
+        except httpx.HTTPError:
+            return failure(ErrorCode.UPSTREAM_ERROR, "Zendesk Help Center image download could not be completed", retryable=True)
+
     def _build_url(self, path: str, subdomain: str | None = None) -> str | None:
         parsed = urlsplit(path)
         if (
@@ -218,6 +240,13 @@ class ZendeskClient:
     def _is_attachment_url(self, value: str) -> bool:
         parsed = urlsplit(value)
         return parsed.scheme == "https" and not parsed.username and not parsed.password and (parsed.hostname == urlsplit(self._base_url).hostname or _is_public_https_url(value))
+
+    def _is_help_center_image_url(self, value: object, subdomain: str | None) -> bool:
+        if not isinstance(value, str): return False
+        try: parsed = urlsplit(value); port = parsed.port
+        except ValueError: return False
+        host = f"{subdomain}.zendesk.com" if isinstance(subdomain, str) and _SUBDOMAIN.fullmatch(subdomain) else urlsplit(self._base_url).hostname
+        return parsed.scheme == "https" and parsed.hostname == host and port in {None, 443} and not parsed.username and not parsed.password and parsed.path.startswith("/hc/user_images/")
 
     @staticmethod
     def _retry_delay(attempt: int) -> float:

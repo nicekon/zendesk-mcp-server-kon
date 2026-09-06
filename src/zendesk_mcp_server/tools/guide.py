@@ -4,8 +4,9 @@ from __future__ import annotations
 
 import re
 from datetime import datetime
+from html.parser import HTMLParser
 from typing import Protocol
-from urllib.parse import quote
+from urllib.parse import quote, urlsplit
 
 from ..approvals import ApprovalStore
 from ..config import Settings
@@ -15,6 +16,8 @@ from .tickets import _cache_ticket_export, _clean_export_cache, _serialize_ticke
 
 _LOCALE = re.compile(r"[a-z]{2,3}(?:-[a-z0-9]+)*$")
 _CSAT_SCORES = {"offered", "unoffered", "received", "received_with_comment", "received_without_comment", "good", "good_with_comment", "good_without_comment", "bad", "bad_with_comment", "bad_without_comment"}
+_EMBEDDABLE_IMAGE_TYPES = {"image/png", "image/jpeg", "image/gif", "image/webp"}
+_MAX_EMBEDDED_IMAGE_BYTES = 20 * 1024 * 1024
 
 
 class GuideClient(Protocol):
@@ -22,6 +25,7 @@ class GuideClient(Protocol):
     def get_for_subdomain(self, subdomain: str, path: str, *, params: dict[str, str] | None = None) -> dict[str, object]: ...
     def request(self, method: str, path: str, *, json_body: dict[str, object] | None = None) -> dict[str, object]: ...
     def request_for_subdomain(self, subdomain: str, method: str, path: str, *, json_body: dict[str, object] | None = None) -> dict[str, object]: ...
+    def download_help_center_image(self, image_url: str, *, max_bytes: int, subdomain: str | None = None) -> dict[str, object]: ...
 
 
 class GuideTools:
@@ -101,13 +105,29 @@ class GuideTools:
         cached = _cache_ticket_export(root, output_format, _serialize_ticket_export(articles, output_format), filename_prefix="help-center-export")
         if not cached.get("ok"): return cached
         return success({"format": output_format, "item_count": len(articles), "truncated": data.get("truncated", False), **cached["data"]})
-    def get_article(self, article_id: object, *, brand_id: int | None = None) -> dict[str, object]:
+    def get_article(self, article_id: object, *, brand_id: int | None = None, embed_images: bool = False) -> dict[str, object]:
         identifier = _help_center_id(article_id)
-        if identifier is None: return failure(ErrorCode.VALIDATION_ERROR, "article_id must be a valid Help Center ID")
+        if identifier is None or not isinstance(embed_images, bool): return failure(ErrorCode.VALIDATION_ERROR, "article_id and embed_images must be valid")
         scoped = self._for_brand(brand_id)
         if isinstance(scoped, dict): return scoped
-        if scoped is not self: return scoped.get_article(article_id)
-        return self._get(f"/api/v2/help_center/articles/{identifier}.json")
+        if scoped is not self: return scoped.get_article(article_id, embed_images=embed_images)
+        result = self._get(f"/api/v2/help_center/articles/{identifier}.json")
+        if not embed_images or not result.get("ok"): return result
+        data = result.get("data"); article = data.get("article") if isinstance(data, dict) else None; body = article.get("body") if isinstance(article, dict) else None
+        if not isinstance(body, str): return result
+        downloader = getattr(self._client, "download_help_center_image", None)
+        if not callable(downloader): return failure(ErrorCode.UNSUPPORTED, "Zendesk client does not support Help Center image downloads")
+        images: list[dict[str, object]] = []; remaining = _MAX_EMBEDDED_IMAGE_BYTES
+        for image_url in _help_center_image_urls(body):
+            if remaining < 1: break
+            downloaded = downloader(image_url, max_bytes=remaining, subdomain=self._brand_subdomain)
+            image = downloaded.get("data") if isinstance(downloaded, dict) else None
+            content = image.get("content") if isinstance(image, dict) else None
+            content_type = image.get("content_type") if isinstance(image, dict) else None
+            if not downloaded.get("ok") or not isinstance(content, bytes) or len(content) > remaining or content_type not in _EMBEDDABLE_IMAGE_TYPES: continue
+            images.append({"src": image_url, "content": content, "content_type": content_type})
+            remaining -= len(content)
+        return success({**data, "images": images})
     def create_article(self, section_id: object, locale: str, title: str, body: str, *, brand_id: int | None = None, labels: list[str] | None = None, position: int | None = None, permission_group_id: int | None = None, user_segment_id: int | None = None, draft: bool = True, notify_subscribers: bool = False, execution_mode: str = "preview", approval_request_id: str | None = None, approval_token: str | None = None) -> dict[str, object]:
         section_identifier = _help_center_id(section_id)
         payload = self._article_payload(section_id, locale, title, body, labels, position, permission_group_id, user_segment_id, draft, notify_subscribers)
@@ -265,3 +285,19 @@ def _epoch(value: str | None, *, milliseconds: bool) -> int | None:
 def _help_center_id(value: object) -> str | None:
     if isinstance(value, int) and not isinstance(value, bool) and value > 0: return str(value)
     return quote(value, safe="") if isinstance(value, str) and value else None
+
+
+class _ImageSourceParser(HTMLParser):
+    def __init__(self) -> None: super().__init__(); self.sources: list[str] = []
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        if tag.lower() == "img": self.sources.extend(value for name, value in attrs if name.lower() == "src" and isinstance(value, str))
+
+
+def _help_center_image_urls(body: str) -> list[str]:
+    parser = _ImageSourceParser(); parser.feed(body); parser.close()
+    urls = []
+    for source in parser.sources:
+        try: parsed = urlsplit(source)
+        except ValueError: continue
+        if parsed.scheme == "https" and parsed.path.startswith("/hc/user_images/"): urls.append(source)
+    return list(dict.fromkeys(urls))

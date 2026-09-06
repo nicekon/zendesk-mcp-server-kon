@@ -61,6 +61,22 @@ def test_guide_category_read_resolves_brand_id_to_its_subdomain():
     ]
 
 
+def test_article_read_embeds_only_tenant_help_center_images_with_a_total_limit():
+    class ImageClient:
+        def __init__(self): self.downloads = []
+        def get(self, path, *, params=None):
+            return success({"article": {"id": 3, "body": '<img src="https://acme.zendesk.com/hc/user_images/one.png"><img src="https://outside.example/image.png">'}})
+        def download_help_center_image(self, url, *, max_bytes, subdomain=None):
+            self.downloads.append((url, max_bytes, subdomain))
+            return success({"content": b"image", "content_type": "image/png", "size": 5})
+
+    client = ImageClient()
+    result = GuideTools(client).get_article(3, embed_images=True)
+
+    assert result["data"]["images"] == [{"src": "https://acme.zendesk.com/hc/user_images/one.png", "content": b"image", "content_type": "image/png"}]
+    assert client.downloads == [("https://acme.zendesk.com/hc/user_images/one.png", 20 * 1024 * 1024, None)]
+
+
 def test_guide_search_uses_official_brand_and_locale_filters():
     class SearchClient:
         def __init__(self): self.paths = []
