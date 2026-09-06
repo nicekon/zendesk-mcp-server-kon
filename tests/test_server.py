@@ -305,6 +305,31 @@ def test_connection_status_tool_probes_the_authenticated_user(monkeypatch):
     assert json.loads(result.root.content[0].text)["data"]["verified_user"] == {"id": 7, "role": "admin"}
 
 
+def test_tool_call_writes_a_redacted_audit_event(tmp_path, monkeypatch):
+    from zendesk_mcp_server import server as server_module
+    from zendesk_mcp_server.contracts import success
+
+    monkeypatch.setattr(server_module, "build_connection_status", lambda *_args, **_kwargs: success({"customer_body": "do not log"}))
+    path = tmp_path / "audit.jsonl"
+    server = server_module.create_server({
+        "ZENDESK_AUDIT_LOG": str(path),
+        "ZENDESK_SUBDOMAIN": "acme",
+        "ZENDESK_EMAIL": "agent@example.test",
+        "ZENDESK_API_TOKEN": "secret",
+    })
+    request = types.CallToolRequest(params=types.CallToolRequestParams(name="zendesk_get_connection_status", arguments={}))
+
+    asyncio.run(server.request_handlers[types.CallToolRequest](request))
+
+    event = json.loads(path.read_text())
+    assert event["tool"] == "zendesk_get_connection_status"
+    assert event["risk_class"] == "read"
+    assert event["result_code"] == "ok"
+    assert "data" not in event
+    assert "secret" not in path.read_text()
+    assert "do not log" not in path.read_text()
+
+
 def test_disabled_capability_returns_before_building_its_tool_client(monkeypatch):
     import zendesk_mcp_server.server as module
 

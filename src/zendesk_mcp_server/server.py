@@ -16,6 +16,7 @@ from mcp.server.lowlevel.helper_types import ReadResourceContents
 from mcp.server.stdio import stdio_server
 
 from .approvals import ApprovalStore
+from .audit import AuditLog
 from .auth import build_authorization
 from .client import ZendeskClient
 from .config import ConfigurationError, Settings
@@ -280,6 +281,13 @@ def _tool_annotations(name: str) -> types.ToolAnnotations:
     return types.ToolAnnotations(readOnlyHint=read_only, destructiveHint=destructive, idempotentHint=read_only or name == "zendesk_upsert_user_subscription", openWorldHint=name != "zendesk_get_connection_status")
 
 
+def _tool_risk_class(name: str) -> str:
+    annotations = _tool_annotations(name)
+    if annotations.destructiveHint:
+        return "destructive"
+    return "read" if annotations.readOnlyHint else "write"
+
+
 def _tool_capability(name: str) -> str | None:
     if name == "zendesk_get_connection_status": return None
     if name == "zendesk_get_git_zen_links": return "git_zen"
@@ -434,6 +442,7 @@ def attachment_inspection_content(result: dict[str, object]) -> list[object]:
 def create_server(environ: Mapping[str, str] | None = None) -> Server:
     environment = dict(os.environ) if environ is None else dict(environ)
     server = Server("Zendesk")
+    audit_log = AuditLog.from_environment(environment)
 
     try:
         settings = Settings.load(environment)
@@ -530,8 +539,20 @@ def create_server(environ: Mapping[str, str] | None = None) -> Server:
         name: str,
         arguments: dict[str, object] | None,
     ) -> list[object]:
+        started_at = time.monotonic()
+
+        def respond(result: dict[str, object]) -> list[object]:
+            audit_log.record(name, _tool_risk_class(name), arguments, result, started_at=started_at)
+            if name == "zendesk_download_ticket_attachment": return attachment_download_content(result)
+            if name == "zendesk_inspect_ticket_attachment": return attachment_inspection_content(result)
+            if name == "zendesk_export_tickets": return ticket_export_content(result)
+            if name == "zendesk_export_satisfaction_ratings": return csat_export_content(result)
+            if name == "zendesk_export_help_center_articles": return help_center_export_content(result)
+            if name == "zendesk_get_help_center_article": return help_center_article_content(result)
+            return [types.TextContent(type="text", text=json.dumps(result))]
+
         if (blocked := _capability_gate(environment, name)) is not None:
-            return [types.TextContent(type="text", text=json.dumps(blocked))]
+            return respond(blocked)
         if name == "zendesk_get_connection_status":
             result = build_connection_status(environment, probe=True)
         elif name in {"zendesk_list_community_posts", "zendesk_search_community_posts", "zendesk_get_community_post", "zendesk_create_community_post", "zendesk_update_community_post", "zendesk_delete_community_post", "zendesk_create_community_comment", "zendesk_update_community_comment", "zendesk_delete_community_comment", "zendesk_create_community_topic", "zendesk_update_community_topic", "zendesk_delete_community_topic", "zendesk_list_community_votes", "zendesk_get_community_vote", "zendesk_upvote_community_content", "zendesk_downvote_community_content", "zendesk_remove_community_vote", "zendesk_list_content_subscriptions", "zendesk_get_content_subscription", "zendesk_create_content_subscription", "zendesk_update_content_subscription", "zendesk_delete_content_subscription", "zendesk_list_community_comments", "zendesk_get_community_comment", "zendesk_list_community_topics", "zendesk_get_community_topic", "zendesk_search_content_tags", "zendesk_count_content_tags", "zendesk_get_content_tag", "zendesk_create_content_tag", "zendesk_update_content_tag", "zendesk_delete_content_tag", "zendesk_list_user_subscriptions", "zendesk_upsert_user_subscription", "zendesk_delete_user_subscription", "zendesk_list_badge_categories", "zendesk_get_badge_category", "zendesk_create_badge_category", "zendesk_delete_badge_category", "zendesk_list_badges", "zendesk_get_badge", "zendesk_create_badge", "zendesk_update_badge", "zendesk_delete_badge", "zendesk_list_badge_assignments", "zendesk_create_badge_assignment", "zendesk_delete_badge_assignment", "zendesk_upload_community_user_image", "zendesk_upload_badge_icon"}:
@@ -796,13 +817,7 @@ def create_server(environ: Mapping[str, str] | None = None) -> Server:
                     result = tools.get_conversation(ticket_id)
         else:
             result = failure(ErrorCode.NOT_FOUND, f"Unknown tool: {name}")
-        if name == "zendesk_download_ticket_attachment": return attachment_download_content(result)
-        if name == "zendesk_inspect_ticket_attachment": return attachment_inspection_content(result)
-        if name == "zendesk_export_tickets": return ticket_export_content(result)
-        if name == "zendesk_export_satisfaction_ratings": return csat_export_content(result)
-        if name == "zendesk_export_help_center_articles": return help_center_export_content(result)
-        if name == "zendesk_get_help_center_article": return help_center_article_content(result)
-        return [types.TextContent(type="text", text=json.dumps(result))]
+        return respond(result)
 
     return server
 
