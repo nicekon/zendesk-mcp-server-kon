@@ -183,7 +183,31 @@ def test_community_post_author_or_created_at_requires_impersonation_gate(tmp_pat
     assert preview["data"]["impersonation"] is True
     assert preview["data"]["recipient_count_unknown"] is True
     assert blocked["error"]["code"] == "write_disabled"
-    assert not client.paths
+    assert client.paths == [("/api/v2/community/topics/4.json", None)]
+
+
+def test_community_notification_previews_report_api_follower_counts(tmp_path):
+    class NotificationClient:
+        def __init__(self): self.paths = []
+        def get(self, path, *, params=None):
+            self.paths.append((path, params))
+            key = "topic" if "/topics/" in path else "post"
+            return success({key: {"follower_count": 7 if key == "topic" else 3}})
+
+    client = NotificationClient()
+    tools = CommunityTools(client, Settings.load({"ZENDESK_WRITE_MODE": "standard"}), ApprovalStore(tmp_path / "approvals.json"))
+
+    post_preview = tools.create_post(4, "Title", "Body", notify_subscribers=True)
+    comment_preview = tools.create_comment(2, "Body", notify_subscribers=True)
+
+    assert post_preview["data"]["follower_count"] == 7
+    assert "recipient_count_unknown" not in post_preview["data"]
+    assert comment_preview["data"]["follower_count"] == 3
+    assert "recipient_count_unknown" not in comment_preview["data"]
+    assert client.paths == [
+        ("/api/v2/community/topics/4.json", None),
+        ("/api/v2/community/posts/2.json", None),
+    ]
 
 
 def test_community_comment_create_requires_local_public_approval(tmp_path):
