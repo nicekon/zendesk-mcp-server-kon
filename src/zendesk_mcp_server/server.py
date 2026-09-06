@@ -181,6 +181,8 @@ def build_tools() -> list[types.Tool]:
         types.Tool(name="zendesk_download_ticket_attachment", description="Safely download a scanned ticket attachment by ticket and attachment ID into the server-managed cache.", inputSchema={"type": "object", "properties": {"ticket_id": {"type": "integer", "minimum": 1}, "attachment_id": {"type": "integer", "minimum": 1}}, "required": ["ticket_id", "attachment_id"]}),
         types.Tool(name="zendesk_inspect_ticket_attachment", description="Inspect a scanned ticket attachment from the server-managed cache. Text and archive manifests are bounded; archives are never extracted.", inputSchema={"type": "object", "properties": {"ticket_id": {"type": "integer", "minimum": 1}, "attachment_id": {"type": "integer", "minimum": 1}}, "required": ["ticket_id", "attachment_id"]}),
         types.Tool(name="zendesk_ticket_to_issue_context", description="Convert a ticket and its plain-text conversation into Markdown issue context.", inputSchema={"type": "object", "properties": {"ticket_id": {"type": "integer", "minimum": 1}}, "required": ["ticket_id"]}),
+        types.Tool(name="zendesk_get_time_tracking", description="List time-tracking metadata recorded in a ticket's audits.", inputSchema={"type": "object", "properties": {"ticket_id": {"type": "integer", "minimum": 1}}, "required": ["ticket_id"]}),
+        types.Tool(name="zendesk_log_time", description="Record time in ticket audit metadata with a required internal note. Requires standard write mode and may trigger account automations.", inputSchema={"type": "object", "properties": {"ticket_id": {"type": "integer", "minimum": 1}, "time_spent": {"type": "string", "minLength": 1, "pattern": "^(?:[1-9][0-9]*h)?(?:[1-9][0-9]*m)?(?:[1-9][0-9]*s)?$"}, "note": {"type": "string", "minLength": 1}}, "required": ["ticket_id", "time_spent", "note"]}),
         types.Tool(
             name="zendesk_post_public_reply",
             description="Preview or post a public ticket reply. Apply requires standard mode, the public-write gate, and a matching local approval.",
@@ -279,6 +281,7 @@ def _tool_annotations(name: str) -> types.ToolAnnotations:
 
 def _tool_capability(name: str) -> str | None:
     if name == "zendesk_get_connection_status": return None
+    if name in {"zendesk_get_time_tracking", "zendesk_log_time"}: return "time_tracking"
     if "badge" in name: return "badges"
     if name in {"zendesk_get_satisfaction_ratings", "zendesk_list_csat", "zendesk_export_satisfaction_ratings"}: return "csat"
     if any(value in name for value in ("community", "content_subscription", "content_tag", "user_subscription", "_vote", "upload_badge")): return "community"
@@ -758,6 +761,10 @@ def create_server(environ: Mapping[str, str] | None = None) -> Server:
                 result = tools.inspect_attachment(values.get("ticket_id"), values.get("attachment_id"))
             elif name == "zendesk_ticket_to_issue_context":
                 result = tools.ticket_to_issue_context((arguments or {}).get("ticket_id"))
+            elif name == "zendesk_get_time_tracking":
+                result = tools.get_time_tracking((arguments or {}).get("ticket_id"))
+            elif name == "zendesk_log_time":
+                values = arguments or {}; result = tools.log_time(values.get("ticket_id"), values.get("time_spent"), values.get("note"))
             else:
                 ticket_id = (arguments or {}).get("ticket_id")
                 if not isinstance(ticket_id, int) or isinstance(ticket_id, bool):

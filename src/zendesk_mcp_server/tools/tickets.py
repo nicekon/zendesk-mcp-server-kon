@@ -15,6 +15,7 @@ import tarfile
 import time
 import zipfile
 import json
+import re
 from datetime import datetime
 from pathlib import Path
 from typing import Mapping, Protocol
@@ -23,6 +24,9 @@ from ..approvals import ApprovalStore
 from ..config import Settings
 from ..contracts import ErrorCode, failure, success
 from ..write_policy import WriteRisk, check_write_permission
+
+
+_TIME_SPENT = re.compile(r"(?=.+$)(?:[1-9]\d*h)?(?:[1-9]\d*m)?(?:[1-9]\d*s)?$")
 
 
 class TicketClient(Protocol):
@@ -101,6 +105,28 @@ class TicketTools:
             return failure(ErrorCode.UPSTREAM_ERROR, "Zendesk returned invalid comments")
         marked = [{**comment, "untrusted_user_content": True} for comment in comments if isinstance(comment, dict)]
         return success({"comments": marked})
+
+    def get_time_tracking(self, ticket_id: int) -> dict[str, object]:
+        if not _valid_ticket_id(ticket_id): return failure(ErrorCode.VALIDATION_ERROR, "ticket_id must be a positive integer")
+        client = self._configured_client()
+        if isinstance(client, dict): return client
+        result = client.get(f"/api/v2/tickets/{ticket_id}/audits.json")
+        if not result.get("ok"): return result
+        data = result.get("data"); audits = data.get("audits") if isinstance(data, dict) else None
+        if not isinstance(audits, list): return failure(ErrorCode.UPSTREAM_ERROR, "Zendesk returned invalid ticket audits")
+        entries = []
+        for audit in audits:
+            metadata = audit.get("metadata") if isinstance(audit, dict) else None; custom = metadata.get("custom") if isinstance(metadata, dict) else None; time_spent = custom.get("time_spent") if isinstance(custom, dict) else None
+            if isinstance(time_spent, str): entries.append({"audit_id": audit.get("id"), "created_at": audit.get("created_at"), "author_id": audit.get("author_id"), "time_spent": time_spent})
+        return success({"entries": entries})
+
+    def log_time(self, ticket_id: int, time_spent: str, note: str) -> dict[str, object]:
+        if not _valid_ticket_id(ticket_id) or not isinstance(time_spent, str) or not _TIME_SPENT.fullmatch(time_spent) or not isinstance(note, str) or not note.strip(): return failure(ErrorCode.VALIDATION_ERROR, "ticket_id, time_spent, and note must be valid")
+        permitted = self._write_permitted(WriteRisk.STANDARD)
+        if permitted is not None: return permitted
+        client = self._configured_mutation_client()
+        if isinstance(client, dict): return client
+        return _with_automation_notice(client.request("PUT", f"/api/v2/tickets/{ticket_id}.json", json_body={"ticket": {"comment": {"body": note.strip(), "public": False}, "metadata": {"time_spent": time_spent}}}))
 
     def list_attachments(self, ticket_id: int) -> dict[str, object]:
         conversation = self.get_conversation(ticket_id)

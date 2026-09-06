@@ -87,6 +87,21 @@ def test_conversation_marks_customer_text_untrusted():
     assert result["data"]["comments"][0]["untrusted_user_content"] is True
 
 
+def test_time_tracking_reads_audit_metadata_and_logs_with_an_internal_note():
+    class TimeClient(MutationStub):
+        def get(self, path, *, params=None):
+            self.get_paths.append((path, params))
+            return success({"audits": [{"id": 4, "created_at": "2026-09-06T00:00:00Z", "author_id": 2, "metadata": {"custom": {"time_spent": "4m12s"}}}]})
+
+    client = TimeClient()
+    tools = TicketTools(client, Settings.load({"ZENDESK_WRITE_MODE": "standard"}))
+
+    assert tools.get_time_tracking(9)["data"]["entries"] == [{"audit_id": 4, "created_at": "2026-09-06T00:00:00Z", "author_id": 2, "time_spent": "4m12s"}]
+    assert tools.log_time(9, "4m12s", "Investigated login issue")["ok"] is True
+    assert client.get_paths == [("/api/v2/tickets/9/audits.json", None)]
+    assert client.calls == [("PUT", "/api/v2/tickets/9.json", {"ticket": {"comment": {"body": "Investigated login issue", "public": False}, "metadata": {"time_spent": "4m12s"}}})]
+
+
 def test_ticket_attachment_metadata_is_extracted_from_comments():
     client = StubClient({"/api/v2/tickets/7/comments.json": success({"comments": [{"id": 3, "attachments": [{"id": 5, "file_name": "log.txt", "size": 12, "malware_scan_result": "malware_not_found"}]}]})})
 
