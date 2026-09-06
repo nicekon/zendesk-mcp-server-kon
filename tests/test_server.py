@@ -352,6 +352,29 @@ def test_disabled_capability_returns_before_building_its_tool_client(monkeypatch
     assert json.loads(result.root.content[0].text)["error"]["code"] == "not_configured"
 
 
+def test_enabled_conditional_ticket_tools_are_dispatched(monkeypatch):
+    import zendesk_mcp_server.server as module
+    from zendesk_mcp_server.contracts import success
+
+    class TicketTools:
+        def get_git_zen_links(self, ticket_id): return success({"tool": "git_zen", "ticket_id": ticket_id})
+        def get_time_tracking(self, ticket_id): return success({"tool": "time_tracking", "ticket_id": ticket_id})
+        def log_time(self, ticket_id, time_spent, note): return success({"tool": "log_time", "ticket_id": ticket_id, "time_spent": time_spent, "note": note})
+
+    monkeypatch.setattr(module, "build_ticket_tools", lambda _: TicketTools())
+    server = module.create_server({"ZENDESK_CAPABILITIES": "support,git_zen,time_tracking"})
+    handler = server.request_handlers[types.CallToolRequest]
+
+    for name, arguments, expected in (
+        ("zendesk_get_git_zen_links", {"ticket_id": 1}, "git_zen"),
+        ("zendesk_get_time_tracking", {"ticket_id": 2}, "time_tracking"),
+        ("zendesk_log_time", {"ticket_id": 3, "time_spent": "1h", "note": "work"}, "log_time"),
+    ):
+        request = types.CallToolRequest(params=types.CallToolRequestParams(name=name, arguments=arguments))
+        result = asyncio.run(handler(request))
+        assert result.root.structuredContent["data"]["tool"] == expected
+
+
 def test_support_read_tools_are_registered():
     from zendesk_mcp_server.server import build_tools
 

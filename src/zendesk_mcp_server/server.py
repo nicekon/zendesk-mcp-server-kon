@@ -722,6 +722,9 @@ def create_server(environ: Mapping[str, str] | None = None) -> Server:
             "zendesk_download_ticket_attachment",
             "zendesk_inspect_ticket_attachment",
             "zendesk_ticket_to_issue_context",
+            "zendesk_get_git_zen_links",
+            "zendesk_get_time_tracking",
+            "zendesk_log_time",
             "zendesk_post_public_reply",
             "zendesk_post_internal_note",
         }:
