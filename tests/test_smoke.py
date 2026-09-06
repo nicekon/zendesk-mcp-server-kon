@@ -17,3 +17,11 @@ def test_readme_declares_the_mcp_registry_name():
 
     readme = Path(__file__).parents[1] / "README.md"
     assert "<!-- mcp-name: io.github.nicekon/zendesk-mcp-server-kon -->" in readme.read_text()
+
+
+def test_release_metadata_matches_the_canonical_major_version():
+    from pathlib import Path
+
+    root = Path(__file__).parents[1]
+    assert 'version = "1.0.0"' in (root / "pyproject.toml").read_text()
+    assert 'server_version="1.0.0"' in (root / "src/zendesk_mcp_server/server.py").read_text()

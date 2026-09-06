@@ -845,7 +845,7 @@ async def main() -> None:
             write_stream,
             initialization_options=InitializationOptions(
                 server_name="Zendesk",
-                server_version="0.1.0",
+                server_version="1.0.0",
                 capabilities=server.get_capabilities(
                     notification_options=NotificationOptions(),
                     experimental_capabilities={},
