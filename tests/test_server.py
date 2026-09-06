@@ -385,3 +385,12 @@ def test_content_tag_search_exposes_cursor_controls():
 
     assert tool.inputSchema["properties"]["cursor"] == {"type": "string", "minLength": 1}
     assert tool.inputSchema["properties"]["limit"] == {"type": "integer", "minimum": 1, "maximum": 100, "default": 100}
+
+
+def test_community_comment_read_accepts_post_and_locale_scope():
+    from zendesk_mcp_server.server import build_tools
+
+    tools = {tool.name: tool for tool in build_tools()}
+
+    assert tools["zendesk_get_community_comment"].inputSchema["properties"]["post_id"]["minimum"] == 1
+    assert tools["zendesk_get_community_comment"].inputSchema["properties"]["locale"]["minLength"] == 2

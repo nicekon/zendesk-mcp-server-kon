@@ -4,6 +4,7 @@ import base64
 import hashlib
 import json
 import os
+import re
 import stat
 from datetime import datetime
 from html.parser import HTMLParser
@@ -20,6 +21,7 @@ from ..write_policy import WriteRisk, check_write_permission
 _HTML_TAGS = {"p", "div", "span", "br", "b", "i", "u", "strong", "em", "sub", "sup", "a", "hr", "img", "h1", "h2", "h3", "h4", "h5", "h6", "ul", "ol", "li", "dl", "dt", "dd", "table", "thead", "tbody", "tfoot", "tr", "th", "td", "colgroup", "col", "blockquote", "pre", "abbr", "acronym", "cite", "code", "tt", "samp", "kbd", "var", "dfn", "address", "x-zendesk-user"}
 _VOID_HTML_TAGS = {"br", "hr", "img", "col"}
 _HTML_ATTRIBUTES = {"a": {"href", "title", "rel"}, "img": {"src", "alt", "title", "width", "height"}, "th": {"colspan", "rowspan", "scope"}, "td": {"colspan", "rowspan", "scope"}}
+_LOCALE = re.compile(r"[a-z]{2,3}(?:-[a-z0-9]+)*$")
 
 
 class _CommunityHTMLValidator(HTMLParser):
@@ -127,7 +129,11 @@ class CommunityTools:
         params = {"page[size]": str(limit)}
         if cursor is not None: params["page[after]"] = cursor
         return self._cursor_page(path, params, "comments")
-    def get_comment(self, comment_id: int) -> dict[str, object]: return self._by_id("/api/v2/community/comments/{id}.json", comment_id, "comment_id")
+    def get_comment(self, comment_id: int, *, post_id: int | None = None, locale: str | None = None) -> dict[str, object]:
+        if not self._valid_id(comment_id, "comment_id") or (post_id is not None and not self._valid_id(post_id, "post_id")) or (locale is not None and (post_id is None or not isinstance(locale, str) or not _LOCALE.fullmatch(locale))): return failure(ErrorCode.VALIDATION_ERROR, "valid comment_id, post_id, and locale are required")
+        if post_id is None: return self._by_id("/api/v2/community/comments/{id}.json", comment_id, "comment_id")
+        path = f"/api/v2/help_center/{locale}/community/posts/{post_id}/comments/{comment_id}.json" if locale is not None else f"/api/v2/community/posts/{post_id}/comments/{comment_id}.json"
+        return self._get(path)
     def list_topics(self, *, cursor: str | None = None, limit: int = 100) -> dict[str, object]:
         if not isinstance(limit, int) or isinstance(limit, bool) or not 1 <= limit <= 100 or (cursor is not None and (not isinstance(cursor, str) or not cursor)): return failure(ErrorCode.VALIDATION_ERROR, "valid cursor and limit are required")
         params = {"page[size]": str(limit)}

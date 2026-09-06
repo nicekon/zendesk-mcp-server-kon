@@ -31,6 +31,14 @@ def test_community_comment_topic_and_vote_reads_use_fixed_endpoints():
     assert client.paths == [("/api/v2/community/posts/2/comments.json", {"page[size]": "100"}), ("/api/v2/community/comments/3.json", None), ("/api/v2/community/topics.json", {"page[size]": "100"}), ("/api/v2/community/topics/4.json", None), ("/api/v2/help_center/posts/2/votes.json", {"page[size]": "100"}), ("/api/v2/help_center/votes/5.json", None)]
 
 
+def test_community_comment_read_uses_post_and_locale_specific_endpoint():
+    client = StubClient(); tools = CommunityTools(client)
+
+    tools.get_comment(3, post_id=2, locale="en-us")
+
+    assert client.paths == [("/api/v2/help_center/en-us/community/posts/2/comments/3.json", None)]
+
+
 def test_community_user_votes_filter_mixed_pages_until_the_requested_limit():
     class VoteClient:
         def __init__(self): self.paths = []
