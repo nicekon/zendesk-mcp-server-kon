@@ -273,7 +273,7 @@ def build_tools() -> list[types.Tool]:
 
 def _tool_annotations(name: str) -> types.ToolAnnotations:
     read_only = name == "zendesk_get_connection_status" or name.startswith(("zendesk_get_", "zendesk_list_", "zendesk_search_", "zendesk_count_", "zendesk_export_", "zendesk_preview_", "zendesk_download_", "zendesk_inspect_", "zendesk_ticket_to_issue_context"))
-    destructive = "_delete_" in name or "_remove_" in name or name == "zendesk_replace_article_translation_body"
+    destructive = "_delete_" in name or name in {"zendesk_remove_community_vote", "zendesk_replace_article_translation_body"}
     return types.ToolAnnotations(readOnlyHint=read_only, destructiveHint=destructive, idempotentHint=read_only or name == "zendesk_upsert_user_subscription", openWorldHint=name != "zendesk_get_connection_status")
 
 

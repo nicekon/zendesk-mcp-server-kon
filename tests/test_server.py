@@ -195,6 +195,7 @@ def test_every_tool_declares_mcp_risk_annotations():
     assert all(tool.annotations is not None and tool.annotations.readOnlyHint is not None and tool.annotations.destructiveHint is not None and tool.annotations.idempotentHint is not None and tool.annotations.openWorldHint is not None for tool in tools.values())
     assert tools["zendesk_get_ticket"].annotations.readOnlyHint is True
     assert tools["zendesk_delete_community_post"].annotations.destructiveHint is True
+    assert tools["zendesk_remove_ticket_tag"].annotations.destructiveHint is False
     assert tools["zendesk_create_ticket"].annotations.readOnlyHint is False
 
 
