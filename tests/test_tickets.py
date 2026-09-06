@@ -55,6 +55,14 @@ class RiskyMacroStub(MutationStub):
         return success({"result": {"ticket": {"status": "pending"}}})
 
 
+class InvalidMacroStub(MutationStub):
+    def get(self, path, *, params=None):
+        self.get_paths.append((path, params))
+        if path == "/api/v2/macros/4.json":
+            return success({"macro": {"actions": [{"field": []}]}})
+        return success({"result": {"ticket": {"status": "pending"}}})
+
+
 class AttachmentDownloadStub:
     def __init__(self, content=b"hello world", content_type="text/plain"): self.downloads, self.content, self.content_type = [], content, content_type
     def get(self, path, *, params=None):
@@ -592,6 +600,12 @@ def test_ticket_macro_raises_all_gates_from_its_actions(tmp_path):
     assert preview["data"]["required_risks"] == ["standard", "public", "destructive", "impersonation"]
     assert result["ok"] is True
     assert client.calls == [("PUT", "/api/v2/tickets/9.json", {"ticket": {"status": "pending"}})]
+
+
+def test_ticket_macro_rejects_an_invalid_action_definition():
+    result = TicketTools(InvalidMacroStub()).apply_macro(9, 4)
+
+    assert result["error"]["code"] == "upstream_error"
 
 
 def test_attachment_download_revalidates_ownership_and_uses_fixed_cache(tmp_path):

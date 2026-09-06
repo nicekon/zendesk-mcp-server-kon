@@ -31,6 +31,9 @@ preview/apply operation also requires a matching one-time local approval:
 zendesk approve <approval_request_id>
 ```
 
+This command requires an interactive terminal, displays the exact stored
+preview, and issues the single-use token only after `yes` confirmation.
+
 Attachment downloads accept only the attachment identified by its ticket and
 attachment ID, require Zendesk's safe malware result, and use a managed cache.
 Set `ZENDESK_ATTACHMENT_CACHE_ROOT` to relocate it. Secure local image uploads

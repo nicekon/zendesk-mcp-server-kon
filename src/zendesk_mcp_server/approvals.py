@@ -35,6 +35,7 @@ class ApprovalStore:
             request_id = str(uuid.uuid4())
             records[request_id] = {
                 "tool": tool,
+                "payload": payload,
                 "payload_hash": _payload_hash(payload),
                 "expires_at": self._now() + 300,
                 "approved": False,
@@ -43,12 +44,22 @@ class ApprovalStore:
             self._save(records)
         return request_id
 
+    def preview(self, request_id: str) -> dict[str, object]:
+        with self._locked():
+            records = self._load()
+            self._prune(records)
+            record = records.get(request_id)
+            self._save(records)
+        if not isinstance(record, dict) or not isinstance(record.get("tool"), str) or not isinstance(record.get("payload"), dict):
+            raise ValueError("approval request is missing or expired")
+        return {"tool": record["tool"], "payload": record["payload"]}
+
     def approve(self, request_id: str) -> str:
         with self._locked():
             records = self._load()
             self._prune(records)
             record = records.get(request_id)
-            if not isinstance(record, dict):
+            if not isinstance(record, dict) or not isinstance(record.get("payload"), dict):
                 raise ValueError("approval request is missing or expired")
             token = secrets.token_urlsafe(32)
             record["token_hash"] = _token_hash(token)

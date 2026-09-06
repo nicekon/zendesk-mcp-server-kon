@@ -701,7 +701,10 @@ class TicketTools:
         macro_data = macro.get("data")
         definition = macro_data.get("macro") if isinstance(macro_data, dict) else None
         actions = definition.get("actions") if isinstance(definition, dict) else None
-        if not isinstance(actions, list) or not all(isinstance(action, dict) for action in actions):
+        if not isinstance(actions, list) or not all(
+            isinstance(action, dict) and isinstance(action.get("field"), str) and action["field"] and "value" in action
+            for action in actions
+        ):
             return failure(ErrorCode.UPSTREAM_ERROR, "Zendesk returned an invalid macro definition")
         return success({"ticket": ticket, "actions": actions})
 
