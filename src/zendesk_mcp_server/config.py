@@ -50,6 +50,7 @@ class Settings:
     api_token: str | None = None
     oauth: OAuthConfig | None = None
     capabilities: frozenset[str] = frozenset({"support", "operations", "guide", "community"})
+    git_zen_field_id: int | None = None
 
     @classmethod
     def load(
@@ -76,6 +77,9 @@ class Settings:
         knowledge_base_resource_enabled = _parse_bool(environ, "ZENDESK_ENABLE_KNOWLEDGE_BASE_RESOURCE")
         capabilities = frozenset(value.strip() for value in environ.get("ZENDESK_CAPABILITIES", "support,operations,guide,community").split(",") if value.strip())
         if not capabilities <= _CAPABILITIES: raise ConfigurationError("invalid_capabilities", "Zendesk capabilities contain an unknown value")
+        try: git_zen_field_id = int(environ["ZENDESK_GIT_ZEN_FIELD_ID"]) if "ZENDESK_GIT_ZEN_FIELD_ID" in environ else None
+        except ValueError as error: raise ConfigurationError("invalid_git_zen_field", "ZENDESK_GIT_ZEN_FIELD_ID must be a positive integer") from error
+        if git_zen_field_id is not None and git_zen_field_id < 1: raise ConfigurationError("invalid_git_zen_field", "ZENDESK_GIT_ZEN_FIELD_ID must be a positive integer")
 
         subdomain = environ.get("ZENDESK_SUBDOMAIN")
         if subdomain is not None:
@@ -134,6 +138,7 @@ class Settings:
             api_token=api_token if selected_mode is AuthMode.API_TOKEN else None,
             oauth=oauth if selected_mode is AuthMode.OAUTH else None,
             capabilities=capabilities,
+            git_zen_field_id=git_zen_field_id,
         )
 
     def connection_status(self) -> dict[str, object]:

@@ -27,6 +27,7 @@ from ..write_policy import WriteRisk, check_write_permission
 
 
 _TIME_SPENT = re.compile(r"(?=.+$)(?:[1-9]\d*h)?(?:[1-9]\d*m)?(?:[1-9]\d*s)?$")
+_GIT_ZEN_URL = re.compile(r"https://(?:github\.com/[^\s/]+/[^\s/]+/(?:issues|pull)/\d+|gitlab\.com/[^\s]+/-/(?:issues|merge_requests|commit)/[^\s]+)")
 
 
 class TicketClient(Protocol):
@@ -119,6 +120,16 @@ class TicketTools:
             metadata = audit.get("metadata") if isinstance(audit, dict) else None; custom = metadata.get("custom") if isinstance(metadata, dict) else None; time_spent = custom.get("time_spent") if isinstance(custom, dict) else None
             if isinstance(time_spent, str): entries.append({"audit_id": audit.get("id"), "created_at": audit.get("created_at"), "author_id": audit.get("author_id"), "time_spent": time_spent})
         return success({"entries": entries})
+
+    def get_git_zen_links(self, ticket_id: int) -> dict[str, object]:
+        if not _valid_ticket_id(ticket_id): return failure(ErrorCode.VALIDATION_ERROR, "ticket_id must be a positive integer")
+        if self._settings is None or self._settings.git_zen_field_id is None: return failure(ErrorCode.NOT_CONFIGURED, "Git-Zen ticket field is not configured")
+        ticket = self.get_ticket(ticket_id)
+        if not ticket.get("ok"): return ticket
+        data = ticket.get("data"); value = data.get("ticket") if isinstance(data, dict) else None; fields = value.get("custom_fields") if isinstance(value, dict) else None
+        field = next((field for field in fields if isinstance(field, dict) and field.get("id") == self._settings.git_zen_field_id), None) if isinstance(fields, list) else None
+        text = field.get("value") if isinstance(field, dict) else None
+        return success({"links": list(dict.fromkeys(_GIT_ZEN_URL.findall(text))) if isinstance(text, str) else []})
 
     def log_time(self, ticket_id: int, time_spent: str, note: str) -> dict[str, object]:
         if not _valid_ticket_id(ticket_id) or not isinstance(time_spent, str) or not _TIME_SPENT.fullmatch(time_spent) or not isinstance(note, str) or not note.strip(): return failure(ErrorCode.VALIDATION_ERROR, "ticket_id, time_spent, and note must be valid")

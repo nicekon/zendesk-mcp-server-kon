@@ -102,6 +102,14 @@ def test_time_tracking_reads_audit_metadata_and_logs_with_an_internal_note():
     assert client.calls == [("PUT", "/api/v2/tickets/9.json", {"ticket": {"comment": {"body": "Investigated login issue", "public": False}, "metadata": {"time_spent": "4m12s"}}})]
 
 
+def test_git_zen_links_are_extracted_only_from_the_configured_ticket_field():
+    client = StubClient({"/api/v2/tickets/9.json": success({"ticket": {"custom_fields": [{"id": 7, "value": "https://github.com/acme/app/issues/4 https://gitlab.com/acme/app/-/merge_requests/3"}, {"id": 8, "value": "https://github.com/acme/app/pull/9"}]}})})
+
+    result = TicketTools(client, Settings.load({"ZENDESK_GIT_ZEN_FIELD_ID": "7"})).get_git_zen_links(9)
+
+    assert result["data"]["links"] == ["https://github.com/acme/app/issues/4", "https://gitlab.com/acme/app/-/merge_requests/3"]
+
+
 def test_ticket_attachment_metadata_is_extracted_from_comments():
     client = StubClient({"/api/v2/tickets/7/comments.json": success({"comments": [{"id": 3, "attachments": [{"id": 5, "file_name": "log.txt", "size": 12, "malware_scan_result": "malware_not_found"}]}]})})
 
