@@ -10,6 +10,8 @@ The [capability manifest](docs/capability-manifest.md) records the official
 Zendesk contracts behind Community tools.
 See the [release procedure](docs/releasing.md) for wheel, MCPB, and MCP Registry
 publication.
+See [migration and rollback](docs/migration.md) before replacing an existing
+KON or OAuth installation.
 
 ## Current status
 
