@@ -7,6 +7,8 @@
 Zendesk용 Model Context Protocol 서버이며,
 [통합 Zendesk MCP PRD](docs/superpowers/specs/2026-09-04-unified-zendesk-mcp-design.md)를
 단계적으로 구현합니다.
+[capability manifest](docs/capability-manifest.md)에는 Community 도구가 따르는
+Zendesk 공식 API 계약을 기록합니다.
 
 ## 현재 상태
 
