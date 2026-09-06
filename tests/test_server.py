@@ -265,6 +265,24 @@ def test_connection_status_does_not_expose_credentials():
     assert "agent@example.test" not in repr(result)
 
 
+def test_connection_status_tool_probes_the_authenticated_user(monkeypatch):
+    import zendesk_mcp_server.server as module
+
+    class Client:
+        def __init__(self, *_): pass
+        def get(self, path):
+            assert path == "/api/v2/users/me.json"
+            return {"ok": True, "data": {"user": {"id": 7, "role": "admin"}}}
+
+    monkeypatch.setattr(module, "ZendeskClient", Client)
+    server = module.create_server({"ZENDESK_SUBDOMAIN": "acme", "ZENDESK_EMAIL": "agent@example.test", "ZENDESK_API_TOKEN": "token"})
+    request = types.CallToolRequest(params=types.CallToolRequestParams(name="zendesk_get_connection_status", arguments={}))
+
+    result = asyncio.run(server.request_handlers[types.CallToolRequest](request))
+
+    assert json.loads(result.root.content[0].text)["data"]["verified_user"] == {"id": 7, "role": "admin"}
+
+
 def test_disabled_capability_returns_before_building_its_tool_client(monkeypatch):
     import zendesk_mcp_server.server as module
 

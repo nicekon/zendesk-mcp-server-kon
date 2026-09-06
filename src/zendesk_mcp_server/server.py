@@ -299,9 +299,18 @@ def _capability_gate(environ: Mapping[str, str], name: str) -> dict[str, object]
     return failure(ErrorCode.NOT_CONFIGURED, f"Zendesk {capability} capability is not enabled") if capability is not None and not settings.has_capability(capability) else None
 
 
-def build_connection_status(environ: Mapping[str, str]) -> dict[str, object]:
+def build_connection_status(environ: Mapping[str, str], *, probe: bool = False) -> dict[str, object]:
     try:
-        return success(Settings.load(environ).connection_status())
+        settings = Settings.load(environ)
+        status = settings.connection_status()
+        if not probe or settings.auth_mode is None: return success(status)
+        authorization = build_authorization(settings)
+        if authorization is None: return success(status)
+        result = ZendeskClient(settings, authorization).get("/api/v2/users/me.json")
+        if not result.get("ok"): return result
+        data = result.get("data"); user = data.get("user") if isinstance(data, dict) else None
+        if not isinstance(user, dict): return failure(ErrorCode.UPSTREAM_ERROR, "Zendesk returned an invalid authenticated user")
+        return success({**status, "verified_user": {key: user.get(key) for key in ("id", "role")}})
     except ConfigurationError as error:
         return failure(ErrorCode.VALIDATION_ERROR, str(error))
 
@@ -516,7 +525,7 @@ def create_server(environ: Mapping[str, str] | None = None) -> Server:
         if (blocked := _capability_gate(environment, name)) is not None:
             return [types.TextContent(type="text", text=json.dumps(blocked))]
         if name == "zendesk_get_connection_status":
-            result = build_connection_status(environment)
+            result = build_connection_status(environment, probe=True)
         elif name in {"zendesk_list_community_posts", "zendesk_search_community_posts", "zendesk_get_community_post", "zendesk_create_community_post", "zendesk_update_community_post", "zendesk_delete_community_post", "zendesk_create_community_comment", "zendesk_update_community_comment", "zendesk_delete_community_comment", "zendesk_create_community_topic", "zendesk_update_community_topic", "zendesk_delete_community_topic", "zendesk_list_community_votes", "zendesk_get_community_vote", "zendesk_upvote_community_content", "zendesk_downvote_community_content", "zendesk_remove_community_vote", "zendesk_list_content_subscriptions", "zendesk_get_content_subscription", "zendesk_create_content_subscription", "zendesk_update_content_subscription", "zendesk_delete_content_subscription", "zendesk_list_community_comments", "zendesk_get_community_comment", "zendesk_list_community_topics", "zendesk_get_community_topic", "zendesk_search_content_tags", "zendesk_count_content_tags", "zendesk_get_content_tag", "zendesk_create_content_tag", "zendesk_update_content_tag", "zendesk_delete_content_tag", "zendesk_list_user_subscriptions", "zendesk_upsert_user_subscription", "zendesk_delete_user_subscription", "zendesk_list_badge_categories", "zendesk_get_badge_category", "zendesk_create_badge_category", "zendesk_delete_badge_category", "zendesk_list_badges", "zendesk_get_badge", "zendesk_create_badge", "zendesk_update_badge", "zendesk_delete_badge", "zendesk_list_badge_assignments", "zendesk_create_badge_assignment", "zendesk_delete_badge_assignment", "zendesk_upload_community_user_image", "zendesk_upload_badge_icon"}:
             tools = build_community_tools(environment)
             if isinstance(tools, dict): result = tools
