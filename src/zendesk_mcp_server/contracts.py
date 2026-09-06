@@ -9,6 +9,7 @@ from typing import Mapping
 class ErrorCode(str, Enum):
     AUTHENTICATION_FAILED = "authentication_failed"
     AUTHENTICATION_RETRY_REQUIRED = "authentication_retry_required"
+    REAUTHORIZATION_REQUIRED = "reauthorization_required"
     PERMISSION_DENIED = "permission_denied"
     NOT_FOUND = "not_found"
     CONFLICT = "conflict"

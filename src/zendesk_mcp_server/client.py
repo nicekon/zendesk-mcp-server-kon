@@ -123,7 +123,7 @@ class ZendeskClient:
                     try:
                         refresh()
                     except ConfigurationError:
-                        return failure(ErrorCode.AUTHENTICATION_FAILED, "Zendesk authentication refresh failed")
+                        return failure(ErrorCode.REAUTHORIZATION_REQUIRED, "Zendesk authentication refresh failed")
                     refreshed = True
                     if read_request: continue
                     return failure(ErrorCode.AUTHENTICATION_RETRY_REQUIRED, "Zendesk authentication refreshed; retry the write", retryable=True, operation_state="not_applied", request_id=_request_id(response))

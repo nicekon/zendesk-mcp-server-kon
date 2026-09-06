@@ -3,7 +3,7 @@ import pytest
 
 from zendesk_mcp_server.auth import ApiTokenAuthorization
 from zendesk_mcp_server.client import ZendeskClient
-from zendesk_mcp_server.config import Settings
+from zendesk_mcp_server.config import ConfigurationError, Settings
 
 
 @pytest.fixture
@@ -159,6 +159,20 @@ def test_write_401_refreshes_without_replaying(settings):
     assert result["error"]["operation_state"] == "not_applied"
     assert authorization.refreshes == 1
     assert calls == 1
+
+
+def test_oauth_refresh_failure_requires_reauthorization(settings):
+    class FailingRefreshAuthorization:
+        def headers(self): return {"Authorization": "Bearer expired"}
+        def refresh(self): raise ConfigurationError("oauth_refresh_failed", "OAuth token refresh failed")
+
+    client = ZendeskClient(
+        settings,
+        FailingRefreshAuthorization(),
+        transport=httpx.MockTransport(lambda request: httpx.Response(401, request=request)),
+    )
+
+    assert client.get("/api/v2/users/me.json")["error"]["code"] == "reauthorization_required"
 
 
 def test_presigned_upload_never_sends_zendesk_authorization(settings, authorization, monkeypatch):
