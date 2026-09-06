@@ -277,6 +277,23 @@ def _tool_annotations(name: str) -> types.ToolAnnotations:
     return types.ToolAnnotations(readOnlyHint=read_only, destructiveHint=destructive, idempotentHint=read_only or name == "zendesk_upsert_user_subscription", openWorldHint=name != "zendesk_get_connection_status")
 
 
+def _tool_capability(name: str) -> str | None:
+    if name == "zendesk_get_connection_status": return None
+    if "badge" in name: return "badges"
+    if name in {"zendesk_get_satisfaction_ratings", "zendesk_list_csat", "zendesk_export_satisfaction_ratings"}: return "csat"
+    if any(value in name for value in ("community", "content_subscription", "content_tag", "user_subscription", "_vote", "upload_badge")): return "community"
+    if any(value in name for value in ("help_center", "article_translation", "guide_")): return "guide"
+    if name in {"zendesk_search_users", "zendesk_list_groups", "zendesk_list_group_users", "zendesk_get_organization", "zendesk_list_brands", "zendesk_list_ticket_fields", "zendesk_list_ticket_forms", "zendesk_list_custom_statuses", "zendesk_list_views", "zendesk_get_view", "zendesk_list_view_tickets", "zendesk_list_macros", "zendesk_list_triggers", "zendesk_preview_macro", "zendesk_apply_ticket_macro"}: return "operations"
+    return "support"
+
+
+def _capability_gate(environ: Mapping[str, str], name: str) -> dict[str, object] | None:
+    try: settings = Settings.load(environ)
+    except ConfigurationError as error: return failure(ErrorCode.VALIDATION_ERROR, str(error))
+    capability = _tool_capability(name)
+    return failure(ErrorCode.NOT_CONFIGURED, f"Zendesk {capability} capability is not enabled") if capability is not None and not settings.has_capability(capability) else None
+
+
 def build_connection_status(environ: Mapping[str, str]) -> dict[str, object]:
     try:
         return success(Settings.load(environ).connection_status())
@@ -491,6 +508,8 @@ def create_server(environ: Mapping[str, str] | None = None) -> Server:
         name: str,
         arguments: dict[str, object] | None,
     ) -> list[object]:
+        if (blocked := _capability_gate(environment, name)) is not None:
+            return [types.TextContent(type="text", text=json.dumps(blocked))]
         if name == "zendesk_get_connection_status":
             result = build_connection_status(environment)
         elif name in {"zendesk_list_community_posts", "zendesk_search_community_posts", "zendesk_get_community_post", "zendesk_create_community_post", "zendesk_update_community_post", "zendesk_delete_community_post", "zendesk_create_community_comment", "zendesk_update_community_comment", "zendesk_delete_community_comment", "zendesk_create_community_topic", "zendesk_update_community_topic", "zendesk_delete_community_topic", "zendesk_list_community_votes", "zendesk_get_community_vote", "zendesk_upvote_community_content", "zendesk_downvote_community_content", "zendesk_remove_community_vote", "zendesk_list_content_subscriptions", "zendesk_get_content_subscription", "zendesk_create_content_subscription", "zendesk_update_content_subscription", "zendesk_delete_content_subscription", "zendesk_list_community_comments", "zendesk_get_community_comment", "zendesk_list_community_topics", "zendesk_get_community_topic", "zendesk_search_content_tags", "zendesk_count_content_tags", "zendesk_get_content_tag", "zendesk_create_content_tag", "zendesk_update_content_tag", "zendesk_delete_content_tag", "zendesk_list_user_subscriptions", "zendesk_upsert_user_subscription", "zendesk_delete_user_subscription", "zendesk_list_badge_categories", "zendesk_get_badge_category", "zendesk_create_badge_category", "zendesk_delete_badge_category", "zendesk_list_badges", "zendesk_get_badge", "zendesk_create_badge", "zendesk_update_badge", "zendesk_delete_badge", "zendesk_list_badge_assignments", "zendesk_create_badge_assignment", "zendesk_delete_badge_assignment", "zendesk_upload_community_user_image", "zendesk_upload_badge_icon"}:

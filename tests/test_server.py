@@ -1,5 +1,6 @@
 import asyncio
 import importlib
+import json
 
 from mcp import types
 
@@ -261,6 +262,18 @@ def test_connection_status_does_not_expose_credentials():
     assert result["data"]["auth_mode"] == "api_token"
     assert "secret" not in repr(result)
     assert "agent@example.test" not in repr(result)
+
+
+def test_disabled_capability_returns_before_building_its_tool_client(monkeypatch):
+    import zendesk_mcp_server.server as module
+
+    monkeypatch.setattr(module, "build_guide_tools", lambda _: (_ for _ in ()).throw(AssertionError("unexpected client build")))
+    server = module.create_server({"ZENDESK_SUBDOMAIN": "acme", "ZENDESK_EMAIL": "agent@example.test", "ZENDESK_API_TOKEN": "token", "ZENDESK_CAPABILITIES": "support"})
+    request = types.CallToolRequest(params=types.CallToolRequestParams(name="zendesk_list_help_center_categories", arguments={}))
+
+    result = asyncio.run(server.request_handlers[types.CallToolRequest](request))
+
+    assert json.loads(result.root.content[0].text)["error"]["code"] == "not_configured"
 
 
 def test_support_read_tools_are_registered():
