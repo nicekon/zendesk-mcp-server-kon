@@ -15,6 +15,18 @@ uv build
 Install the wheel into a fresh environment and complete a stdio MCP handshake
 before publishing it to PyPI. Publish only the built files in `dist/` using the
 release account; never put package credentials in this repository.
+
+For a repeatable local smoke install, build into a new directory. Do not use a
+`dist/*.whl` glob after multiple local builds: it can select more than one
+version.
+
+```bash
+wheelhouse="$(mktemp -d)"
+uv build --out-dir "$wheelhouse"
+uv venv .wheel-venv
+uv pip install --python .wheel-venv/bin/python "$wheelhouse"/zendesk_mcp_server-*.whl
+```
+
 The included publish workflow runs only for a published GitHub Release and its
 PyPI job waits for the complete Python 3.10–3.12 test/build/handshake matrix.
 Configure PyPI trusted publishing for this repository and its `pypi` GitHub
