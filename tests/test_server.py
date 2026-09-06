@@ -187,6 +187,17 @@ def test_help_center_search_and_article_read_accept_brand_scope():
     assert tools["zendesk_get_help_center_article"].inputSchema["properties"]["embed_images"]["default"] is False
 
 
+def test_every_tool_declares_mcp_risk_annotations():
+    from zendesk_mcp_server.server import build_tools
+
+    tools = {tool.name: tool for tool in build_tools()}
+
+    assert all(tool.annotations is not None and tool.annotations.readOnlyHint is not None and tool.annotations.destructiveHint is not None and tool.annotations.idempotentHint is not None and tool.annotations.openWorldHint is not None for tool in tools.values())
+    assert tools["zendesk_get_ticket"].annotations.readOnlyHint is True
+    assert tools["zendesk_delete_community_post"].annotations.destructiveHint is True
+    assert tools["zendesk_create_ticket"].annotations.readOnlyHint is False
+
+
 def test_help_center_article_create_accepts_brand_scope():
     from zendesk_mcp_server.server import build_tools
 

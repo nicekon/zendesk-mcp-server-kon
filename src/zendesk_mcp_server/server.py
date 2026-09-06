@@ -79,7 +79,7 @@ TICKET_PROJECTION_SCHEMA = {
 
 
 def build_tools() -> list[types.Tool]:
-    return [
+    tools = [
         types.Tool(
             name="zendesk_get_connection_status",
             description="Report Zendesk configuration without exposing credentials or making a network request.",
@@ -268,6 +268,13 @@ def build_tools() -> list[types.Tool]:
         types.Tool(name="zendesk_upload_community_user_image", description="Preview or safely upload a Community user image from ZENDESK_UPLOAD_ROOT. Apply requires external-upload gate and local approval.", inputSchema={"type": "object", "properties": {"image_path": {"type": "string", "minLength": 1}, "content_type": {"type": "string", "enum": ["image/jpeg", "image/png", "image/gif"]}, "brand_id": {"type": "integer", "minimum": 1}, "execution_mode": {"type": "string", "enum": ["preview", "apply"], "default": "preview"}, "approval_request_id": {"type": "string"}, "approval_token": {"type": "string"}}, "required": ["image_path", "content_type", "brand_id"]}),
         types.Tool(name="zendesk_upload_badge_icon", description="Preview or safely upload a Gather badge icon from ZENDESK_UPLOAD_ROOT. Apply requires external-upload gate and local approval.", inputSchema={"type": "object", "properties": {"image_path": {"type": "string", "minLength": 1}, "content_type": {"type": "string", "enum": ["image/svg+xml", "image/jpeg", "image/png", "image/gif"]}, "execution_mode": {"type": "string", "enum": ["preview", "apply"], "default": "preview"}, "approval_request_id": {"type": "string"}, "approval_token": {"type": "string"}}, "required": ["image_path", "content_type"]}),
     ]
+    return [tool.model_copy(update={"annotations": _tool_annotations(tool.name)}) for tool in tools]
+
+
+def _tool_annotations(name: str) -> types.ToolAnnotations:
+    read_only = name == "zendesk_get_connection_status" or name.startswith(("zendesk_get_", "zendesk_list_", "zendesk_search_", "zendesk_count_", "zendesk_export_", "zendesk_preview_", "zendesk_download_", "zendesk_inspect_", "zendesk_ticket_to_issue_context"))
+    destructive = "_delete_" in name or "_remove_" in name or name == "zendesk_replace_article_translation_body"
+    return types.ToolAnnotations(readOnlyHint=read_only, destructiveHint=destructive, idempotentHint=read_only or name == "zendesk_upsert_user_subscription", openWorldHint=name != "zendesk_get_connection_status")
 
 
 def build_connection_status(environ: Mapping[str, str]) -> dict[str, object]:
