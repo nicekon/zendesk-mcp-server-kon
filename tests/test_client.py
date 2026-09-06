@@ -47,6 +47,19 @@ def test_read_retries_a_rate_limit_at_most_twice(settings, authorization):
     assert calls == 3
 
 
+def test_read_rate_limit_retries_never_sleep_more_than_thirty_seconds_total(settings, authorization):
+    sleeps = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(429, headers={"Retry-After": "20"}, request=request)
+
+    client = ZendeskClient(settings, authorization, transport=httpx.MockTransport(handler), sleep=sleeps.append)
+    result = client.get("/api/v2/users/me.json")
+
+    assert result["error"]["code"] == "rate_limited"
+    assert sum(sleeps) <= 30
+
+
 def test_write_does_not_retry_timeout(settings, authorization):
     calls = 0
 

@@ -83,7 +83,7 @@ class ZendeskClient:
 
         read_request = method in {"GET", "HEAD"}
         attempts = 3 if read_request else 1
-        refreshed = False
+        refreshed = False; sleep_total = 0.0
         for attempt in range(attempts):
             try:
                 response = self._client.request(
@@ -135,8 +135,10 @@ class ZendeskClient:
                 or (response.status_code == 429 and retry_after is not None)
             )
             if can_retry:
-                self._sleep(retry_after if response.status_code == 429 else self._retry_delay(attempt))
-                continue
+                delay = retry_after if response.status_code == 429 else self._retry_delay(attempt)
+                if delay is not None and sleep_total + delay <= 30.0:
+                    self._sleep(delay); sleep_total += delay
+                    continue
 
             return failure(
                 code,
