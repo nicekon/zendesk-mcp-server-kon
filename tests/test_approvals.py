@@ -1,5 +1,7 @@
 import sys
 
+import pytest
+
 from zendesk_mcp_server import main
 from zendesk_mcp_server.approvals import ApprovalStore
 from zendesk_mcp_server.auth import OAuthTokens
@@ -22,11 +24,29 @@ def test_approval_token_cannot_be_reused_for_a_different_payload(tmp_path):
     assert store.consume(request_id, "zendesk_post_public_reply", {"ticket_id": 9, "body": "Changed"}, token) is False
 
 
+def test_approval_token_is_bound_to_its_zendesk_account(tmp_path):
+    path = tmp_path / "approvals.json"
+    acme = ApprovalStore(path, account="acme", now=lambda: 100)
+    request_id = acme.create("zendesk_post_public_reply", {"ticket_id": 9, "body": "Hello"})
+    token = acme.approve(request_id)
+
+    other = ApprovalStore(path, account="other", now=lambda: 100)
+    with pytest.raises(ValueError, match="missing or expired"):
+        other.preview(request_id)
+    with pytest.raises(ValueError, match="missing or expired"):
+        other.approve(request_id)
+    assert other.consume(
+        request_id, "zendesk_post_public_reply", {"ticket_id": 9, "body": "Hello"}, token
+    ) is False
+    assert acme.consume(request_id, "zendesk_post_public_reply", {"ticket_id": 9, "body": "Hello"}, token) is True
+
+
 def test_approval_preview_returns_the_exact_stored_payload(tmp_path):
     store = ApprovalStore(tmp_path / "approvals.json", now=lambda: 100)
     request_id = store.create("zendesk_post_public_reply", {"ticket_id": 9, "body": "Hello"})
 
     assert store.preview(request_id) == {
+        "account": None,
         "tool": "zendesk_post_public_reply",
         "payload": {"ticket_id": 9, "body": "Hello"},
     }

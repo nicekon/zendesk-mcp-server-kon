@@ -18,15 +18,16 @@ from .locking import exclusive_lock
 
 
 class ApprovalStore:
-    def __init__(self, path: Path, *, now: Callable[[], float] = time.time) -> None:
+    def __init__(self, path: Path, *, account: str | None = None, now: Callable[[], float] = time.time) -> None:
         self.path = path
+        self._account = account.strip().lower() if isinstance(account, str) and account.strip() else None
         self._now = now
 
     @classmethod
     def from_environment(cls, environ: Mapping[str, str]) -> "ApprovalStore":
         configured = environ.get("ZENDESK_APPROVAL_STORE")
         path = Path(configured).expanduser() if configured else Path.home() / ".config" / "zendesk-mcp" / "approvals.json"
-        return cls(path)
+        return cls(path, account=environ.get("ZENDESK_SUBDOMAIN"))
 
     def create(self, tool: str, payload: dict[str, object]) -> str:
         with self._locked():
@@ -34,6 +35,7 @@ class ApprovalStore:
             self._prune(records)
             request_id = str(uuid.uuid4())
             records[request_id] = {
+                "account": self._account,
                 "tool": tool,
                 "payload": payload,
                 "payload_hash": _payload_hash(payload),
@@ -50,16 +52,16 @@ class ApprovalStore:
             self._prune(records)
             record = records.get(request_id)
             self._save(records)
-        if not isinstance(record, dict) or not isinstance(record.get("tool"), str) or not isinstance(record.get("payload"), dict):
+        if not isinstance(record, dict) or record.get("account") != self._account or not isinstance(record.get("tool"), str) or not isinstance(record.get("payload"), dict):
             raise ValueError("approval request is missing or expired")
-        return {"tool": record["tool"], "payload": record["payload"]}
+        return {"account": record.get("account"), "tool": record["tool"], "payload": record["payload"]}
 
     def approve(self, request_id: str) -> str:
         with self._locked():
             records = self._load()
             self._prune(records)
             record = records.get(request_id)
-            if not isinstance(record, dict) or not isinstance(record.get("payload"), dict):
+            if not isinstance(record, dict) or record.get("account") != self._account or not isinstance(record.get("payload"), dict):
                 raise ValueError("approval request is missing or expired")
             token = secrets.token_urlsafe(32)
             record["token_hash"] = _token_hash(token)
@@ -76,7 +78,8 @@ class ApprovalStore:
                 self._save(records)
                 return False
             valid = (
-                record.get("tool") == tool
+                record.get("account") == self._account
+                and record.get("tool") == tool
                 and record.get("payload_hash") == _payload_hash(payload)
                 and record.get("approved") is True
                 and record.get("consumed") is False

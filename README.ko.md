@@ -35,6 +35,9 @@ upload은 각각의 `ZENDESK_ENABLE_*` gate가 필요합니다. preview/apply �
 zendesk approve <approval_request_id>
 ```
 
+이 명령은 MCP 서버와 같은 `ZENDESK_SUBDOMAIN` 환경에서 실행해야 합니다. 승인은
+해당 tenant에 결합되므로 다른 tenant에서 재사용할 수 없습니다.
+
 첨부 다운로드는 `ticket_id + attachment_id`로 소속과 악성코드 상태를 다시 확인하고
 server-managed cache에만 저장합니다. 캐시 위치는 `ZENDESK_ATTACHMENT_CACHE_ROOT`,
 안전한 로컬 image upload root는 `ZENDESK_UPLOAD_ROOT`로 설정할 수 있습니다.

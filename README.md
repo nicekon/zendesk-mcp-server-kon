@@ -37,6 +37,8 @@ zendesk approve <approval_request_id>
 
 This command requires an interactive terminal, displays the exact stored
 preview, and issues the single-use token only after `yes` confirmation.
+Run it with the same `ZENDESK_SUBDOMAIN` as the MCP server; approvals are bound
+to that tenant and cannot be reused elsewhere.
 
 Attachment downloads accept only the attachment identified by its ticket and
 attachment ID, require Zendesk's safe malware result, and use a managed cache.
