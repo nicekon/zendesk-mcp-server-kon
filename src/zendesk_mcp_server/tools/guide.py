@@ -155,7 +155,7 @@ class GuideTools:
         risks = (WriteRisk.STANDARD, WriteRisk.PUBLIC) if notify_subscribers else (WriteRisk.STANDARD,)
         if execution_mode == "preview":
             if self._approvals is None: return failure(ErrorCode.NOT_CONFIGURED, "Zendesk approval store is not configured")
-            return success({"approval_request_id": self._approvals.create("zendesk_create_help_center_article", payload), "execution_mode": "preview", "outbound_write": False, **{risk.value: True for risk in risks}})
+            return success({"approval_request_id": self._approvals.create("zendesk_create_help_center_article", payload), "execution_mode": "preview", "outbound_write": False, **({"recipient_count_unknown": True} if notify_subscribers else {}), **{risk.value: True for risk in risks}})
         if execution_mode != "apply": return failure(ErrorCode.VALIDATION_ERROR, "execution_mode must be preview or apply")
         if self._settings is None: return failure(ErrorCode.WRITE_DISABLED, "Zendesk writes are disabled")
         for risk in risks:

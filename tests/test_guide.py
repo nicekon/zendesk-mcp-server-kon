@@ -237,6 +237,15 @@ def test_article_create_rejects_publishing_before_any_request(tmp_path):
     assert client.paths == []
 
 
+def test_article_notification_preview_marks_recipient_count_unknown(tmp_path):
+    client = StubClient()
+    result = GuideTools(client, approvals=ApprovalStore(tmp_path / "approvals.json")).create_article(3, "en-us", "Title", "Body", notify_subscribers=True)
+
+    assert result["data"]["public"] is True
+    assert result["data"]["recipient_count_unknown"] is True
+    assert client.paths == []
+
+
 def test_article_create_binds_brand_to_approval_and_uses_its_subdomain(tmp_path):
     class BrandClient:
         def __init__(self): self.paths = []
