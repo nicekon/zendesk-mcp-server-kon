@@ -115,11 +115,19 @@ class GuideTools:
             locale_check = self._validate_active_locale(locale)
             if locale_check is not None: return locale_check
             translation = self._get_translation(article_id, locale)
-            return success({"translation": translation}) if isinstance(translation, dict) and "ok" not in translation else translation
+            if not isinstance(translation, dict) or "ok" in translation: return translation
+            if not embed_images: return success({"translation": translation})
+            images = self._embed_images(translation.get("body"))
+            return images if isinstance(images, dict) else success({"translation": translation, "images": images})
         result = self._get(f"/api/v2/help_center/articles/{identifier}.json")
         if not embed_images or not result.get("ok"): return result
         data = result.get("data"); article = data.get("article") if isinstance(data, dict) else None; body = article.get("body") if isinstance(article, dict) else None
         if not isinstance(body, str): return result
+        images = self._embed_images(body)
+        return images if isinstance(images, dict) else success({**data, "images": images})
+
+    def _embed_images(self, body: object) -> list[dict[str, object]] | dict[str, object]:
+        if not isinstance(body, str): return []
         downloader = getattr(self._client, "download_help_center_image", None)
         if not callable(downloader): return failure(ErrorCode.UNSUPPORTED, "Zendesk client does not support Help Center image downloads")
         images: list[dict[str, object]] = []; remaining = _MAX_EMBEDDED_IMAGE_BYTES
@@ -132,7 +140,7 @@ class GuideTools:
             if not downloaded.get("ok") or not isinstance(content, bytes) or len(content) > remaining or content_type not in _EMBEDDABLE_IMAGE_TYPES: continue
             images.append({"src": image_url, "content": content, "content_type": content_type})
             remaining -= len(content)
-        return success({**data, "images": images})
+        return images
     def create_article(self, section_id: object, locale: str, title: str, body: str, *, brand_id: int | None = None, labels: list[str] | None = None, position: int | None = None, permission_group_id: int | None = None, user_segment_id: int | None = None, draft: bool = True, notify_subscribers: bool = False, execution_mode: str = "preview", approval_request_id: str | None = None, approval_token: str | None = None) -> dict[str, object]:
         section_identifier = _help_center_id(section_id)
         payload = self._article_payload(section_id, locale, title, body, labels, position, permission_group_id, user_segment_id, draft, notify_subscribers)

@@ -111,6 +111,18 @@ def test_article_read_validates_locale_and_uses_the_translation_endpoint():
     assert client.paths == [("/api/v2/help_center/locales.json", None), ("/api/v2/help_center/articles/3/translations/en-us.json", None)]
 
 
+def test_translation_read_embeds_validated_images_when_requested():
+    class TranslationImageClient:
+        def get(self, path, *, params=None):
+            return success({"locales": ["en-us"]}) if path.endswith("locales.json") else success({"translation": {"body": '<img src="https://acme.zendesk.com/hc/user_images/one.png">'}})
+        def download_help_center_image(self, url, *, max_bytes, subdomain=None):
+            return success({"content": b"image", "content_type": "image/png", "size": 5})
+
+    result = GuideTools(TranslationImageClient()).get_article(3, locale="en-us", embed_images=True)
+
+    assert result["data"]["images"][0]["content"] == b"image"
+
+
 def test_guide_search_rejects_a_disabled_locale_before_search():
     client = StubClient()
 
