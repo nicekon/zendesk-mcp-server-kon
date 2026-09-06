@@ -23,6 +23,8 @@ class ErrorCode(str, Enum):
     APPROVAL_REQUIRED = "approval_required"
     ARTICLE_BODY_REPLACE_REQUIRED = "article_body_replace_required"
     CURSOR_EXPIRED = "cursor_expired"
+    UNSAFE_ATTACHMENT = "unsafe_attachment"
+    PARTIAL_SUCCESS = "partial_success"
     OUTCOME_UNKNOWN = "outcome_unknown"
 
 

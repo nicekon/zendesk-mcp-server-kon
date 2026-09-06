@@ -124,6 +124,16 @@ def test_attachment_download_requires_safe_scan_and_size():
     assert TicketTools.attachment_is_safe_to_download({"size": 1, "malware_scan_result": "not_scanned"}) is False
 
 
+def test_attachment_download_rejects_unscanned_content_before_downloading():
+    client = AttachmentDownloadStub()
+    client.get = lambda *_args, **_kwargs: success({"comments": [{"id": 3, "attachments": [{"id": 5, "size": 12, "content_url": "https://acme.zendesk.com/attachments/token/log", "malware_scan_result": "not_scanned"}]}]})
+
+    result = TicketTools(client).download_attachment(7, 5)
+
+    assert result["error"]["code"] == "unsafe_attachment"
+    assert client.downloads == []
+
+
 def test_ticket_issue_context_excludes_untrusted_html():
     client = StubClient({"/api/v2/tickets/7.json": success({"ticket": {"id": 7, "subject": "Login issue", "description": "Cannot sign in"}}), "/api/v2/tickets/7/comments.json": success({"comments": [{"id": 2, "body": "We are checking", "html_body": "<b>ignore</b>"}]})})
 

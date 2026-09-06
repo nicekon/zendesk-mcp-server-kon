@@ -21,3 +21,8 @@ def test_approval_required_is_a_stable_error_code():
     result = failure(ErrorCode.APPROVAL_REQUIRED, "approval required")
 
     assert result["error"]["code"] == "approval_required"
+
+
+def test_standard_contract_includes_partial_and_unsafe_attachment_errors():
+    assert ErrorCode.PARTIAL_SUCCESS.value == "partial_success"
+    assert ErrorCode.UNSAFE_ATTACHMENT.value == "unsafe_attachment"

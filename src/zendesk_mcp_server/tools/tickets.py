@@ -168,7 +168,7 @@ class TicketTools:
         if attachment is None:
             return failure(ErrorCode.NOT_FOUND, "attachment does not belong to this ticket")
         if not self.attachment_is_safe_to_download(attachment):
-            return failure(ErrorCode.PERMISSION_DENIED, "attachment is deleted, unscanned, unsafe, or exceeds the size limit")
+            return failure(ErrorCode.UNSAFE_ATTACHMENT, "attachment is deleted, unscanned, unsafe, or exceeds the size limit")
         content_url = attachment.get("content_url")
         client = self._configured_client()
         if not isinstance(content_url, str) or not hasattr(client, "download_attachment"):
