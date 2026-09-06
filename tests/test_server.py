@@ -201,6 +201,15 @@ def test_every_tool_declares_mcp_risk_annotations():
     assert tools["zendesk_create_ticket"].annotations.readOnlyHint is False
 
 
+def test_every_tool_declares_the_standard_result_schema():
+    from zendesk_mcp_server.server import build_tools
+
+    tools = build_tools()
+
+    assert all(tool.outputSchema is not None for tool in tools)
+    assert all(tool.outputSchema["required"] == ["ok"] for tool in tools)
+
+
 def test_help_center_article_create_accepts_brand_scope():
     from zendesk_mcp_server.server import build_tools
 
@@ -303,6 +312,7 @@ def test_connection_status_tool_probes_the_authenticated_user(monkeypatch):
     result = asyncio.run(server.request_handlers[types.CallToolRequest](request))
 
     assert json.loads(result.root.content[0].text)["data"]["verified_user"] == {"id": 7, "role": "admin"}
+    assert result.root.structuredContent["ok"] is True
 
 
 def test_tool_call_writes_a_redacted_audit_event(tmp_path, monkeypatch):

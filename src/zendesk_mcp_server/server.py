@@ -78,6 +78,18 @@ TICKET_PROJECTION_SCHEMA = {
     "additionalProperties": False,
 }
 
+RESULT_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "ok": {"type": "boolean"},
+        "data": {"type": "object"},
+        "error": {"type": "object"},
+        "request_id": {"type": "string"},
+    },
+    "required": ["ok"],
+    "additionalProperties": True,
+}
+
 
 def build_tools() -> list[types.Tool]:
     tools = [
@@ -272,7 +284,7 @@ def build_tools() -> list[types.Tool]:
         types.Tool(name="zendesk_upload_community_user_image", description="Preview or safely upload a Community user image from ZENDESK_UPLOAD_ROOT. Apply requires external-upload gate and local approval.", inputSchema={"type": "object", "properties": {"image_path": {"type": "string", "minLength": 1}, "content_type": {"type": "string", "enum": ["image/jpeg", "image/png", "image/gif"]}, "brand_id": {"type": "integer", "minimum": 1}, "execution_mode": {"type": "string", "enum": ["preview", "apply"], "default": "preview"}, "approval_request_id": {"type": "string"}, "approval_token": {"type": "string"}}, "required": ["image_path", "content_type", "brand_id"]}),
         types.Tool(name="zendesk_upload_badge_icon", description="Preview or safely upload a Gather badge icon from ZENDESK_UPLOAD_ROOT. Apply requires external-upload gate and local approval.", inputSchema={"type": "object", "properties": {"image_path": {"type": "string", "minLength": 1}, "content_type": {"type": "string", "enum": ["image/svg+xml", "image/jpeg", "image/png", "image/gif"]}, "execution_mode": {"type": "string", "enum": ["preview", "apply"], "default": "preview"}, "approval_request_id": {"type": "string"}, "approval_token": {"type": "string"}}, "required": ["image_path", "content_type"]}),
     ]
-    return [tool.model_copy(update={"annotations": _tool_annotations(tool.name)}) for tool in tools]
+    return [tool.model_copy(update={"annotations": _tool_annotations(tool.name), "outputSchema": RESULT_SCHEMA}) for tool in tools]
 
 
 def _tool_annotations(name: str) -> types.ToolAnnotations:
@@ -541,15 +553,15 @@ def create_server(environ: Mapping[str, str] | None = None) -> Server:
     ) -> list[object]:
         started_at = time.monotonic()
 
-        def respond(result: dict[str, object]) -> list[object]:
+        def respond(result: dict[str, object]) -> tuple[list[object], dict[str, object]]:
             audit_log.record(name, _tool_risk_class(name), arguments, result, started_at=started_at)
-            if name == "zendesk_download_ticket_attachment": return attachment_download_content(result)
-            if name == "zendesk_inspect_ticket_attachment": return attachment_inspection_content(result)
-            if name == "zendesk_export_tickets": return ticket_export_content(result)
-            if name == "zendesk_export_satisfaction_ratings": return csat_export_content(result)
-            if name == "zendesk_export_help_center_articles": return help_center_export_content(result)
-            if name == "zendesk_get_help_center_article": return help_center_article_content(result)
-            return [types.TextContent(type="text", text=json.dumps(result))]
+            if name == "zendesk_download_ticket_attachment": return attachment_download_content(result), result
+            if name == "zendesk_inspect_ticket_attachment": return attachment_inspection_content(result), result
+            if name == "zendesk_export_tickets": return ticket_export_content(result), result
+            if name == "zendesk_export_satisfaction_ratings": return csat_export_content(result), result
+            if name == "zendesk_export_help_center_articles": return help_center_export_content(result), result
+            if name == "zendesk_get_help_center_article": return help_center_article_content(result), result
+            return [types.TextContent(type="text", text=json.dumps(result))], result
 
         if (blocked := _capability_gate(environment, name)) is not None:
             return respond(blocked)
