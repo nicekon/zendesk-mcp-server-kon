@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import base64
-import fcntl
 import hmac
 import json
 import os
@@ -21,6 +20,7 @@ from urllib.parse import urlencode, urlsplit
 import httpx
 
 from .config import AuthMode, ConfigurationError, Settings
+from .locking import exclusive_lock
 
 
 class AuthorizationProvider(Protocol):
@@ -161,10 +161,8 @@ class OAuthTokenStore:
         descriptor = os.open(self.path.with_name(f".{self.path.name}.lock"), os.O_RDWR | os.O_CREAT, 0o600)
         try:
             os.chmod(descriptor, 0o600)
-            fcntl.flock(descriptor, fcntl.LOCK_EX)
-            yield
+            with exclusive_lock(descriptor): yield
         finally:
-            fcntl.flock(descriptor, fcntl.LOCK_UN)
             os.close(descriptor)
 
     def _require_user_only_permissions(self) -> None:
@@ -203,9 +201,10 @@ class OAuthStateStore:
     def _lock(self):
         self.path.parent.mkdir(parents=True, exist_ok=True); descriptor = os.open(self.path.with_name(f".{self.path.name}.lock"), os.O_RDWR | os.O_CREAT, 0o600)
         try:
-            os.chmod(descriptor, 0o600); fcntl.flock(descriptor, fcntl.LOCK_EX); yield
+            os.chmod(descriptor, 0o600)
+            with exclusive_lock(descriptor): yield
         finally:
-            fcntl.flock(descriptor, fcntl.LOCK_UN); os.close(descriptor)
+            os.close(descriptor)
 
     def _load(self) -> dict[str, object]:
         if not self.path.exists(): return {}

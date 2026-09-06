@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import fcntl
 import hashlib
 import json
 import os
@@ -14,6 +13,8 @@ from collections.abc import Callable, Iterator
 from collections.abc import Mapping
 from contextlib import contextmanager
 from pathlib import Path
+
+from .locking import exclusive_lock
 
 
 class ApprovalStore:
@@ -109,10 +110,8 @@ class ApprovalStore:
         lock_path = self.path.with_suffix(f"{self.path.suffix}.lock")
         descriptor = os.open(lock_path, os.O_RDWR | os.O_CREAT, 0o600)
         try:
-            fcntl.flock(descriptor, fcntl.LOCK_EX)
-            yield
+            with exclusive_lock(descriptor): yield
         finally:
-            fcntl.flock(descriptor, fcntl.LOCK_UN)
             os.close(descriptor)
 
 
