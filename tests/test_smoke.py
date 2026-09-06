@@ -10,3 +10,10 @@ def test_package_can_import_without_zendesk_credentials(monkeypatch):
     import zendesk_mcp_server
 
     assert callable(zendesk_mcp_server.main)
+
+
+def test_readme_declares_the_mcp_registry_name():
+    from pathlib import Path
+
+    readme = Path(__file__).parents[1] / "README.md"
+    assert "<!-- mcp-name: io.github.nicekon/zendesk-mcp-server-kon -->" in readme.read_text()

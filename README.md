@@ -1,5 +1,7 @@
 # Zendesk MCP Server KON
 
+<!-- mcp-name: io.github.nicekon/zendesk-mcp-server-kon -->
+
 [한국어](README.ko.md)
 
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
