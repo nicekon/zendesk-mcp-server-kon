@@ -8,6 +8,8 @@ A Zendesk Model Context Protocol server implementing the evolving
 [unified Zendesk MCP PRD](docs/superpowers/specs/2026-09-04-unified-zendesk-mcp-design.md).
 The [capability manifest](docs/capability-manifest.md) records the official
 Zendesk contracts behind Community tools.
+See the [release procedure](docs/releasing.md) for wheel, MCPB, and MCP Registry
+publication.
 
 ## Current status
 

@@ -9,6 +9,7 @@ Zendesk용 Model Context Protocol 서버이며,
 단계적으로 구현합니다.
 [capability manifest](docs/capability-manifest.md)에는 Community 도구가 따르는
 Zendesk 공식 API 계약을 기록합니다.
+[출시 절차](docs/releasing.md)에는 wheel·MCPB·MCP Registry 배포 순서를 기록합니다.
 
 ## 현재 상태
 
