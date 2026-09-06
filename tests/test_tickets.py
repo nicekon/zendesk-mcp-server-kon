@@ -37,7 +37,22 @@ class MutationStub:
 class MacroStub(MutationStub):
     def get(self, path, *, params=None):
         self.get_paths.append((path, params))
+        if path == "/api/v2/macros/4.json":
+            return success({"macro": {"actions": [{"field": "comment_mode_is_public", "value": True}]}})
         return success({"result": {"ticket": {"status": "pending", "comment": {"body": "We are checking", "public": True}}}})
+
+
+class RiskyMacroStub(MutationStub):
+    def get(self, path, *, params=None):
+        self.get_paths.append((path, params))
+        if path == "/api/v2/macros/4.json":
+            return success({"macro": {"actions": [
+                {"field": "comment_mode_is_public", "value": True},
+                {"field": "notification_user", "value": ["3", "Subject", "Body"]},
+                {"field": "author_id", "value": "3"},
+                {"field": "status", "value": "closed"},
+            ]}})
+        return success({"result": {"ticket": {"status": "pending"}}})
 
 
 class AttachmentDownloadStub:
@@ -542,10 +557,41 @@ def test_ticket_macro_preview_requires_approval_and_reuses_ticket_update(tmp_pat
     assert preview["data"]["public"] is True
     assert client.get_paths == [
         ("/api/v2/tickets/9/macros/4/apply.json", None),
+        ("/api/v2/macros/4.json", None),
         ("/api/v2/tickets/9/macros/4/apply.json", None),
+        ("/api/v2/macros/4.json", None),
     ]
     assert client.calls == [("PUT", "/api/v2/tickets/9.json", {"ticket": {"status": "pending", "comment": {"body": "We are checking", "public": True}}})]
     assert result["data"]["ticket"]["id"] == 9
+
+
+def test_ticket_macro_raises_all_gates_from_its_actions(tmp_path):
+    client = RiskyMacroStub()
+    store = ApprovalStore(tmp_path / "approvals.json")
+    tools = TicketTools(
+        client,
+        Settings.load({
+            "ZENDESK_WRITE_MODE": "standard",
+            "ZENDESK_ENABLE_PUBLIC_WRITES": "true",
+            "ZENDESK_ENABLE_DESTRUCTIVE_WRITES": "true",
+            "ZENDESK_ENABLE_IMPERSONATION": "true",
+        }),
+        store,
+    )
+
+    preview = tools.apply_macro(9, 4)
+    token = store.approve(preview["data"]["approval_request_id"])
+    result = tools.apply_macro(
+        9,
+        4,
+        execution_mode="apply",
+        approval_request_id=preview["data"]["approval_request_id"],
+        approval_token=token,
+    )
+
+    assert preview["data"]["required_risks"] == ["standard", "public", "destructive", "impersonation"]
+    assert result["ok"] is True
+    assert client.calls == [("PUT", "/api/v2/tickets/9.json", {"ticket": {"status": "pending"}})]
 
 
 def test_attachment_download_revalidates_ownership_and_uses_fixed_cache(tmp_path):

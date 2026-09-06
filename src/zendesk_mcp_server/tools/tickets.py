@@ -342,15 +342,17 @@ class TicketTools:
             return preview
         data = preview["data"]
         ticket = data["ticket"]
-        payload = {"ticket_id": ticket_id, "macro_id": macro_id, "ticket": ticket}
-        public = isinstance(ticket.get("comment"), dict) and ticket["comment"].get("public") is True
+        actions = data["actions"]
+        risks = _macro_risks(ticket, actions)
+        payload = {"ticket_id": ticket_id, "macro_id": macro_id, "ticket": ticket, "actions": actions, "required_risks": [risk.value for risk in risks]}
+        public = WriteRisk.PUBLIC in risks
         if execution_mode == "preview":
             if self._approvals is None:
                 return failure(ErrorCode.NOT_CONFIGURED, "Zendesk approval store is not configured")
-            return success({"approval_request_id": self._approvals.create("zendesk_apply_ticket_macro", payload), "execution_mode": "preview", "standard": True, "public": public, "ticket": ticket, "outbound_write": False})
+            return success({"approval_request_id": self._approvals.create("zendesk_apply_ticket_macro", payload), "execution_mode": "preview", "standard": True, "public": public, "required_risks": payload["required_risks"], "actions": actions, "ticket": ticket, "outbound_write": False})
         if execution_mode != "apply":
             return failure(ErrorCode.VALIDATION_ERROR, "execution_mode must be preview or apply")
-        for risk in (WriteRisk.STANDARD, WriteRisk.PUBLIC) if public else (WriteRisk.STANDARD,):
+        for risk in risks:
             if (blocked := self._write_permitted(risk)) is not None:
                 return blocked
         if self._approvals is None or not isinstance(approval_request_id, str) or not isinstance(approval_token, str) or not self._approvals.consume(approval_request_id, "zendesk_apply_ticket_macro", payload, approval_token):
@@ -693,7 +695,34 @@ class TicketTools:
         ticket = changes.get("ticket") if isinstance(changes, dict) else None
         if not isinstance(ticket, dict):
             return failure(ErrorCode.UPSTREAM_ERROR, "Zendesk returned an invalid macro preview")
-        return success({"ticket": ticket})
+        macro = client.get(f"/api/v2/macros/{macro_id}.json")
+        if not macro.get("ok"):
+            return macro
+        macro_data = macro.get("data")
+        definition = macro_data.get("macro") if isinstance(macro_data, dict) else None
+        actions = definition.get("actions") if isinstance(definition, dict) else None
+        if not isinstance(actions, list) or not all(isinstance(action, dict) for action in actions):
+            return failure(ErrorCode.UPSTREAM_ERROR, "Zendesk returned an invalid macro definition")
+        return success({"ticket": ticket, "actions": actions})
+
+
+def _macro_risks(ticket: Mapping[str, object], actions: list[dict[str, object]]) -> tuple[WriteRisk, ...]:
+    risks = [WriteRisk.STANDARD]
+    public = isinstance(ticket.get("comment"), dict) and ticket["comment"].get("public") is True
+    for action in actions:
+        field = action.get("field")
+        value = action.get("value")
+        if field == "comment_mode_is_public" and value is True:
+            public = True
+        if isinstance(field, str) and (field.startswith("notification_") or field in {"satisfaction_score", "tweet_requester"}):
+            public = True
+        if field in {"author_id", "created_at"}:
+            risks.append(WriteRisk.IMPERSONATION)
+        if (field == "status" and value == "closed") or field in {"delete", "destroy"}:
+            risks.append(WriteRisk.DESTRUCTIVE)
+    if public:
+        risks.append(WriteRisk.PUBLIC)
+    return tuple(risk for risk in (WriteRisk.STANDARD, WriteRisk.PUBLIC, WriteRisk.DESTRUCTIVE, WriteRisk.IMPERSONATION) if risk in risks)
 
 
 def _valid_ticket_id(ticket_id: int) -> bool:
