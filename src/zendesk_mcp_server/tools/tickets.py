@@ -820,7 +820,9 @@ def _valid_ticket_search_date(value: object) -> bool:
 
 
 def _query_phrase(value: str) -> str:
-    return f'"{value.strip().replace("\\\\", "\\\\\\\\").replace(chr(34), "\\\\\"")}"' if any(character.isspace() or character == '"' for character in value) else value.strip()
+    trimmed = value.strip()
+    if not any(character.isspace() or character == '"' for character in value): return trimmed
+    return '"' + trimmed.replace("\\", "\\\\").replace('"', '\\"') + '"'
 
 
 def _ticket_user_reference(field: str, value: object) -> str | None:
