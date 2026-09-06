@@ -375,6 +375,42 @@ def test_enabled_conditional_ticket_tools_are_dispatched(monkeypatch):
         assert result.root.structuredContent["data"]["tool"] == expected
 
 
+def test_every_registered_tool_reaches_a_domain_dispatcher(monkeypatch):
+    import zendesk_mcp_server.server as module
+    from zendesk_mcp_server.contracts import success
+
+    def value(schema):
+        if "const" in schema: return schema["const"]
+        if "enum" in schema: return schema["enum"][0]
+        if "oneOf" in schema: return value(schema["oneOf"][0])
+        if schema.get("type") == "integer": return max(1, schema.get("minimum", 1))
+        if schema.get("type") == "boolean": return True
+        if schema.get("type") == "array": return [value(schema["items"])] if schema.get("minItems") else []
+        return "1h" if schema.get("pattern") else "value"
+
+    def arguments(schema):
+        properties = schema.get("properties", {})
+        result = {name: value(properties[name]) for name in schema.get("required", [])}
+        for variant in schema.get("anyOf", []):
+            result.update({name: value(properties[name]) for name in variant.get("required", []) if name not in result})
+        return result
+
+    class AnyTools:
+        def __getattr__(self, name): return lambda *_args, **_kwargs: success({"handler": name})
+
+    for builder in ("build_ticket_tools", "build_metadata_tools", "build_guide_tools", "build_community_tools"):
+        monkeypatch.setattr(module, builder, lambda _: AnyTools())
+    monkeypatch.setattr(module, "build_connection_status", lambda *_args, **_kwargs: success({"handler": "connection_status"}))
+    server = module.create_server({"ZENDESK_CAPABILITIES": "support,operations,guide,community,csat,git_zen,time_tracking,badges"})
+    handler = server.request_handlers[types.CallToolRequest]
+
+    for tool in module.build_tools():
+        request = types.CallToolRequest(params=types.CallToolRequestParams(name=tool.name, arguments=arguments(tool.inputSchema)))
+        result = asyncio.run(handler(request))
+        assert result.root.structuredContent is not None, tool.name
+        assert result.root.structuredContent["ok"] is True, tool.name
+
+
 def test_support_read_tools_are_registered():
     from zendesk_mcp_server.server import build_tools
 
