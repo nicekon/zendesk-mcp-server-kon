@@ -116,12 +116,18 @@ class GuideTools:
             if locale_check is not None: return locale_check
             translation = self._get_translation(article_id, locale)
             if not isinstance(translation, dict) or "ok" in translation: return translation
+            translation = {**translation, "untrusted_user_content": True}
             if not embed_images: return success({"translation": translation})
             images = self._embed_images(translation.get("body"))
             return images if isinstance(images, dict) else success({"translation": translation, "images": images})
         result = self._get(f"/api/v2/help_center/articles/{identifier}.json")
-        if not embed_images or not result.get("ok"): return result
+        if not result.get("ok"): return result
         data = result.get("data"); article = data.get("article") if isinstance(data, dict) else None; body = article.get("body") if isinstance(article, dict) else None
+        if isinstance(data, dict) and isinstance(article, dict):
+            data = {**data, "article": {**article, "untrusted_user_content": True}}
+            result = success(data)
+            article = data["article"]; body = article.get("body")
+        if not embed_images: return result
         if not isinstance(body, str): return result
         images = self._embed_images(body)
         return images if isinstance(images, dict) else success({**data, "images": images})

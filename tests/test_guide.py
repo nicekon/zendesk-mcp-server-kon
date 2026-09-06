@@ -123,6 +123,15 @@ def test_translation_read_embeds_validated_images_when_requested():
     assert result["data"]["images"][0]["content"] == b"image"
 
 
+def test_help_center_content_is_marked_untrusted():
+    class ArticleClient:
+        def get(self, path, *, params=None): return success({"article": {"id": 3, "body": "Body"}})
+
+    result = GuideTools(ArticleClient()).get_article(3)
+
+    assert result["data"]["article"]["untrusted_user_content"] is True
+
+
 def test_guide_search_rejects_a_disabled_locale_before_search():
     client = StubClient()
 
