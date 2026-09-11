@@ -80,6 +80,25 @@ def test_mixed_rate_limit_and_network_failure_share_sleep_budget(settings, autho
     assert sum(sleeps) <= 30
 
 
+@pytest.mark.parametrize("body,required", [
+    ({"error": "Forbidden", "description": "You are missing the following required scopes: read"}, True),
+    ({"description": "private upstream content"}, False),
+    (["private upstream content"], False),
+])
+def test_scope_denial_reports_broad_read_requirement_without_leaking_body(settings, authorization, body, required):
+    calls = []
+    def handler(request):
+        calls.append(request)
+        return httpx.Response(403, json=body, request=request)
+    client = ZendeskClient(settings, authorization, transport=httpx.MockTransport(handler))
+    result = client.get("/api/v2/search.json")
+    assert result["error"]["code"] == "permission_denied"
+    assert result["error"].get("details", {}).get("required_scopes") == (["read"] if required else None)
+    assert result["error"]["retryable"] is False
+    assert "private upstream content" not in str(result)
+    assert len(calls) == 1
+
+
 def test_write_does_not_retry_timeout(settings, authorization):
     calls = 0
 

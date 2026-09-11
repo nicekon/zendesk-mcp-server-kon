@@ -1,4 +1,6 @@
 import os
+import csv
+import json
 from pathlib import Path
 
 from zendesk_mcp_server.contracts import ErrorCode, failure, success
@@ -217,6 +219,40 @@ def test_article_export_writes_a_managed_artifact(tmp_path):
     assert Path(result["data"]["cache_path"]).read_text() == '[{"id":1,"title":"Welcome"}]'
 
 
+def test_article_artifact_streams_pages_and_preserves_late_csv_columns(tmp_path):
+    import weakref
+    class Article(dict): pass
+    class ExportClient:
+        previous = None
+        def get(self, path, *, params=None):
+            if params.get("page[after]") == "next":
+                assert self.previous() is None, "previous page is still retained"
+                return success({"articles": [{"id": 2, "late": "추가"}], "meta": {"has_more": False}})
+            article = Article(id=1, title="Welcome")
+            self.previous = weakref.ref(article)
+            return success({"articles": [article], "meta": {"has_more": True, "after_cursor": "next"}})
+    settings = Settings.load({"ZENDESK_ATTACHMENT_CACHE_ROOT": str(tmp_path / "attachments")})
+    for format in ("json", "csv"):
+        result = GuideTools(ExportClient(), settings).export_article_artifact("en-us", output_format=format)
+        assert result["data"]["item_count"] == 2
+        assert result["data"]["truncated"] is False
+        with Path(result["data"]["cache_path"]).open() as stream:
+            if format == "json": assert json.load(stream) == [{"id": 1, "title": "Welcome"}, {"id": 2, "late": "추가"}]
+            else: assert list(csv.DictReader(stream)) == [{"id": "1", "title": "Welcome", "late": ""}, {"id": "2", "title": "", "late": "추가"}]
+
+
+def test_article_export_failure_does_not_publish_partial_artifact(tmp_path):
+    class ExportClient:
+        def get(self, path, *, params=None):
+            if params.get("page[after]"):
+                return failure(ErrorCode.PERMISSION_DENIED, "denied")
+            return success({"articles": [{"id": 1}], "meta": {"has_more": True, "after_cursor": "next"}})
+    settings = Settings.load({"ZENDESK_ATTACHMENT_CACHE_ROOT": str(tmp_path / "attachments")})
+    result = GuideTools(ExportClient(), settings).export_article_artifact("en-us")
+    assert result["error"]["code"] == "permission_denied"
+    assert not list(tmp_path.rglob("*export*"))
+
+
 def test_csat_adapters_only_send_their_official_filters():
     client = StubClient(); tools = GuideTools(client)
 
@@ -233,7 +269,7 @@ def test_csat_export_writes_a_managed_artifact(tmp_path):
     class CsatClient:
         def get(self, path, *, params=None):
             assert path == "/api/v2/satisfaction_ratings.json"
-            return success({"satisfaction_ratings": [{"id": 1, "score": "good"}]})
+            return success({"satisfaction_ratings": [{"id": 1, "score": "good"}], "meta": {"has_more": False}})
 
     settings = Settings.load({"ZENDESK_ATTACHMENT_CACHE_ROOT": str(tmp_path / "attachments")})
     result = GuideTools(CsatClient(), settings).export_csat("legacy", output_format="csv")
@@ -243,6 +279,44 @@ def test_csat_export_writes_a_managed_artifact(tmp_path):
     assert "satisfaction_ratings" not in result["data"]
     assert (tmp_path / "exports" / str(os.getuid())).exists()
     assert "id,score" in Path(result["data"]["cache_path"]).read_text()
+
+
+def test_csat_export_follows_cursors_without_retaining_pages(tmp_path):
+    import weakref
+    class Rating(dict): pass
+    for backend, key in (("legacy", "satisfaction_ratings"), ("survey", "survey_responses")):
+        class CsatClient:
+            previous = None
+            def get(self, path, *, params=None):
+                assert params["page[size]"] == "100"
+                if params.get("page[after]") == "next":
+                    assert self.previous() is None
+                    return success({key: [{"id": 2}], "meta": {"has_more": False}})
+                item = Rating(id=1)
+                self.previous = weakref.ref(item)
+                return success({key: [item], "meta": {"has_more": True, "after_cursor": "next"}})
+        settings = Settings.load({"ZENDESK_ATTACHMENT_CACHE_ROOT": str(tmp_path / "attachments")})
+        result = GuideTools(CsatClient(), settings).export_csat(backend)
+        assert result["data"]["item_count"] == 2
+        assert result["data"]["truncated"] is False
+        assert json.loads(Path(result["data"]["cache_path"]).read_text()) == [{"id": 1}, {"id": 2}]
+
+
+def test_csat_export_rejects_repeated_cursor_and_enforces_total_cap(tmp_path):
+    class CsatClient:
+        oversized = False
+        def get(self, path, *, params=None):
+            return success({"satisfaction_ratings": [{"id": 1}] * (100001 if self.oversized else 1), "meta": {"has_more": True, "after_cursor": "repeat"}})
+    settings = Settings.load({"ZENDESK_ATTACHMENT_CACHE_ROOT": str(tmp_path / "attachments")})
+    client = CsatClient(); tools = GuideTools(client, settings)
+    rejected = tools.export_csat("legacy")
+    assert rejected["error"]["code"] == "upstream_error"
+    assert not list(tmp_path.rglob("*.json"))
+    client.oversized = True
+    result = tools.export_csat("legacy")
+    assert result["data"]["item_count"] == 100000
+    assert result["data"]["truncated"] is True
+    assert len(json.loads(Path(result["data"]["cache_path"]).read_text())) == 100000
 
 
 def test_draft_article_create_validates_locale_and_requires_local_approval(tmp_path):

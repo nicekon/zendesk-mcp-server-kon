@@ -3,16 +3,18 @@
 from __future__ import annotations
 
 import re
+import json
+import tempfile
 from datetime import datetime
 from html.parser import HTMLParser
-from typing import Protocol
+from typing import Callable, Protocol
 from urllib.parse import quote, urlsplit
 
 from ..approvals import ApprovalStore
 from ..config import Settings
 from ..contracts import ErrorCode, failure, success
 from ..write_policy import WriteRisk, check_write_permission
-from .tickets import _cache_ticket_export, _clean_export_cache, _serialize_ticket_export
+from .tickets import _cache_ticket_export, _clean_export_cache, _stream_ticket_export
 
 _LOCALE = re.compile(r"[a-z]{2,3}(?:-[a-z0-9]+)*$")
 _CSAT_SCORES = {"offered", "unoffered", "received", "received_with_comment", "received_without_comment", "good", "good_with_comment", "good_without_comment", "bad", "bad_with_comment", "bad_without_comment"}
@@ -37,30 +39,52 @@ class GuideTools:
     def list_sections(self, *, brand_id: int | None = None) -> dict[str, object]:
         scoped = self._for_brand(brand_id); return scoped if isinstance(scoped, dict) else scoped._get("/api/v2/help_center/sections.json")
     def get_satisfaction_ratings(self) -> dict[str, object]: return self._get("/api/v2/satisfaction_ratings.json")
-    def list_csat(self, backend: str = "auto", *, score: str | None = None, ticket_id: int | None = None, responder_ids: list[int] | None = None, created_at_start: str | None = None, created_at_end: str | None = None) -> dict[str, object]:
+    def list_csat(self, backend: str = "auto", *, score: str | None = None, ticket_id: int | None = None, responder_ids: list[int] | None = None, created_at_start: str | None = None, created_at_end: str | None = None, page_size: int | None = None, cursor: str | None = None) -> dict[str, object]:
+        if (page_size is not None and (not isinstance(page_size, int) or isinstance(page_size, bool) or not 1 <= page_size <= 100)) or (cursor is not None and (not isinstance(cursor, str) or not cursor or page_size is None)): return failure(ErrorCode.VALIDATION_ERROR, "CSAT page size and cursor must be valid")
+        pagination = {"page[size]": str(page_size)} if page_size is not None else {}
+        if cursor is not None: pagination["page[after]"] = cursor
         if backend not in {"auto", "legacy", "survey"}: return failure(ErrorCode.VALIDATION_ERROR, "backend must be auto, legacy, or survey")
         if backend == "auto": backend = "legacy" if score is not None else "survey"
         start = _epoch(created_at_start, milliseconds=backend == "survey"); end = _epoch(created_at_end, milliseconds=backend == "survey")
         if (created_at_start is not None and start is None) or (created_at_end is not None and end is None) or (start is not None and end is not None and start > end): return failure(ErrorCode.VALIDATION_ERROR, "CSAT dates must be ordered ISO-8601 timestamps with timezone")
         if backend == "legacy":
             if ticket_id is not None or responder_ids is not None or (score is not None and score not in _CSAT_SCORES): return failure(ErrorCode.VALIDATION_ERROR, "legacy CSAT accepts only a valid score and date range")
-            return self._get("/api/v2/satisfaction_ratings.json", {key: value for key, value in {"score": score, "start_time": str(start) if start is not None else None, "end_time": str(end) if end is not None else None}.items() if value is not None} or None)
+            return self._get("/api/v2/satisfaction_ratings.json", {key: value for key, value in {**pagination, "score": score, "start_time": str(start) if start is not None else None, "end_time": str(end) if end is not None else None}.items() if value is not None} or None)
         if score is not None or (ticket_id is not None and not self._valid_id(ticket_id)) or (responder_ids is not None and (not isinstance(responder_ids, list) or not responder_ids or any(not self._valid_id(value) for value in responder_ids))): return failure(ErrorCode.VALIDATION_ERROR, "survey CSAT accepts ticket_id, responder_ids, and date range only")
-        return self._get("/api/v2/guide/survey_responses.json", {key: value for key, value in {"filter[subject_zrns]": f"zen:ticket:{ticket_id}" if ticket_id is not None else None, "filter[responder_ids]": ",".join(str(value) for value in responder_ids) if responder_ids is not None else None, "filter[created_at_start]": str(start) if start is not None else None, "filter[created_at_end]": str(end) if end is not None else None}.items() if value is not None} or None)
+        return self._get("/api/v2/guide/survey_responses.json", {key: value for key, value in {**pagination, "filter[subject_zrns]": f"zen:ticket:{ticket_id}" if ticket_id is not None else None, "filter[responder_ids]": ",".join(str(value) for value in responder_ids) if responder_ids is not None else None, "filter[created_at_start]": str(start) if start is not None else None, "filter[created_at_end]": str(end) if end is not None else None}.items() if value is not None} or None)
     def export_csat(self, backend: str = "auto", *, score: str | None = None, ticket_id: int | None = None, responder_ids: list[int] | None = None, created_at_start: str | None = None, created_at_end: str | None = None, output_format: str = "json") -> dict[str, object]:
         if output_format not in {"json", "csv"}: return failure(ErrorCode.VALIDATION_ERROR, "output_format must be json or csv")
-        result = self.list_csat(backend, score=score, ticket_id=ticket_id, responder_ids=responder_ids, created_at_start=created_at_start, created_at_end=created_at_end)
-        if not result.get("ok"): return result
-        data = result.get("data")
-        items = data.get("satisfaction_ratings") if isinstance(data, dict) else None
-        if not isinstance(items, list): items = data.get("survey_responses") if isinstance(data, dict) else None
-        if not isinstance(items, list): return failure(ErrorCode.UPSTREAM_ERROR, "Zendesk returned an invalid CSAT export response")
         if self._settings is None or self._settings.attachment_cache_root is None: return failure(ErrorCode.NOT_CONFIGURED, "Zendesk export cache is not configured")
         root = self._settings.attachment_cache_root.parent / "exports"
         _clean_export_cache(root)
-        cached = _cache_ticket_export(root, output_format, _serialize_ticket_export(items, output_format), filename_prefix="csat-export")
+        count = 0; cursor = None; seen: set[str] = set(); truncated = False
+        key = "satisfaction_ratings" if backend == "legacy" or (backend == "auto" and score is not None) else "survey_responses"
+        try:
+            with tempfile.TemporaryFile(mode="w+", encoding="utf-8") as spool:
+                while count < 100000:
+                    result = self.list_csat(backend, score=score, ticket_id=ticket_id, responder_ids=responder_ids, created_at_start=created_at_start, created_at_end=created_at_end, page_size=min(100, 100000-count), cursor=cursor)
+                    if not result.get("ok"): return result
+                    data = result.get("data")
+                    page = data.get(key) if isinstance(data, dict) else None
+                    meta = data.get("meta") if isinstance(data, dict) else None
+                    if not isinstance(page, list) or not isinstance(meta, dict) or not isinstance(meta.get("has_more"), bool): return failure(ErrorCode.UPSTREAM_ERROR, "Zendesk returned an invalid CSAT export page")
+                    remaining = 100000-count
+                    spool.writelines(json.dumps(item, ensure_ascii=False, separators=(",", ":")) + "\n" for item in page[:remaining])
+                    count += min(len(page), remaining)
+                    truncated = len(page) > remaining or meta["has_more"]
+                    if count == 100000 or not truncated: break
+                    cursor = meta.get("after_cursor")
+                    if not isinstance(cursor, str) or not cursor or cursor in seen: return failure(ErrorCode.UPSTREAM_ERROR, "Zendesk returned an invalid CSAT export cursor")
+                    seen.add(cursor)
+                    del result, data, page, meta
+                def items():
+                    spool.seek(0)
+                    for line in spool: yield json.loads(line)
+                cached = _cache_ticket_export(root, output_format, _stream_ticket_export(items, output_format), filename_prefix="csat-export")
+        except OSError:
+            return failure(ErrorCode.UPSTREAM_ERROR, "CSAT export spool could not be written")
         if not cached.get("ok"): return cached
-        return success({"format": output_format, "item_count": len(items), **cached["data"]})
+        return success({"format": output_format, "item_count": count, "truncated": truncated, **cached["data"]})
     def list_permission_groups(self) -> dict[str, object]: return self._get("/api/v2/guide/permission_groups.json")
     def list_user_segments(self, *, built_in: bool | None = None, applicable: bool = False) -> dict[str, object]:
         if not isinstance(applicable, bool) or (built_in is not None and not isinstance(built_in, bool)): return failure(ErrorCode.VALIDATION_ERROR, "built_in and applicable must be booleans")
@@ -74,39 +98,51 @@ class GuideTools:
             if locale_check is not None: return locale_check
         return self._get("/api/v2/help_center/articles/search.json", {key: value for key, value in {"query": query.strip(), "brand_id": str(brand_id) if brand_id is not None else None, "locale": locale}.items() if value is not None})
     def export_articles(self, locale: str, max_articles: int = 100000, *, brand_id: int | None = None) -> dict[str, object]:
+        articles: list[object] = []
+        result = self._export_article_pages(locale, max_articles, articles.extend, brand_id=brand_id)
+        if not result.get("ok"): return result
+        return success({"articles": articles, "truncated": result["data"]["truncated"]})
+    def _export_article_pages(self, locale: str, max_articles: int, consume: Callable[[list[object]], None], *, brand_id: int | None = None) -> dict[str, object]:
         scoped = self._for_brand(brand_id)
         if isinstance(scoped, dict): return scoped
-        if scoped is not self: return scoped.export_articles(locale, max_articles)
+        if scoped is not self: return scoped._export_article_pages(locale, max_articles, consume)
         if not isinstance(locale, str) or not _LOCALE.fullmatch(locale) or not isinstance(max_articles, int) or isinstance(max_articles, bool) or not 1 <= max_articles <= 100000: return failure(ErrorCode.VALIDATION_ERROR, "locale and max_articles must be valid")
-        articles: list[object] = []; cursor: str | None = None; seen: set[str] = set()
-        while len(articles) < max_articles:
-            params = {"page[size]": str(min(100, max_articles - len(articles)))}
+        count = 0; cursor: str | None = None; seen: set[str] = set()
+        while count < max_articles:
+            params = {"page[size]": str(min(100, max_articles - count))}
             if cursor is not None: params["page[after]"] = cursor
             result = self._get(f"/api/v2/help_center/{locale}/articles.json", params)
             if not result.get("ok"): return result
             data = result.get("data"); page = data.get("articles") if isinstance(data, dict) else None; meta = data.get("meta") if isinstance(data, dict) else None
             if not isinstance(page, list) or not isinstance(meta, dict): return failure(ErrorCode.UPSTREAM_ERROR, "Zendesk returned an invalid article export page")
-            remaining = max_articles - len(articles)
-            articles.extend(page[:remaining])
-            if len(page) > remaining: return success({"articles": articles, "truncated": True})
-            if not meta.get("has_more"): return success({"articles": articles, "truncated": False})
+            remaining = max_articles - count
+            consume(page[:remaining]); count += min(len(page), remaining)
+            if len(page) > remaining: return success({"item_count": count, "truncated": True})
+            if not meta.get("has_more"): return success({"item_count": count, "truncated": False})
             cursor = meta.get("after_cursor")
             if not isinstance(cursor, str) or not cursor or cursor in seen: return failure(ErrorCode.UPSTREAM_ERROR, "Zendesk returned an invalid article export cursor")
             seen.add(cursor)
-        return success({"articles": articles, "truncated": True})
+            del result, data, page, meta
+        return success({"item_count": count, "truncated": True})
     def export_article_artifact(self, locale: str, max_articles: int = 100000, *, brand_id: int | None = None, output_format: str = "json") -> dict[str, object]:
         if output_format not in {"json", "csv"}: return failure(ErrorCode.VALIDATION_ERROR, "output_format must be json or csv")
-        result = self.export_articles(locale, max_articles, brand_id=brand_id)
-        if not result.get("ok"): return result
-        data = result.get("data")
-        articles = data.get("articles") if isinstance(data, dict) else None
-        if not isinstance(articles, list): return failure(ErrorCode.UPSTREAM_ERROR, "Zendesk returned an invalid article export response")
         if self._settings is None or self._settings.attachment_cache_root is None: return failure(ErrorCode.NOT_CONFIGURED, "Zendesk export cache is not configured")
         root = self._settings.attachment_cache_root.parent / "exports"
         _clean_export_cache(root)
-        cached = _cache_ticket_export(root, output_format, _serialize_ticket_export(articles, output_format), filename_prefix="help-center-export")
+        try:
+            with tempfile.TemporaryFile(mode="w+", encoding="utf-8") as spool:
+                def consume(page):
+                    for article in page: spool.write(json.dumps(article, ensure_ascii=False, separators=(",", ":")) + "\n")
+                result = self._export_article_pages(locale, max_articles, consume, brand_id=brand_id)
+                if not result.get("ok"): return result
+                def items():
+                    spool.seek(0)
+                    for line in spool: yield json.loads(line)
+                cached = _cache_ticket_export(root, output_format, _stream_ticket_export(items, output_format), filename_prefix="help-center-export")
+        except OSError:
+            return failure(ErrorCode.UPSTREAM_ERROR, "article export spool could not be written")
         if not cached.get("ok"): return cached
-        return success({"format": output_format, "item_count": len(articles), "truncated": data.get("truncated", False), **cached["data"]})
+        return success({"format": output_format, **result["data"], **cached["data"]})
     def get_article(self, article_id: object, *, brand_id: int | None = None, locale: str | None = None, embed_images: bool = False) -> dict[str, object]:
         identifier = _help_center_id(article_id)
         if identifier is None or not isinstance(embed_images, bool) or (locale is not None and (not isinstance(locale, str) or not _LOCALE.fullmatch(locale))): return failure(ErrorCode.VALIDATION_ERROR, "article_id, locale, and embed_images must be valid")

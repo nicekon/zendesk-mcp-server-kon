@@ -12,13 +12,14 @@ import stat
 import subprocess
 import sys
 import tarfile
+import tempfile
 import time
 import zipfile
 import json
 import re
 from datetime import datetime
 from pathlib import Path
-from typing import Mapping, Protocol
+from typing import Callable, Iterable, Iterator, Mapping, Protocol
 
 from ..approvals import ApprovalStore
 from ..config import Settings
@@ -315,6 +316,8 @@ class TicketTools:
         if isinstance(client, dict): return client
         upstream_cursor = _decode_export_cursor(cursor, ticket_query) if cursor is not None else None
         if cursor is not None and upstream_cursor is None: return failure(ErrorCode.CURSOR_EXPIRED, "export cursor is expired or invalid")
+        if output_format is not None:
+            return self._export_ticket_artifact(ticket_query, cursor=cursor, limit=limit, projection=projection, output_format=output_format)
         params = {"filter[type]": "ticket", "query": ticket_query, "page[size]": str(limit)}
         if upstream_cursor is not None: params["page[after]"] = upstream_cursor
         result = client.get("/api/v2/search/export.json", params=params)
@@ -323,7 +326,7 @@ class TicketTools:
                 return failure(ErrorCode.CURSOR_EXPIRED, "export cursor is expired or rejected")
             return result
         data = result.get("data"); items = data.get("results") if isinstance(data, dict) else None; meta = data.get("meta") if isinstance(data, dict) else None
-        if not isinstance(items, list) or not isinstance(meta, dict): return failure(ErrorCode.UPSTREAM_ERROR, "Zendesk returned an invalid ticket export page")
+        if not isinstance(items, list) or len(items) > limit or not isinstance(meta, dict) or not isinstance(meta.get("has_more"), bool): return failure(ErrorCode.UPSTREAM_ERROR, "Zendesk returned an invalid ticket export page")
         if custom_objects:
             projected = self._project_custom_objects(items, custom_objects)
             if isinstance(projected, dict): return projected
@@ -331,14 +334,38 @@ class TicketTools:
         items = _select_ticket_fields(items, fields, include_custom_objects=bool(custom_objects))
         has_more = bool(meta.get("has_more")); next_upstream = meta.get("after_cursor")
         if has_more and (not isinstance(next_upstream, str) or not next_upstream or next_upstream == upstream_cursor): return failure(ErrorCode.UPSTREAM_ERROR, "Zendesk returned an invalid ticket export cursor")
-        if output_format is not None:
-            if self._settings is None or self._settings.attachment_cache_root is None: return failure(ErrorCode.NOT_CONFIGURED, "Zendesk export cache is not configured")
-            root = self._settings.attachment_cache_root.parent / "exports"
-            _clean_export_cache(root)
-            cached = _cache_ticket_export(root, output_format, _serialize_ticket_export(items, output_format))
-            if not cached.get("ok"): return cached
-            return success({"format": output_format, "cache_path": cached["data"]["cache_path"], "item_count": len(items), "has_more": has_more, "next_cursor": _encode_export_cursor(next_upstream, ticket_query) if has_more else None, "truncated": False})
         return success({"items": items, "has_more": has_more, "next_cursor": _encode_export_cursor(next_upstream, ticket_query) if has_more else None, "truncated": False})
+
+    def _export_ticket_artifact(self, query: str, *, cursor: str | None, limit: int, projection: Mapping[str, object] | None, output_format: str) -> dict[str, object]:
+        if self._settings is None or self._settings.attachment_cache_root is None: return failure(ErrorCode.NOT_CONFIGURED, "Zendesk export cache is not configured")
+        root = self._settings.attachment_cache_root.parent / "exports"
+        _clean_export_cache(root)
+        count = 0; has_more = False; seen: set[str] = set()
+        if cursor is not None:
+            decoded = _decode_export_cursor(cursor, query)
+            if decoded is not None: seen.add(decoded)
+        try:
+            with tempfile.TemporaryFile(mode="w+", encoding="utf-8") as spool:
+                while count < 100000:
+                    result = self.export_tickets(query, cursor=cursor, limit=min(limit, 100000-count), projection=projection)
+                    if not result.get("ok"): return result
+                    data = result["data"]
+                    spool.writelines(json.dumps(item, ensure_ascii=False, separators=(",", ":")) + "\n" for item in data["items"])
+                    count += len(data["items"])
+                    has_more = data["has_more"]; cursor = data["next_cursor"]
+                    if not has_more: break
+                    decoded = _decode_export_cursor(cursor, query)
+                    if decoded is None or decoded in seen: return failure(ErrorCode.UPSTREAM_ERROR, "Zendesk returned an invalid ticket export cursor")
+                    seen.add(decoded)
+                    del result, data
+                def items():
+                    spool.seek(0)
+                    for line in spool: yield json.loads(line)
+                cached = _cache_ticket_export(root, output_format, _stream_ticket_export(items, output_format))
+        except OSError:
+            return failure(ErrorCode.UPSTREAM_ERROR, "ticket export spool could not be written")
+        if not cached.get("ok"): return cached
+        return success({"format": output_format, **cached["data"], "item_count": count, "has_more": has_more, "next_cursor": cursor, "truncated": has_more})
 
     def apply_macro(
         self,
@@ -1072,33 +1099,49 @@ def _cache_attachment(root: Path, attachment_id: int, content: bytes) -> dict[st
 
 
 def _serialize_ticket_export(items: list[object], output_format: str) -> bytes:
-    if output_format == "json": return json.dumps(items, ensure_ascii=False, separators=(",", ":")).encode()
-    rows: list[dict[str, object]] = []
-    for item in items:
-        if not isinstance(item, dict): continue
-        row: dict[str, object] = {}
-        for key, value in item.items():
-            if key == "custom_objects" and isinstance(value, dict):
-                for object_key, records in value.items():
-                    for record in records if isinstance(records, list) else []:
-                        if isinstance(record, dict): row.update({f"{object_key}.{field}": _csv_value(field_value) for field, field_value in record.items()})
-            else: row[key] = _csv_value(value)
-        rows.append(row)
-    fields: list[str] = []
-    for row in rows:
-        for field in row:
-            if field not in fields: fields.append(field)
+    return b"".join(_stream_ticket_export(lambda: iter(items), output_format))
+
+
+def _export_csv_row(item: dict[str, object]) -> dict[str, object]:
+    row: dict[str, object] = {}
+    for key, value in item.items():
+        if key == "custom_objects" and isinstance(value, dict):
+            for object_key, records in value.items():
+                for record in records if isinstance(records, list) else []:
+                    if isinstance(record, dict): row.update({f"{object_key}.{field}": _csv_value(field_value) for field, field_value in record.items()})
+        else: row[key] = _csv_value(value)
+    return row
+
+
+def _stream_ticket_export(items: Callable[[], Iterable[object]], output_format: str) -> Iterator[bytes]:
+    if output_format == "json":
+        yield b"["
+        separator = b""
+        for item in items():
+            yield separator + json.dumps(item, ensure_ascii=False, separators=(",", ":")).encode()
+            separator = b","
+        yield b"]"
+        return
+    fields: dict[str, None] = {}
+    for item in items():
+        if isinstance(item, dict): fields.update(dict.fromkeys(_export_csv_row(item)))
     stream = io.StringIO(newline="")
     writer = csv.DictWriter(stream, fieldnames=fields, extrasaction="ignore")
-    writer.writeheader(); writer.writerows(rows)
-    return stream.getvalue().encode()
+    writer.writeheader()
+    yield stream.getvalue().encode()
+    for item in items():
+        if not isinstance(item, dict): continue
+        stream.seek(0); stream.truncate()
+        writer.writerow(_export_csv_row(item))
+        yield stream.getvalue().encode()
 
 
 def _csv_value(value: object) -> object:
     return json.dumps(value, ensure_ascii=False, separators=(",", ":")) if isinstance(value, (dict, list)) else value
 
 
-def _cache_ticket_export(root: Path, output_format: str, content: bytes, *, filename_prefix: str = "ticket-export") -> dict[str, object]:
+def _cache_ticket_export(root: Path, output_format: str, content: bytes | Iterable[bytes], *, filename_prefix: str = "ticket-export") -> dict[str, object]:
+    temporary: Path | None = None
     try:
         user_root = root / str(os.getuid())
         for directory in (root, user_root):
@@ -1106,15 +1149,19 @@ def _cache_ticket_export(root: Path, output_format: str, content: bytes, *, file
             info = directory.lstat()
             if stat.S_ISLNK(info.st_mode) or not stat.S_ISDIR(info.st_mode): return failure(ErrorCode.VALIDATION_ERROR, "export cache directory is unsafe")
         target = user_root / f"{filename_prefix}-{secrets.token_hex(16)}.{output_format}"
-        temporary = user_root / f".{target.name}.tmp"
-        descriptor = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-        with os.fdopen(descriptor, "wb") as stream: stream.write(content)
+        candidate = user_root / f".{target.name}.tmp"
+        descriptor = os.open(candidate, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        temporary = candidate
+        with os.fdopen(descriptor, "wb") as stream:
+            for chunk in (content,) if isinstance(content, bytes) else content: stream.write(chunk)
         os.replace(temporary, target)
         return success({"cache_path": str(target)})
-    except OSError:
-        try: temporary.unlink(missing_ok=True)
-        except UnboundLocalError: pass
+    except (OSError, ValueError, TypeError):
         return failure(ErrorCode.UPSTREAM_ERROR, "export cache could not be written")
+    finally:
+        if temporary is not None:
+            try: temporary.unlink(missing_ok=True)
+            except OSError: pass
 
 
 def _clean_export_cache(root: Path) -> None:

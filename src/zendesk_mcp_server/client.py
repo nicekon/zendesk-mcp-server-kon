@@ -155,12 +155,23 @@ class ZendeskClient:
                     self._sleep(delay); sleep_total += delay
                     continue
 
+            message = f"Zendesk request failed with HTTP {response.status_code}"
+            details = None
+            if response.status_code == 403:
+                try:
+                    body = response.json()
+                except ValueError:
+                    body = None
+                if isinstance(body, dict) and body.get("description") == "You are missing the following required scopes: read":
+                    message = "Zendesk requires broad OAuth read scope for this endpoint; current resource-specific scope policy does not grant it"
+                    details = {"required_scopes": ["read"]}
             return failure(
                 code,
-                f"Zendesk request failed with HTTP {response.status_code}",
+                message,
                 retryable=read_request and (response.status_code == 429 or response.status_code >= 500),
                 operation_state="not_applied" if read_request or response.status_code in {401, 403, 409, 412, 429} else "unknown",
                 request_id=_request_id(response),
+                details=details,
             )
 
         return failure(ErrorCode.UPSTREAM_ERROR, "Zendesk request could not be completed")

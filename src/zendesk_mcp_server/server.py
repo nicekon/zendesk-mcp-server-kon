@@ -480,13 +480,22 @@ def create_server(environ: Mapping[str, str] | None = None) -> Server:
             if not locales_result.get("ok"): return [ReadResourceContents(json.dumps(locales_result), "application/json")]
             locales_data = locales_result.get("data"); locales = locales_data.get("locales") if isinstance(locales_data, dict) else None
             if not isinstance(locales, list) or not all(isinstance(locale, str) for locale in locales): return [ReadResourceContents(json.dumps(failure(ErrorCode.UPSTREAM_ERROR, "Zendesk returned invalid Help Center locales")), "application/json")]
-            exports = []
+            exports = []; remaining = 100000; truncated = False
             for locale in locales:
-                exported = tools.export_articles(locale)
+                if remaining == 0:
+                    truncated = True
+                    break
+                exported = tools.export_articles(locale, max_articles=remaining)
                 if not exported.get("ok"): return [ReadResourceContents(json.dumps(exported), "application/json")]
                 data = exported.get("data")
-                exports.append({"locale": locale, "articles": data.get("articles", []) if isinstance(data, dict) else []})
-            content = json.dumps(success({"locales": exports}), ensure_ascii=False)
+                if not isinstance(data, dict) or not isinstance(data.get("articles"), list) or not isinstance(data.get("truncated"), bool):
+                    return [ReadResourceContents(json.dumps(failure(ErrorCode.UPSTREAM_ERROR, "Zendesk returned an invalid knowledge base export")), "application/json")]
+                locale_truncated = data["truncated"] or len(data["articles"]) > remaining
+                articles = data["articles"][:remaining]
+                remaining -= len(articles)
+                exports.append({"locale": locale, "articles": articles, "truncated": locale_truncated})
+                truncated = truncated or locale_truncated
+            content = json.dumps(success({"locales": exports, "truncated": truncated}), ensure_ascii=False)
             knowledge_base_cache = time.time(), content
             return [ReadResourceContents(content, "application/json")]
 

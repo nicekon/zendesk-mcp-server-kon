@@ -108,7 +108,7 @@ def test_knowledge_base_resource_reuses_locale_article_exports(monkeypatch):
 
     class GuideExport:
         def list_locales(self): return success({"locales": ["en-us"]})
-        def export_articles(self, locale): return success({"articles": [{"id": 1, "locale": locale}], "truncated": False})
+        def export_articles(self, locale, max_articles=100000): return success({"articles": [{"id": 1, "locale": locale}], "truncated": False})
 
     monkeypatch.setattr(server_module, "build_guide_tools", lambda _: GuideExport())
     server = server_module.create_server({"ZENDESK_ENABLE_KNOWLEDGE_BASE_RESOURCE": "true"})
@@ -116,7 +116,49 @@ def test_knowledge_base_resource_reuses_locale_article_exports(monkeypatch):
 
     result = asyncio.run(server.request_handlers[types.ReadResourceRequest](request))
 
-    assert result.root.contents[0].text == '{"ok": true, "data": {"locales": [{"locale": "en-us", "articles": [{"id": 1, "locale": "en-us"}]}]}}'
+    assert result.root.contents[0].text == '{"ok": true, "data": {"locales": [{"locale": "en-us", "articles": [{"id": 1, "locale": "en-us"}], "truncated": false}], "truncated": false}}'
+
+
+def test_knowledge_base_shares_total_limit_across_locales(monkeypatch):
+    import json
+    from zendesk_mcp_server import server as server_module
+    from zendesk_mcp_server.contracts import success
+    class GuideExport:
+        calls = []
+        def list_locales(self): return success({"locales": ["en-us", "ko", "ja"]})
+        def export_articles(self, locale, max_articles=100000):
+            self.calls.append((locale, max_articles))
+            count = 99999 if locale == "en-us" else max_articles
+            return success({"articles": [{"id": 1}] * count, "truncated": False})
+    guide = GuideExport()
+    monkeypatch.setattr(server_module, "build_guide_tools", lambda _: guide)
+    server = server_module.create_server({"ZENDESK_ENABLE_KNOWLEDGE_BASE_RESOURCE": "true"})
+    request = types.ReadResourceRequest(params=types.ReadResourceRequestParams(uri="zendesk://knowledge-base"))
+    result = asyncio.run(server.request_handlers[types.ReadResourceRequest](request))
+    body = json.loads(result.root.contents[0].text)
+    assert guide.calls == [("en-us", 100000), ("ko", 1)]
+    assert sum(len(item["articles"]) for item in body["data"]["locales"]) == 100000
+    assert body["data"]["truncated"] is True
+
+
+def test_knowledge_base_preserves_truncation_and_rejects_invalid_export(monkeypatch):
+    import json
+    from zendesk_mcp_server import server as server_module
+    from zendesk_mcp_server.contracts import success
+    for payload in ({"articles": [{"id": 1}], "truncated": True}, {"articles": "invalid", "truncated": False}):
+        class GuideExport:
+            def list_locales(self): return success({"locales": ["en-us"]})
+            def export_articles(self, locale, max_articles=100000): return success(payload)
+        monkeypatch.setattr(server_module, "build_guide_tools", lambda _: GuideExport())
+        server = server_module.create_server({"ZENDESK_ENABLE_KNOWLEDGE_BASE_RESOURCE": "true"})
+        request = types.ReadResourceRequest(params=types.ReadResourceRequestParams(uri="zendesk://knowledge-base"))
+        result = asyncio.run(server.request_handlers[types.ReadResourceRequest](request))
+        body = json.loads(result.root.contents[0].text)
+        if payload["truncated"]:
+            assert body["data"]["truncated"] is True
+            assert body["data"]["locales"][0]["truncated"] is True
+        else:
+            assert body["error"]["code"] == "upstream_error"
 
 
 def test_knowledge_base_resource_caches_its_export_for_one_hour(monkeypatch):
@@ -126,7 +168,7 @@ def test_knowledge_base_resource_caches_its_export_for_one_hour(monkeypatch):
     class GuideExport:
         calls = 0
         def list_locales(self): self.calls += 1; return success({"locales": ["en-us"]})
-        def export_articles(self, locale): self.calls += 1; return success({"articles": [], "truncated": False})
+        def export_articles(self, locale, max_articles=100000): self.calls += 1; return success({"articles": [], "truncated": False})
 
     guide = GuideExport()
     monkeypatch.setattr(server_module, "build_guide_tools", lambda _: guide)

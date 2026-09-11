@@ -10,6 +10,24 @@ from pathlib import Path
 from pypdf import PdfWriter
 
 
+def test_export_stream_failure_removes_only_its_own_partial_file(tmp_path, monkeypatch):
+    from zendesk_mcp_server.tools.tickets import _cache_ticket_export
+    def broken_content():
+        yield b"["
+        raise ValueError("private serialization contents")
+    result = _cache_ticket_export(tmp_path, "json", broken_content())
+    assert result["error"]["code"] == "upstream_error"
+    assert "private serialization contents" not in str(result)
+    user_root = tmp_path / str(os.getuid())
+    assert list(user_root.iterdir()) == []
+    monkeypatch.setattr("zendesk_mcp_server.tools.tickets.secrets.token_hex", lambda _: "collision")
+    existing = user_root / ".ticket-export-collision.json.tmp"
+    existing.write_bytes(b"existing export")
+    result = _cache_ticket_export(tmp_path, "json", b"[]")
+    assert result["ok"] is False
+    assert existing.read_bytes() == b"existing export"
+
+
 class StubClient:
     def __init__(self, responses):
         self.responses = responses
@@ -352,6 +370,40 @@ def test_ticket_export_writes_a_json_artifact_to_its_managed_cache(tmp_path):
     assert artifact["item_count"] == 1
     assert "items" not in artifact
     assert Path(artifact["cache_path"]).read_text() == '[{"id":1,"subject":"Login"}]'
+
+
+def test_ticket_artifact_collects_multiple_pages(tmp_path):
+    import json
+    class PagesClient:
+        def get(self, path, *, params=None):
+            assert params["filter[type]"] == "ticket"
+            assert params["query"] == "status:open"
+            if params.get("page[after]") == "second":
+                return success({"results": [{"id": 2}], "meta": {"has_more": False}})
+            return success({"results": [{"id": 1}], "meta": {"has_more": True, "after_cursor": "second"}})
+    settings = Settings.load({"ZENDESK_ATTACHMENT_CACHE_ROOT": str(tmp_path / "attachments")})
+    result = TicketTools(PagesClient(), settings).export_tickets("status:open", output_format="json")
+    assert result["data"]["item_count"] == 2
+    assert result["data"]["next_cursor"] is None
+    assert result["data"]["truncated"] is False
+    assert json.loads(Path(result["data"]["cache_path"]).read_text()) == [{"id": 1}, {"id": 2}]
+
+
+def test_ticket_artifact_stops_at_cap_with_resumable_cursor(tmp_path):
+    class PagesClient:
+        calls = 0
+        def get(self, path, *, params=None):
+            self.calls += 1
+            return success({"results": [{"id": 1}] * 1000, "meta": {"has_more": True, "after_cursor": str(self.calls)}})
+    settings = Settings.load({"ZENDESK_ATTACHMENT_CACHE_ROOT": str(tmp_path / "attachments")})
+    client = PagesClient(); tools = TicketTools(client, settings)
+    result = tools.export_tickets("status:open", limit=1000, output_format="json")
+    assert client.calls == 100
+    assert result["data"]["item_count"] == 100000
+    assert result["data"]["truncated"] is True
+    resumed = tools.export_tickets("status:open", limit=1000, cursor=result["data"]["next_cursor"])
+    assert resumed["ok"] is True
+    assert client.calls == 101
 
 
 def test_ticket_export_flattens_custom_objects_into_csv_columns(tmp_path):
