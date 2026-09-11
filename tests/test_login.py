@@ -209,6 +209,8 @@ def test_invalid_callbacks_do_not_prevent_a_later_valid_callback(tmp_path: Path)
             record(f"{base}/oauth/callback?{duplicate}")
             record(f"{base}/oauth/callback?error=one&error=two&{urlencode({'state': state})}")
             record(f"{base}/oauth/callback?{urlencode({'code': 'code', 'error': 'access_denied', 'state': state})}")
+            record(f"{base}/oauth/callback?{urlencode({'code': 'code', 'state': '잘못된값'})}")
+            record(f"{base}/oauth/callback?{urlencode({'code': '', 'state': state})}")
             record(f"{base}/oauth/callback?{urlencode({'code': 'code', 'state': state})}")
 
         worker = threading.Thread(target=request, daemon=True)
@@ -227,7 +229,7 @@ def test_invalid_callbacks_do_not_prevent_a_later_valid_callback(tmp_path: Path)
 
     workers[0].join(2)
     assert not workers[0].is_alive()
-    assert statuses == [400, 400, 400, 400, 400, 400, 200]
+    assert statuses == [400] * 8 + [200]
     assert OAuthTokenStore(tmp_path / "connection.json").load().access_token == "access"
 
 

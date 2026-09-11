@@ -88,8 +88,10 @@ def login(
                 and not parsed.fragment
                 and set(query) == allowed_query
                 and len(query.get("state", [])) == 1
+                and query["state"][0].isascii()
                 and hmac.compare_digest(query["state"][0], expected_state)
                 and ((len(query.get("code", [])) == 1 and "error" not in query) or (len(query.get("error", [])) == 1 and "code" not in query))
+                and all(value for values in query.values() for value in values)
             )
             if not valid_shape:
                 self._respond(400, "Invalid OAuth callback. You can return to the terminal.")

@@ -259,7 +259,7 @@ class OAuthStateStore:
         return state
 
     def consume(self, state: str, redirect_uri: str, scopes: tuple[str, ...], *, now: int) -> None:
-        if not isinstance(state, str) or not state:
+        if not isinstance(state, str) or not state or not state.isascii():
             raise ConfigurationError("invalid_oauth_state", "OAuth state is invalid")
         with self._lock():
             values = self._load(); key = next((value for value in values if hmac.compare_digest(value, state)), None); record = values.pop(key, None) if key else None

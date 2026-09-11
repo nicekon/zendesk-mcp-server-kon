@@ -41,6 +41,15 @@ def test_missing_oauth_file_returns_configuration_error(tmp_path, monkeypatch, c
     assert error.value.code == "missing_oauth_tokens"
 
 
+def test_manual_oauth_rejects_non_ascii_state_without_consuming_valid_state(tmp_path):
+    store = OAuthStateStore(tmp_path / "state.json")
+    state = store.create("https://example.test/callback", ("tickets:read",), now=1)
+    with pytest.raises(ConfigurationError) as error:
+        store.consume("잘못된값", "https://example.test/callback", ("tickets:read",), now=2)
+    assert error.value.code == "invalid_oauth_state"
+    store.consume(state, "https://example.test/callback", ("tickets:read",), now=2)
+
+
 def test_api_token_header_uses_basic_auth_not_a_bearer_token():
     provider = ApiTokenAuthorization(email="agent@example.test", token="token")
 
