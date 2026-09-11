@@ -109,7 +109,7 @@ def oauth_state_store(settings: Settings) -> "OAuthStateStore":
     return OAuthStateStore(path.with_name(f".{path.name}.state"))
 
 
-def exchange_oauth_authorization_code(request: Callable[[dict[str, str]], object], client_id: str, client_secret: str, code: str, state: str, redirect_uri: str, scopes: tuple[str, ...], state_store: "OAuthStateStore", token_store: "OAuthTokenStore", *, now: int, code_verifier: str | None = None) -> OAuthTokens:
+def exchange_oauth_authorization_code(request: Callable[[dict[str, str]], object], client_id: str, client_secret: str, code: str, state: str, redirect_uri: str, scopes: tuple[str, ...], state_store: "OAuthStateStore", token_store: "OAuthTokenStore | None", *, now: int, code_verifier: str | None = None) -> OAuthTokens:
     if not isinstance(client_secret, str) or (not client_secret and code_verifier is None) or not isinstance(code, str) or not code:
         raise ConfigurationError("invalid_oauth_authorization", "OAuth authorization response is invalid")
     state_store.consume(state, redirect_uri, scopes, now=now)
@@ -120,7 +120,8 @@ def exchange_oauth_authorization_code(request: Callable[[dict[str, str]], object
         _validate_code_verifier(code_verifier)
         payload["code_verifier"] = code_verifier
     tokens = oauth_tokens_from_refresh_response(request(payload), now=now)
-    token_store.save(tokens)
+    if token_store is not None:
+        token_store.save(tokens)
     return tokens
 
 
