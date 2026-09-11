@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import re
+import stat
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
@@ -268,7 +269,11 @@ def saved_connection_path() -> Path:
 
 def _load_saved_connection(path: Path) -> dict[str, object]:
     try:
+        if stat.S_IMODE(path.stat().st_mode) & 0o077:
+            raise ConfigurationError("unsafe_oauth_permissions", "OAuth connection file permissions must be user-only")
         value = json.loads(path.read_text(encoding="utf-8"))
+    except ConfigurationError:
+        raise
     except (OSError, ValueError, json.JSONDecodeError) as error:
         raise ConfigurationError("invalid_oauth_tokens", "Saved OAuth connection is invalid") from error
     if (

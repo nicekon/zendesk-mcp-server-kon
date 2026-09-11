@@ -118,6 +118,18 @@ def test_public_oauth_request_and_exchange_use_pkce_without_secret(tmp_path: Pat
     }]
 
 
+def test_oauth_redirect_with_invalid_loopback_port_is_a_configuration_error(tmp_path: Path):
+    from zendesk_mcp_server.auth import create_oauth_authorization_request
+
+    with pytest.raises(ConfigurationError) as error:
+        create_oauth_authorization_request(
+            "acme", "client", "http://127.0.0.1:not-a-port/oauth/callback",
+            ("tickets:read",), OAuthStateStore(tmp_path / "state.json"), now=100,
+            code_verifier="a" * 43,
+        )
+    assert error.value.code == "invalid_oauth_authorization"
+
+
 def test_refresh_oauth_tokens_uses_injected_requester():
     from zendesk_mcp_server.auth import refresh_oauth_tokens
     assert refresh_oauth_tokens(lambda payload: {"access_token": "new", "refresh_token": payload["refresh_token"], "expires_in": 100}, "id", "secret", "refresh", now=1).access_token == "new"

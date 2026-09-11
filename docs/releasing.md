@@ -13,8 +13,10 @@ uv build
 ```
 
 Install the wheel into a fresh environment and complete a stdio MCP handshake
-before publishing it to PyPI. Publish only the built files in `dist/` using the
-release account; never put package credentials in this repository.
+through the installed `zendesk` console command before publishing it to PyPI.
+Also run `zendesk --help` and confirm that `login` and `check` are available.
+Publish only the built files in `dist/` using the release account; never put
+package credentials in this repository.
 
 For a repeatable local smoke install, build into a new directory. Do not use a
 `dist/*.whl` glob after multiple local builds: it can select more than one
@@ -25,7 +27,12 @@ wheelhouse="$(mktemp -d)"
 uv build --out-dir "$wheelhouse"
 uv venv .wheel-venv
 uv pip install --python .wheel-venv/bin/python "$wheelhouse"/zendesk_mcp_server-*.whl
+.wheel-venv/bin/zendesk --help
 ```
+
+Before announcing an OAuth-capable release, use a Zendesk Public client in a
+test tenant to verify `zendesk login`, `zendesk check --probe`, token refresh,
+and a fresh stdio MCP process. The mock OAuth tests do not replace this check.
 
 The included publish workflow runs only for a published GitHub Release and its
 PyPI job waits for the complete Python 3.10–3.12 test/build/handshake matrix.

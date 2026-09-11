@@ -1,4 +1,5 @@
 import threading
+import socket
 from pathlib import Path
 from urllib.parse import parse_qs, urlencode, urlsplit, urlunsplit
 from urllib.request import urlopen
@@ -89,3 +90,41 @@ def test_login_times_out_and_closes_listener(tmp_path: Path):
             token_requester=lambda _: pytest.fail("unexpected token exchange"),
             user_requester=lambda *_: pytest.fail("unexpected probe"),
         )
+
+
+def test_slow_callback_connection_cannot_extend_login_timeout(tmp_path: Path):
+    from zendesk_mcp_server.login import login
+
+    clients = []
+    errors = []
+
+    def hold_incomplete_request(authorization_url: str) -> bool:
+        redirect = urlsplit(parse_qs(urlsplit(authorization_url).query)["redirect_uri"][0])
+        client = socket.create_connection(("127.0.0.1", redirect.port), timeout=1)
+        client.sendall(b"GET /oauth/callback HTTP/1.1")
+        clients.append(client)
+        return True
+
+    def run_login() -> None:
+        try:
+            login(
+                _settings(tmp_path / "connection.json"),
+                port=0,
+                timeout=0.05,
+                browser_open=hold_incomplete_request,
+                token_requester=lambda _: pytest.fail("unexpected token exchange"),
+                user_requester=lambda *_: pytest.fail("unexpected probe"),
+            )
+        except ConfigurationError as error:
+            errors.append(error)
+
+    thread = threading.Thread(target=run_login, daemon=True)
+    thread.start()
+    thread.join(0.3)
+    completed_within_deadline = not thread.is_alive()
+    for client in clients:
+        client.close()
+    thread.join(1)
+
+    assert completed_within_deadline is True
+    assert errors[0].code == "oauth_callback_timeout"

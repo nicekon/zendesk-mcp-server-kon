@@ -22,6 +22,15 @@ from .auth import (
 from .config import AuthMode, ConfigurationError, Settings
 
 
+class _LoopbackHTTPServer(HTTPServer):
+    request_timeout = 1.0
+
+    def get_request(self):
+        request, address = super().get_request()
+        request.settimeout(self.request_timeout)
+        return request, address
+
+
 class _LoginStateStore:
     def __init__(self) -> None:
         self._state: str | None = None
@@ -102,7 +111,8 @@ def login(
             return
 
     try:
-        server = HTTPServer(("127.0.0.1", port), CallbackHandler)
+        server = _LoopbackHTTPServer(("127.0.0.1", port), CallbackHandler)
+        server.request_timeout = min(1.0, timeout)
     except OSError as error:
         raise ConfigurationError("oauth_callback_unavailable", "OAuth callback port is unavailable") from error
 

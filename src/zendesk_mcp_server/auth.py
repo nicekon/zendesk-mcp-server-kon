@@ -299,8 +299,12 @@ class OAuthStateStore:
 
 def _validate_authorization_inputs(subdomain: object, client_id: object, redirect_uri: object, scopes: object) -> None:
     parsed = urlsplit(redirect_uri) if isinstance(redirect_uri, str) else None
+    try:
+        redirect_port = parsed.port if parsed is not None else None
+    except ValueError:
+        redirect_port = None
     secure_redirect = parsed is not None and parsed.scheme == "https" and bool(parsed.netloc)
-    loopback_redirect = parsed is not None and parsed.scheme == "http" and parsed.hostname == "127.0.0.1" and parsed.port is not None
+    loopback_redirect = parsed is not None and parsed.scheme == "http" and parsed.hostname == "127.0.0.1" and redirect_port is not None
     if not isinstance(subdomain, str) or not subdomain or not isinstance(client_id, str) or not client_id or parsed is None or not (secure_redirect or loopback_redirect) or parsed.username or parsed.password or parsed.fragment or not isinstance(scopes, tuple) or not scopes or any(not isinstance(scope, str) or not scope for scope in scopes):
         raise ConfigurationError("invalid_oauth_authorization", "OAuth authorization configuration is invalid")
 

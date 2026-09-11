@@ -130,6 +130,26 @@ def test_saved_connection_requires_relogin_before_scope_expansion(tmp_path, monk
     assert error.value.code == "oauth_relogin_required"
 
 
+def test_saved_connection_rejects_group_readable_permissions(tmp_path, monkeypatch):
+    from zendesk_mcp_server.auth import OAuthTokens, save_connection
+
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
+    path = tmp_path / ".config" / "zendesk-mcp-server" / "connection.json"
+    settings = Settings.load({
+        "ZENDESK_SUBDOMAIN": "acme",
+        "ZENDESK_AUTH_MODE": "oauth",
+        "ZENDESK_OAUTH_CLIENT_KIND": "public",
+        "ZENDESK_OAUTH_CLIENT_ID": "client-id",
+        "ZENDESK_OAUTH_TOKEN_STORE": str(path),
+    })
+    save_connection(settings, OAuthTokens("access", "refresh", 999))
+    path.chmod(0o640)
+
+    with pytest.raises(ConfigurationError) as error:
+        Settings.load({})
+    assert error.value.code == "unsafe_oauth_permissions"
+
+
 def test_oauth_scopes_are_limited_to_enabled_capabilities_and_gates():
     settings = Settings.load(
         {

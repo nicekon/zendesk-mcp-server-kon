@@ -37,17 +37,18 @@ jobs:
         run: |
           uv venv --python ${{ matrix.python }} .wheel-venv
           uv pip install --python .wheel-venv/bin/python dist/*.whl
+          .wheel-venv/bin/zendesk --help
           .wheel-venv/bin/python - <<'PY'
           import asyncio
           import sys
+          from pathlib import Path
           from mcp.client.session import ClientSession
           from mcp.client.stdio import StdioServerParameters, stdio_client
 
           async def main():
               params = StdioServerParameters(
-                  command=sys.executable,
-                  args=["-c", "from zendesk_mcp_server import main; main()"],
-                  env={},
+                  command=str(Path(sys.executable).with_name("zendesk")),
+                  env={"ZENDESK_SUBDOMAIN": "package-smoke"},
               )
               async with stdio_client(params) as (read, write):
                   async with ClientSession(read, write) as session:
@@ -75,17 +76,18 @@ jobs:
         run: |
           uv venv --python ${{ matrix.python }} .wheel-venv
           uv pip install --python .wheel-venv/bin/python dist/*.whl
+          .wheel-venv/bin/zendesk --help
           .wheel-venv/bin/python - <<'PY'
           import asyncio
           import sys
+          from pathlib import Path
           from mcp.client.session import ClientSession
           from mcp.client.stdio import StdioServerParameters, stdio_client
 
           async def main():
               params = StdioServerParameters(
-                  command=sys.executable,
-                  args=["-c", "from zendesk_mcp_server import main; main()"],
-                  env={},
+                  command=str(Path(sys.executable).with_name("zendesk")),
+                  env={"ZENDESK_SUBDOMAIN": "package-smoke"},
               )
               async with stdio_client(params) as (read, write):
                   async with ClientSession(read, write) as session:
@@ -101,17 +103,18 @@ jobs:
           uv venv --python ${{ matrix.python }} .wheel-venv
           $wheel = (Get-ChildItem dist -Filter *.whl | Select-Object -First 1).FullName
           uv pip install --python .wheel-venv\Scripts\python.exe $wheel
+          & .wheel-venv\Scripts\zendesk.exe --help
           @'
           import asyncio
           import sys
+          from pathlib import Path
           from mcp.client.session import ClientSession
           from mcp.client.stdio import StdioServerParameters, stdio_client
 
           async def main():
               params = StdioServerParameters(
-                  command=sys.executable,
-                  args=["-c", "from zendesk_mcp_server import main; main()"],
-                  env={},
+                  command=str(Path(sys.executable).with_name("zendesk.exe")),
+                  env={"ZENDESK_SUBDOMAIN": "package-smoke"},
               )
               async with stdio_client(params) as (read, write):
                   async with ClientSession(read, write) as session:
