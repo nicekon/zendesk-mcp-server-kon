@@ -271,7 +271,7 @@ class TicketTools:
         if not result.get("ok"):
             return result
         data = result.get("data", {})
-        if not isinstance(data, dict) or not isinstance(data.get("results", []), list):
+        if not isinstance(data, dict) or not isinstance(data.get("results"), list) or len(data["results"]) > page_size:
             return failure(ErrorCode.UPSTREAM_ERROR, "Zendesk returned an invalid ticket search")
         has_more = bool(data.get("next_page"))
         items = data["results"]

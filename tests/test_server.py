@@ -321,6 +321,32 @@ def test_connection_status_tool_probes_the_authenticated_user(monkeypatch):
     assert result.root.structuredContent["ok"] is True
 
 
+def test_mcp_dispatch_forwards_ticket_pagination_inputs(monkeypatch):
+    import zendesk_mcp_server.server as module
+    from zendesk_mcp_server.tools.tickets import TicketTools
+
+    calls = []
+    class Client:
+        def get(self, path, *, params=None):
+            calls.append((path, params))
+            if path == "/api/v2/search.json":
+                return {"ok": True, "data": {"results": [], "next_page": None}}
+            return {"ok": True, "data": {"tickets": [], "meta": {"has_more": False}}}
+    monkeypatch.setattr(module, "build_ticket_tools", lambda _: TicketTools(Client()))
+    server = module.create_server({"ZENDESK_SUBDOMAIN": "acme"})
+    for name, arguments in (
+        ("zendesk_list_tickets", {"limit": 2, "cursor": "next"}),
+        ("zendesk_search_tickets", {"query": "status:open", "limit": 2, "page": 3}),
+    ):
+        request = types.CallToolRequest(params=types.CallToolRequestParams(name=name, arguments=arguments))
+        result = asyncio.run(server.request_handlers[types.CallToolRequest](request))
+        assert result.root.structuredContent["ok"] is True
+    assert calls == [
+        ("/api/v2/tickets.json", {"page[size]": "2", "page[after]": "next"}),
+        ("/api/v2/search.json", {"query": "type:ticket status:open", "per_page": "2", "page": "3"}),
+    ]
+
+
 def test_tool_call_writes_a_redacted_audit_event(tmp_path, monkeypatch):
     from zendesk_mcp_server import server as server_module
     from zendesk_mcp_server.contracts import success

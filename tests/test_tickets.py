@@ -438,6 +438,13 @@ def test_search_uses_offset_page_and_enforces_thousand_result_limit():
     assert len(client.paths) == 1
 
 
+def test_search_rejects_missing_results_and_oversized_pages():
+    for data in ({}, {"results": [{"id": 1}, {"id": 2}], "next_page": None}):
+        client = StubClient({"/api/v2/search.json": success(data)})
+        result = TicketTools(client).search_tickets("status:open", limit=1)
+        assert result["error"]["code"] == "upstream_error"
+
+
 def test_search_rejects_blank_query_and_non_integer_limit_without_a_client():
     tools = TicketTools(None)
 
