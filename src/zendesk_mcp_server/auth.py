@@ -9,7 +9,6 @@ import json
 import os
 import re
 import secrets
-import stat
 import tempfile
 import time
 from dataclasses import dataclass, field
@@ -21,7 +20,7 @@ from urllib.parse import urlencode, urlsplit
 
 import httpx
 
-from .config import AuthMode, ConfigurationError, Settings
+from .config import AuthMode, ConfigurationError, Settings, _has_unsafe_permissions
 from .locking import exclusive_lock
 
 
@@ -223,10 +222,10 @@ class OAuthTokenStore:
 
     def _require_user_only_permissions(self) -> None:
         try:
-            mode = stat.S_IMODE(self.path.stat().st_mode)
+            unsafe = _has_unsafe_permissions(self.path)
         except FileNotFoundError as error:
             raise ConfigurationError("missing_oauth_tokens", "OAuth token file is missing") from error
-        if mode & 0o077:
+        if unsafe:
             raise ConfigurationError(
                 "unsafe_oauth_permissions",
                 "OAuth token file permissions must be user-only",
@@ -280,7 +279,7 @@ class OAuthStateStore:
     def _load(self) -> dict[str, object]:
         if not self.path.exists(): return {}
         try:
-            if stat.S_IMODE(self.path.stat().st_mode) & 0o077: raise ConfigurationError("unsafe_oauth_permissions", "OAuth state file permissions must be user-only")
+            if _has_unsafe_permissions(self.path): raise ConfigurationError("unsafe_oauth_permissions", "OAuth state file permissions must be user-only")
             value = json.loads(self.path.read_text(encoding="utf-8")); return value.get("states", {}) if isinstance(value, dict) and isinstance(value.get("states", {}), dict) else {}
         except ConfigurationError:
             raise

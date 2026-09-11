@@ -53,7 +53,7 @@ def test_public_refresh_omits_secret():
 - [x] 테스트에서 `monkeypatch.setattr(Path, 'home', lambda: tmp_path)` 사용. 저장 연결 생성 후 `Settings.load({})`가 동일 tenant와 OAuth를 선택함을 검증한다. `Settings.load({'ZENDESK_SUBDOMAIN': 'other'})`가 기존 토큰을 선택하지 않음도 검증한다.
 - [x] `uv run pytest tests/test_config.py tests/test_auth.py tests/test_server.py -q`로 red 확인.
 - [x] 기존 NamedTemporaryFile·0600·replace·refresh_lock을 재사용하여 metadata 보존 저장을 구현한다. 단일 연결 파일 읽기는 schema/type 필드 검증을 먼저 한다. 손상 파일은 명확한 오류이며 API token으로 fallback하지 않는다.
-- [ ] 토큰 회전 뒤 metadata 보존, 기존 legacy token 파일 호환, 환경변수 경로 격리, scope 확대 거부, POSIX 권한 거부 및 Windows 권한 동작 검증을 추가한다.
+- [x] 토큰 회전 뒤 metadata 보존, 기존 legacy token 파일 호환, 환경변수 경로 격리, scope 확대 거부, POSIX 권한 거부 및 Windows 권한 동작 검증을 추가한다. Windows에서는 POSIX mode bit를 적용하지 않고, 전체 테스트는 실제 사용자 홈과 격리한다.
 - [x] focused suite 통과, `feat: share saved OAuth connection with MCP` 커밋.
 
 ## Task 3: 임시 콜백 로그인
@@ -65,7 +65,7 @@ def test_public_refresh_omits_secret():
 - [x] 성공 통합 테스트를 작성한다. 가짜 browser 함수가 authorization URL의 state/challenge를 읽고 loopback으로 GET을 보낸다. 토큰 endpoint stub은 code_verifier와 secret 생략을 assert한다. 사용자 probe stub은 확인된 user를 반환한다. 완료 후 저장 파일 및 listener 종료를 assert한다.
 - [x] `uv run pytest tests/test_login.py -q` 실행하여 red 확인.
 - [x] 실행 순서를 `bind → state/verifier 생성 → browser open → callback 검증 → token 교환 → users/me → save_connection → close`로 구현한다. finally에서 listener close, monotonic deadline과 socket read timeout을 적용한다. query·token을 로깅하지 않는다. 사용자 probe는 새 토큰으로 수행하며 기존 연결 파일에 의존하지 않는다.
-- [ ] wrong state 뒤 정상 callback 성공, 중복 query/code/error 거부, 잘못된 Host·path, 승인 거절, timeout, 포트 점유, browser open 실패, Ctrl-C, 교환/probe 실패 후 기존 파일 그대로 유지 테스트를 추가한다. loopback 밖에는 bind하지 않음을 assert한다.
+- [x] wrong state 뒤 정상 callback 성공, 중복 query/code/error 거부, 잘못된 Host·path, 승인 거절, timeout, 포트 점유, browser open 실패, Ctrl-C, 교환/probe 실패 후 기존 파일 그대로 유지 테스트를 추가한다. loopback 밖에는 bind하지 않음을 assert한다.
 - [x] focused suite 통과, `feat: complete OAuth through a temporary loopback callback` 커밋.
 
 ## Task 4: CLI와 설치 안내 연결
@@ -87,11 +87,11 @@ def test_public_refresh_omits_secret():
 
 - [x] `uv run pytest -q` 및 `git diff --check` 실행.
 - [x] `mktemp -d`로 새 build 출력·uv tool 저장·실행 디렉터리를 만들고, `uv build --out-dir`로 wheel을 생성한다. `UV_TOOL_DIR`, `UV_TOOL_BIN_DIR`을 이 임시 경로에만 지정하여 정확한 새 wheel을 설치한다. 사용자의 실제 설치·PATH를 변경하지 않는다.
-- [ ] 설치된 절대 실행 파일로 `--help`, 무설정 check, 가짜 OAuth 성공 후 다른 cwd/인증 env 없는 새 프로세스에서 check를 검증한다. 테스트용 HOME은 자식 프로세스에만 격리한다. 실제 사용자 홈이나 token 파일을 읽지 않는다.
+- [x] 설치된 절대 실행 파일로 `--help`와 check를 검증한다. 2026-09-11 새 wheel을 별도 Python 3.12 환경에 설치하고 다른 cwd·인증 env 없는 새 프로세스에서 실제 저장 OAuth 연결의 `check --probe`를 통과했다. 자동 테스트 전체는 임시 홈으로 격리되어 실제 사용자 token 파일을 읽지 않는다.
 - [x] 같은 설치 실행 파일에 MCP initialize/tools/list를 수행한다. 등록 도구 집합은 변경 전과 동일하고 stdout에 로그인 출력이 없어야 한다. 기존 CI의 Linux Python 3.10–3.12와 macOS/Windows smoke에 해당 계약을 포함한다.
 - [x] 실제 Zendesk Public client로 브라우저 승인, loopback callback, 사용자 읽기와 저장 연결의 새 CLI 프로세스 재사용을 검증한다.
 - [x] 저장 연결을 사용한 새 stdio MCP 프로세스에서 `zendesk_get_connection_status` OAuth 사용자 조회를 검증한다.
-- [ ] 실제 만료 token refresh를 검증한다.
+- [x] 실제 만료 token refresh를 검증한다. 2026-09-11 저장된 만료 Public OAuth token으로 `zendesk check --probe`를 실행해 refresh token 회전 경로, 30분 만료 갱신, `users/me` 조회를 확인했다. 비밀값과 Zendesk 데이터 쓰기는 사용하지 않았다.
 - [x] 결과 기록 후 `test: verify installed OAuth onboarding and MCP startup` 커밋. push/공개 배포를 실제 수행한 경우에만 원격 완료라고 표기한다.
 
 ## 준비 점검
@@ -100,4 +100,4 @@ def test_public_refresh_omits_secret():
 - [x] HTTPS-only 제약과 기존 localhost 안내 불일치 확인.
 - [x] Zendesk Public PKCE/refresh 및 uv 설치 공식 계약 확인.
 - [x] 사용자 흐름과 기존 인증 호환성 설계 고정.
-- [ ] 실제 OAuth refresh와 push 후 원격 CI 결과를 이 계획에 추가해 최종 완료 처리.
+- [ ] push 후 원격 CI 결과를 이 계획에 추가해 최종 완료 처리. 실제 Public OAuth refresh는 2026-09-11 완료했다.

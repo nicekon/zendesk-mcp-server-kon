@@ -1,6 +1,6 @@
 # 통합 Zendesk MCP 제품 요구사항 문서(PRD)
 
-- 상태: 구현 진행 중 — 로컬 계약·패키지 검증, API token 도메인 읽기 E2E, Public OAuth 브라우저 로그인·사용자 조회 E2E 완료. OAuth refresh와 sandbox 쓰기 E2E 대기
+- 상태: 구현 진행 중 — 로컬 계약·패키지 검증, API token 도메인 읽기 E2E, Public OAuth 브라우저 로그인·사용자 조회·실제 만료 token refresh E2E 완료. sandbox 쓰기 E2E와 원격 CI 대기
 - 작성일: 2026-09-04
 - 목표 릴리스: `1.0.0`(호환성 중단을 허용하는 메이저 릴리스)
 - 기준 저장소: `zendesk-mcp-server-kon`

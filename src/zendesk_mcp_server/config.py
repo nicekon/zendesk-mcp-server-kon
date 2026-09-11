@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 import stat
 from dataclasses import dataclass
@@ -12,6 +13,7 @@ from typing import Mapping
 
 
 _SUBDOMAIN_PATTERN = re.compile(r"[a-z0-9][a-z0-9-]{0,62}")
+_CHECK_POSIX_PERMISSIONS = os.name != "nt"
 _CAPABILITIES = frozenset({"support", "operations", "guide", "community", "csat", "custom_objects", "git_zen", "time_tracking", "badges"})
 _OAUTH_SCOPES = {
     "support": {"tickets:read", "users:read", "groups:read", "organizations:read", "brands:read", "ticket_attachments:read"},
@@ -267,9 +269,13 @@ def saved_connection_path() -> Path:
     return Path.home() / ".config" / "zendesk-mcp-server" / "connection.json"
 
 
+def _has_unsafe_permissions(path: Path) -> bool:
+    return _CHECK_POSIX_PERMISSIONS and bool(stat.S_IMODE(path.stat().st_mode) & 0o077)
+
+
 def _load_saved_connection(path: Path) -> dict[str, object]:
     try:
-        if stat.S_IMODE(path.stat().st_mode) & 0o077:
+        if _has_unsafe_permissions(path):
             raise ConfigurationError("unsafe_oauth_permissions", "OAuth connection file permissions must be user-only")
         value = json.loads(path.read_text(encoding="utf-8"))
     except ConfigurationError:
