@@ -696,6 +696,12 @@ class TicketTools:
         client = self._configured_client()
         if isinstance(client, dict):
             return client
+        current_result = client.get(f"/api/v2/tickets/{ticket_id}.json")
+        if not current_result.get("ok"): return current_result
+        current_data = current_result.get("data")
+        current = current_data.get("ticket") if isinstance(current_data, dict) else None
+        if not isinstance(current, dict) or not isinstance(current.get("updated_at"), str) or not current["updated_at"]:
+            return failure(ErrorCode.UPSTREAM_ERROR, "Zendesk returned no ticket update timestamp for safe macro application")
         result = client.get(f"/api/v2/tickets/{ticket_id}/macros/{macro_id}/apply.json")
         if not result.get("ok"):
             return result
@@ -704,6 +710,15 @@ class TicketTools:
         ticket = changes.get("ticket") if isinstance(changes, dict) else None
         if not isinstance(ticket, dict):
             return failure(ErrorCode.UPSTREAM_ERROR, "Zendesk returned an invalid macro preview")
+        writable = {
+            "subject", "type", "status", "priority", "assignee_id", "group_id",
+            "requester_id", "organization_id", "collaborator_ids", "follower_ids",
+            "email_cc_ids", "custom_fields", "custom_status_id", "tags", "due_at",
+            "problem_id", "ticket_form_id", "brand_id", "recipient", "external_id",
+            "sharing_agreement_ids", "comment",
+        }
+        ticket = {key: value for key, value in ticket.items() if key in writable and (key == "comment" or key not in current or current[key] != value)}
+        ticket.update(safe_update=True, updated_stamp=current["updated_at"])
         macro = client.get(f"/api/v2/macros/{macro_id}.json")
         if not macro.get("ok"):
             return macro

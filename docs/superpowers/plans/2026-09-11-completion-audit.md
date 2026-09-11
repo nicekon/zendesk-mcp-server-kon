@@ -6,7 +6,7 @@
 
 - Windows: `config._has_unsafe_permissions`는 POSIX 검사를 생략한다. 실제 ACL 보호를 입증하지 못했고 Windows OAuth 저장·갱신 검증도 남아 있다.
 - Macro: 현재는 읽기 preview 뒤 ticket PUT 한 번이므로 PRD 7.3의 다중 쓰기 부분 성공 경로는 없다. 적용 여부가 unknown/partial인 오류에는 ticket_id, macro_id, 수동 audit 확인 안내를 추가한다. timeout에서 쓰기 1회와 복구 안내를 검증했다. PRD 14.2의 일반적인 부분 성공 조건 전체가 증명된 것은 아니다.
-- Macro preview: [공식 문서](https://developer.zendesk.com/api-reference/ticketing/business-rules/macros/#show-ticket-after-changes)에 따르면 현재 사용하는 ticket별 apply 조회는 변경 필드만이 아닌 전체 티켓을 반환한다. 이 전체 응답을 PUT으로 돌려보내는 현재 구현의 필드 제한·동시 변경 보호를 추가 검토해야 한다.
+- Macro preview: 전체 응답 재전송을 제거했다. 적용 전 티켓과 비교해 명시된 쓰기 필드의 변경값과 새 comment만 PUT에 포함한다. 조회 시각을 승인 payload에 묶고 `safe_update`/`updated_stamp`로 충돌을 방지한다. 전체 preview에서 읽기 전용·미변경 필드 제외 및 승인 후 timestamp 변경 시 outbound write 0회를 테스트했다. 모든 Macro action이 이 쓰기 필드 집합에 정확히 대응하는지는 별도 API action 대조가 남는다.
 - 전체 pagination: Community 공통 cursor 처리의 반복·누락 커서와 Search Export의 바로 이전 커서 반복을 거부한다. Search Export 커서의 다른 query 재사용 거부도 검증했다. Support 목록, Guide export와 offset 목록 및 export 전체 상한·streaming 요구사항은 추가 대조가 필요하다.
 - 원격 검증: 로컬 테스트 통과는 GitHub CI 성공 증거가 아니다. 원격 CI 결과와 실제 Windows 검증이 필요하다.
 - 쓰기 E2E: 운영 계정의 읽기 인증 성공은 disposable sandbox의 승인된 쓰기 검증을 대체하지 않는다.

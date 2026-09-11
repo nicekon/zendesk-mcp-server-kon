@@ -37,6 +37,8 @@ class MutationStub:
 class MacroStub(MutationStub):
     def get(self, path, *, params=None):
         self.get_paths.append((path, params))
+        if path == "/api/v2/tickets/9.json":
+            return success({"ticket": {"id": 9, "status": "open", "updated_at": "2026-09-11T00:00:00Z"}})
         if path == "/api/v2/macros/4.json":
             return success({"macro": {"actions": [{"field": "comment_mode_is_public", "value": True}]}})
         return success({"result": {"ticket": {"status": "pending", "comment": {"body": "We are checking", "public": True}}}})
@@ -45,6 +47,8 @@ class MacroStub(MutationStub):
 class RiskyMacroStub(MutationStub):
     def get(self, path, *, params=None):
         self.get_paths.append((path, params))
+        if path == "/api/v2/tickets/9.json":
+            return success({"ticket": {"id": 9, "status": "open", "updated_at": "2026-09-11T00:00:00Z"}})
         if path == "/api/v2/macros/4.json":
             return success({"macro": {"actions": [
                 {"field": "comment_mode_is_public", "value": True},
@@ -58,6 +62,8 @@ class RiskyMacroStub(MutationStub):
 class InvalidMacroStub(MutationStub):
     def get(self, path, *, params=None):
         self.get_paths.append((path, params))
+        if path == "/api/v2/tickets/9.json":
+            return success({"ticket": {"id": 9, "status": "open", "updated_at": "2026-09-11T00:00:00Z"}})
         if path == "/api/v2/macros/4.json":
             return success({"macro": {"actions": [{"field": []}]}})
         return success({"result": {"ticket": {"status": "pending"}}})
@@ -583,13 +589,53 @@ def test_ticket_macro_preview_requires_approval_and_reuses_ticket_update(tmp_pat
 
     assert preview["data"]["public"] is True
     assert client.get_paths == [
+        ("/api/v2/tickets/9.json", None),
         ("/api/v2/tickets/9/macros/4/apply.json", None),
         ("/api/v2/macros/4.json", None),
+        ("/api/v2/tickets/9.json", None),
         ("/api/v2/tickets/9/macros/4/apply.json", None),
         ("/api/v2/macros/4.json", None),
     ]
-    assert client.calls == [("PUT", "/api/v2/tickets/9.json", {"ticket": {"status": "pending", "comment": {"body": "We are checking", "public": True}}})]
+    assert client.calls == [("PUT", "/api/v2/tickets/9.json", {"ticket": {"status": "pending", "comment": {"body": "We are checking", "public": True}, "safe_update": True, "updated_stamp": "2026-09-11T00:00:00Z"}})]
     assert result["data"]["ticket"]["id"] == 9
+
+
+def test_macro_preview_sends_only_changed_writable_fields_and_update_stamp(tmp_path):
+    class FullPreview(MacroStub):
+        def get(self, path, *, params=None):
+            if path == "/api/v2/tickets/9.json":
+                return success({"ticket": {"id": 9, "status": "open", "subject": "Unchanged", "updated_at": "2026-09-11T00:00:00Z"}})
+            if path.endswith("/apply.json"):
+                return success({"result": {"ticket": {"id": 9, "status": "pending", "subject": "Unchanged", "url": "https://acme.zendesk.com/api/v2/tickets/9.json", "updated_at": "2026-09-11T00:00:00Z"}}})
+            return super().get(path, params=params)
+
+    client = FullPreview()
+    store = ApprovalStore(tmp_path / "approvals.json")
+    tools = TicketTools(client, Settings.load({"ZENDESK_WRITE_MODE": "standard", "ZENDESK_ENABLE_PUBLIC_WRITES": "true"}), store)
+    preview = tools.apply_macro(9, 4)
+    request_id = preview["data"]["approval_request_id"]
+    result = tools.apply_macro(9, 4, execution_mode="apply", approval_request_id=request_id, approval_token=store.approve(request_id))
+    assert result["ok"] is True
+    assert client.calls == [("PUT", "/api/v2/tickets/9.json", {"ticket": {"status": "pending", "safe_update": True, "updated_stamp": "2026-09-11T00:00:00Z"}})]
+
+
+def test_macro_rejects_approval_after_ticket_timestamp_changes(tmp_path):
+    class ChangedTicket(MacroStub):
+        stamp = "2026-09-11T00:00:00Z"
+        def get(self, path, *, params=None):
+            if path == "/api/v2/tickets/9.json":
+                return success({"ticket": {"id": 9, "status": "open", "updated_at": self.stamp}})
+            return super().get(path, params=params)
+
+    client = ChangedTicket()
+    store = ApprovalStore(tmp_path / "approvals.json")
+    tools = TicketTools(client, Settings.load({"ZENDESK_WRITE_MODE": "standard", "ZENDESK_ENABLE_PUBLIC_WRITES": "true"}), store)
+    request_id = tools.apply_macro(9, 4)["data"]["approval_request_id"]
+    token = store.approve(request_id)
+    client.stamp = "2026-09-11T00:01:00Z"
+    result = tools.apply_macro(9, 4, execution_mode="apply", approval_request_id=request_id, approval_token=token)
+    assert result["error"]["code"] == "approval_required"
+    assert client.calls == []
 
 
 def test_macro_unknown_write_outcome_includes_recovery_without_replay(tmp_path):
@@ -639,7 +685,7 @@ def test_ticket_macro_raises_all_gates_from_its_actions(tmp_path):
 
     assert preview["data"]["required_risks"] == ["standard", "public", "destructive", "impersonation"]
     assert result["ok"] is True
-    assert client.calls == [("PUT", "/api/v2/tickets/9.json", {"ticket": {"status": "pending"}})]
+    assert client.calls == [("PUT", "/api/v2/tickets/9.json", {"ticket": {"status": "pending", "safe_update": True, "updated_stamp": "2026-09-11T00:00:00Z"}})]
 
 
 def test_ticket_macro_rejects_an_invalid_action_definition():
