@@ -46,14 +46,63 @@ server-managed cache에만 저장합니다. 캐시 위치는 `ZENDESK_ATTACHMENT
 
 ## 설치와 설정
 
-패키지를 설치합니다.
+아직 변경 불가능한 사용자용 release는 게시되지 않았습니다. release commit을
+push한 뒤 소스 패키지는 다음처럼 설치합니다.
 
 ```bash
-uv sync --group dev
+git clone https://github.com/nicekon/zendesk-mcp-server-kon.git
+cd zendesk-mcp-server-kon
+uv tool install .
+zendesk --help
 ```
 
-Zendesk 자격증명 없이도 서버를 시작할 수 있습니다. API token 인증을 설정하려면
-세 환경 변수를 모두 제공합니다.
+uv가 실행 파일 경로가 `PATH`에 없다고 알리면 `uv tool update-shell`을 실행하고
+새 터미널을 엽니다. `uv tool install`은 격리된 환경에 `zendesk` 명령을 설치합니다.
+아래의 `uv sync`는 저장소 개발용입니다.
+
+### 브라우저 OAuth 로그인
+
+Zendesk 관리자가 해당 tenant에 **Public** OAuth client를 한 번 만들고 다음 redirect
+URI를 정확히 등록합니다.
+
+```text
+http://127.0.0.1:3000/oauth/callback
+```
+
+client에는 활성 capability가 요청하는 읽기 scope가 허용돼야 합니다. 관리자는
+client identifier만 사용자에게 전달하며 client secret은 배포하지 않습니다.
+사용자는 다음 명령을 실행합니다.
+
+```bash
+zendesk login --subdomain your-zendesk-subdomain --client-id your-client-identifier
+zendesk check --probe
+```
+
+`zendesk login`은 `127.0.0.1:3000`에서 임시 callback을 열고 시스템 브라우저를
+실행합니다. state와 PKCE code 및 Zendesk 사용자를 확인한 뒤 연결을
+`~/.config/zendesk-mcp-server/connection.json`에 저장하고 listener를 종료합니다.
+사용자가 authorization code를 복사할 필요는 없습니다. `--port`는 같은 대체
+redirect URI를 Zendesk에 등록했을 때만 사용합니다.
+
+macOS/Linux에서는 `command -v zendesk`, Windows에서는 `where zendesk`로 설치된
+실행 파일을 찾습니다. 그 절대 경로를 MCP client에 등록합니다.
+
+```json
+{
+  "mcpServers": {
+    "zendesk": {
+      "command": "/absolute/path/to/zendesk"
+    }
+  }
+}
+```
+
+MCP 프로세스는 터미널 환경변수에 의존하지 않고 저장된 연결을 읽습니다. stdio
+서버로 실행되는 동안 브라우저를 열지 않습니다.
+
+### API token 설정
+
+API token 인증도 유지합니다. MCP 프로세스에 세 환경 변수를 모두 제공합니다.
 
 ```json
 {
@@ -78,14 +127,15 @@ Zendesk 자격증명 없이도 서버를 시작할 수 있습니다. API token �
 그렇지 않으면 완전한 API token 설정을 선택합니다. OAuth 설정이 일부만 있으면
 오류가 나며 API token으로 fallback하지 않습니다.
 
-서버를 시작하기 전에 Zendesk 네트워크 요청이나 비밀값 출력 없이 현재 환경을
-검사하려면 다음을 실행합니다.
+`zendesk check`는 네트워크 요청 없이 구성을 검사하고, `--probe`를 추가하면
+비밀값을 출력하지 않고 현재 Zendesk 사용자를 확인합니다.
 
 ```bash
 zendesk check
 ```
 
-OAuth를 사용하려면 `ZENDESK_SUBDOMAIN`, `ZENDESK_AUTH_MODE=oauth`,
+서버 환경을 위한 기존 confidential OAuth도 유지합니다. 사용하려면
+`ZENDESK_SUBDOMAIN`, `ZENDESK_AUTH_MODE=oauth`,
 `ZENDESK_OAUTH_CLIENT_ID`, `ZENDESK_OAUTH_CLIENT_SECRET`, 사용자 전용
 `ZENDESK_OAUTH_TOKEN_STORE` 경로를 설정합니다. Zendesk에 등록한 redirect URI를
 두 명령에서 정확히 동일하게 사용합니다.
@@ -114,6 +164,7 @@ code를 화면에 보이지 않게 입력받아 user-only 권한의 token store�
 ## 개발
 
 ```bash
+uv sync --group dev
 uv run pytest -v
 uv build
 ```

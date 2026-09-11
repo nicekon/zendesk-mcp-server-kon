@@ -23,6 +23,11 @@ environment with `zendesk check` before restarting the MCP server.
 
 ## OAuth transition
 
+For a new local installation, create a Public OAuth client with
+`http://127.0.0.1:3000/oauth/callback` and run `zendesk login --subdomain ...
+--client-id ...`. The saved connection is shared by later stdio MCP processes.
+No client secret or manual authorization-code copy is used.
+
 Keep an existing OAuth token file as a user-only backup. Configure a new,
 separate `ZENDESK_OAUTH_TOKEN_STORE`, complete `zendesk oauth-start` and
 `zendesk oauth-finish`, then verify the connection. Never copy an access or

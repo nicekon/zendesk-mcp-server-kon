@@ -49,16 +49,67 @@ attachment ID, require Zendesk's safe malware result, and use a managed cache.
 Set `ZENDESK_ATTACHMENT_CACHE_ROOT` to relocate it. Secure local image uploads
 require `ZENDESK_UPLOAD_ROOT`.
 
-## Setup
+## Installation and setup
 
-Install the package:
+This repository has not published an immutable end-user release yet. After the
+release commit is pushed, a source installation works as follows:
 
 ```bash
-uv sync --group dev
+git clone https://github.com/nicekon/zendesk-mcp-server-kon.git
+cd zendesk-mcp-server-kon
+uv tool install .
+zendesk --help
 ```
 
-The server can start with no Zendesk credentials. To configure API-token
-authentication, provide all three variables:
+If uv reports that its executable directory is not on `PATH`, run
+`uv tool update-shell` and open a new terminal. `uv tool install` creates the
+`zendesk` command in an isolated environment; `uv sync` below is for repository
+development only.
+
+### Browser OAuth login
+
+A Zendesk administrator first creates a **Public** OAuth client for the tenant
+and registers this exact redirect URI:
+
+```text
+http://127.0.0.1:3000/oauth/callback
+```
+
+The client must allow the read scopes requested by the enabled capabilities.
+The administrator distributes the client identifier, not a client secret.
+Each user then runs:
+
+```bash
+zendesk login --subdomain your-zendesk-subdomain --client-id your-client-identifier
+zendesk check --probe
+```
+
+`zendesk login` temporarily listens on `127.0.0.1:3000`, opens the system
+browser, verifies the callback state and PKCE code, verifies the Zendesk user,
+stores the connection under `~/.config/zendesk-mcp-server/connection.json`, and
+closes the listener. The user does not copy an authorization code. Use `--port`
+only when the same alternate redirect URI is registered in Zendesk.
+
+Find the installed executable with `command -v zendesk` on macOS/Linux or
+`where zendesk` on Windows. Register that absolute path with the MCP client:
+
+```json
+{
+  "mcpServers": {
+    "zendesk": {
+      "command": "/absolute/path/to/zendesk"
+    }
+  }
+}
+```
+
+The MCP process reads the saved connection without relying on terminal
+environment variables. It never opens a browser while running over stdio.
+
+### API-token configuration
+
+API-token authentication remains available. Provide all three variables to the
+MCP process:
 
 ```json
 {
@@ -84,14 +135,15 @@ using it.
 present, otherwise a complete API-token configuration. A partial OAuth
 configuration is an error and never falls back to API token credentials.
 
-Validate the current environment without a Zendesk network request or secret
-output before starting the server:
+Validate configuration without a network request using `zendesk check`; add
+`--probe` to verify the current Zendesk user without printing secrets.
 
 ```bash
 zendesk check
 ```
 
-For OAuth, configure `ZENDESK_SUBDOMAIN`, `ZENDESK_AUTH_MODE=oauth`,
+The legacy confidential OAuth flow remains available for server-side setups.
+Configure `ZENDESK_SUBDOMAIN`, `ZENDESK_AUTH_MODE=oauth`,
 `ZENDESK_OAUTH_CLIENT_ID`, `ZENDESK_OAUTH_CLIENT_SECRET`, and a user-only
 `ZENDESK_OAUTH_TOKEN_STORE` path. Then use the redirect URI registered in
 Zendesk exactly in both commands:
@@ -121,6 +173,7 @@ Prompts only generate guidance. They do not perform Zendesk writes.
 ## Development
 
 ```bash
+uv sync --group dev
 uv run pytest -v
 uv build
 ```
