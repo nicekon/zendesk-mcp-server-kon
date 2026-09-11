@@ -17,6 +17,19 @@ def test_approval_token_is_bound_to_one_payload_and_consumed_once(tmp_path):
     assert store.consume(request_id, "zendesk_post_public_reply", {"ticket_id": 9, "body": "Hello"}, token) is False
 
 
+def test_approval_expires_at_five_minutes_without_extending_on_approval(tmp_path):
+    clock = [100]
+    store = ApprovalStore(tmp_path / "approvals.json", now=lambda: clock[0])
+    payload = {"ticket_id": 9, "body": "Hello"}
+    request_id = store.create("zendesk_post_public_reply", payload)
+    clock[0] = 399
+    token = store.approve(request_id)
+    clock[0] = 400
+    assert store.consume(request_id, "zendesk_post_public_reply", payload, token) is False
+    with pytest.raises(ValueError, match="missing or expired"):
+        store.approve(request_id)
+
+
 def test_approval_token_cannot_be_reused_for_a_different_payload(tmp_path):
     store = ApprovalStore(tmp_path / "approvals.json", now=lambda: 100)
     request_id = store.create("zendesk_post_public_reply", {"ticket_id": 9, "body": "Hello"})
@@ -40,6 +53,33 @@ def test_approval_token_is_bound_to_its_zendesk_account(tmp_path):
         request_id, "zendesk_post_public_reply", {"ticket_id": 9, "body": "Hello"}, token
     ) is False
     assert acme.consume(request_id, "zendesk_post_public_reply", {"ticket_id": 9, "body": "Hello"}, token) is True
+
+
+def test_saved_oauth_approval_is_bound_to_resolved_account(tmp_path):
+    from zendesk_mcp_server.auth import save_connection
+    from zendesk_mcp_server.config import Settings, saved_connection_path
+
+    def connect(account):
+        settings = Settings.load({
+            "ZENDESK_SUBDOMAIN": account,
+            "ZENDESK_AUTH_MODE": "oauth",
+            "ZENDESK_OAUTH_CLIENT_KIND": "public",
+            "ZENDESK_OAUTH_CLIENT_ID": "client",
+            "ZENDESK_OAUTH_TOKEN_STORE": str(saved_connection_path()),
+        })
+        save_connection(settings, OAuthTokens("access", "refresh", 999))
+
+    connect("acme")
+    store = ApprovalStore.from_environment({})
+    payload = {"ticket_id": 9, "body": "Hello"}
+    request_id = store.create("zendesk_post_public_reply", payload)
+    assert store.preview(request_id)["account"] == "acme"
+    token = store.approve(request_id)
+    connect("other")
+    other = ApprovalStore.from_environment({})
+    assert other.consume(request_id, "zendesk_post_public_reply", payload, token) is False
+    with pytest.raises(ValueError, match="missing or expired"):
+        other.approve(request_id)
 
 
 def test_approval_preview_returns_the_exact_stored_payload(tmp_path):

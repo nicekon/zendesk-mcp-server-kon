@@ -15,6 +15,7 @@ from contextlib import contextmanager
 from pathlib import Path
 
 from .locking import exclusive_lock
+from .config import Settings
 
 
 class ApprovalStore:
@@ -27,7 +28,7 @@ class ApprovalStore:
     def from_environment(cls, environ: Mapping[str, str]) -> "ApprovalStore":
         configured = environ.get("ZENDESK_APPROVAL_STORE")
         path = Path(configured).expanduser() if configured else Path.home() / ".config" / "zendesk-mcp" / "approvals.json"
-        return cls(path, account=environ.get("ZENDESK_SUBDOMAIN"))
+        return cls(path, account=Settings.load(environ).subdomain)
 
     def create(self, tool: str, payload: dict[str, object]) -> str:
         with self._locked():
