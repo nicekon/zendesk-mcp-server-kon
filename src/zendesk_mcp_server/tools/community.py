@@ -463,8 +463,11 @@ class CommunityTools:
         if not result.get("ok"): return result
         data = result.get("data"); items = data.get(item_key) if isinstance(data, dict) else None; meta = data.get("meta", {}) if isinstance(data, dict) else None
         if not isinstance(items, list) or not isinstance(meta, dict): return failure(ErrorCode.UPSTREAM_ERROR, "Zendesk returned an invalid cursor page")
-        next_cursor = meta.get("after_cursor") if isinstance(meta.get("after_cursor"), str) else None
-        return {"ok": True, "items": items, "has_more": bool(meta.get("has_more")), "next_cursor": next_cursor, "truncated": False}
+        has_more = bool(meta.get("has_more"))
+        next_cursor = meta.get("after_cursor") if has_more else None
+        if has_more and (not isinstance(next_cursor, str) or not next_cursor or next_cursor == params.get("page[after]")):
+            return failure(ErrorCode.UPSTREAM_ERROR, "Zendesk returned an invalid continuation cursor")
+        return {"ok": True, "items": items, "has_more": has_more, "next_cursor": next_cursor, "truncated": False}
     def _find_user_subscription(self, path: str, followed_id: int) -> dict[str, object]:
         after: str | None = None; seen: set[str] = set(); scanned = 0
         while scanned < 1000:

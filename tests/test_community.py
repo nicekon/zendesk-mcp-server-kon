@@ -123,6 +123,26 @@ def test_community_post_and_comment_lists_support_their_official_scopes_and_filt
     ]
 
 
+def test_community_cursor_rejects_missing_empty_and_repeated_continuations():
+    for cursor in (None, "", "before", 42):
+        class InvalidCursorClient:
+            def get(self, path, *, params=None):
+                return success({"topics": [], "meta": {"has_more": True, "after_cursor": cursor}})
+
+        result = CommunityTools(InvalidCursorClient()).list_topics(cursor="before")
+        assert result["ok"] is False, cursor
+        assert result["error"]["code"] == "upstream_error"
+
+
+def test_community_empty_final_page_clears_continuation():
+    class FinalPageClient:
+        def get(self, path, *, params=None):
+            return success({"topics": [], "meta": {"has_more": False, "after_cursor": "before"}})
+
+    result = CommunityTools(FinalPageClient()).list_topics(cursor="before")
+    assert result == {"ok": True, "items": [], "has_more": False, "next_cursor": None, "truncated": False}
+
+
 def test_community_cursor_lists_normalize_posts_comments_and_topics():
     class CursorClient:
         def __init__(self): self.paths = []
