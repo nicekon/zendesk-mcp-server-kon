@@ -60,6 +60,26 @@ def test_read_rate_limit_retries_never_sleep_more_than_thirty_seconds_total(sett
     assert sum(sleeps) <= 30
 
 
+@pytest.mark.parametrize("exception", [httpx.ReadTimeout, httpx.ConnectError])
+def test_mixed_rate_limit_and_network_failure_share_sleep_budget(settings, authorization, monkeypatch, exception):
+    sleeps = []
+    calls = []
+    monkeypatch.setattr("zendesk_mcp_server.client.random.uniform", lambda *_: 0.1)
+
+    def handler(request):
+        calls.append(request)
+        if len(calls) == 1:
+            return httpx.Response(429, headers={"Retry-After": "29"}, request=request)
+        raise exception("network failure", request=request)
+
+    client = ZendeskClient(settings, authorization, transport=httpx.MockTransport(handler), sleep=sleeps.append)
+    result = client.get("/api/v2/users/me.json")
+    assert result["ok"] is False
+    assert len(calls) == 2
+    assert sleeps == [29.1]
+    assert sum(sleeps) <= 30
+
+
 def test_write_does_not_retry_timeout(settings, authorization):
     calls = 0
 
@@ -84,17 +104,22 @@ def test_write_does_not_retry_timeout(settings, authorization):
     ("status_code", "error_code"),
     [
         (400, "validation_error"),
+        (401, "authentication_failed"),
         (403, "permission_denied"),
         (404, "not_found"),
         (409, "conflict"),
+        (412, "conflict"),
         (422, "validation_error"),
+        (429, "rate_limited"),
+        (500, "upstream_error"),
+        (503, "upstream_error"),
     ],
 )
 def test_client_maps_known_http_errors(settings, authorization, status_code, error_code):
     def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(status_code, json={"error": "bad request"}, request=request)
 
-    client = ZendeskClient(settings, authorization, transport=httpx.MockTransport(handler))
+    client = ZendeskClient(settings, authorization, transport=httpx.MockTransport(handler), sleep=lambda _: None)
 
     assert client.get("/api/v2/users/me.json")["error"]["code"] == error_code
 

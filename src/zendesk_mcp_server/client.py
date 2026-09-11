@@ -94,8 +94,10 @@ class ZendeskClient:
                     headers=self._authorization.headers(),
                 )
             except httpx.TimeoutException:
-                if read_request and attempt < attempts - 1:
-                    self._sleep(self._retry_delay(attempt))
+                delay = self._retry_delay(attempt)
+                if read_request and attempt < attempts - 1 and sleep_total + delay <= 30.0:
+                    self._sleep(delay)
+                    sleep_total += delay
                     continue
                 return failure(
                     ErrorCode.TIMEOUT,
@@ -104,8 +106,10 @@ class ZendeskClient:
                     operation_state="not_applied" if read_request else "unknown",
                 )
             except httpx.HTTPError:
-                if read_request and attempt < attempts - 1:
-                    self._sleep(self._retry_delay(attempt))
+                delay = self._retry_delay(attempt)
+                if read_request and attempt < attempts - 1 and sleep_total + delay <= 30.0:
+                    self._sleep(delay)
+                    sleep_total += delay
                     continue
                 return failure(
                     ErrorCode.UPSTREAM_ERROR,
@@ -136,6 +140,8 @@ class ZendeskClient:
             )
             if can_retry:
                 delay = retry_after if response.status_code == 429 else self._retry_delay(attempt)
+                if response.status_code == 429 and delay is not None:
+                    delay += random.uniform(0.0, min(0.25, 30.0 - delay))
                 if delay is not None and sleep_total + delay <= 30.0:
                     self._sleep(delay); sleep_total += delay
                     continue
