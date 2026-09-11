@@ -360,7 +360,16 @@ class TicketTools:
         client = self._configured_mutation_client()
         if isinstance(client, dict):
             return client
-        return _with_automation_notice(client.request("PUT", f"/api/v2/tickets/{ticket_id}.json", json_body={"ticket": ticket}))
+        result = _with_automation_notice(client.request("PUT", f"/api/v2/tickets/{ticket_id}.json", json_body={"ticket": ticket}))
+        error = result.get("error")
+        if not result.get("ok") and isinstance(error, dict) and error.get("operation_state") in {"unknown", "partial"}:
+            error["details"] = {
+                **error.get("details", {}),
+                "ticket_id": ticket_id,
+                "macro_id": macro_id,
+                "recovery": "Inspect the ticket and its audits before creating a new approval; do not replay the macro automatically.",
+            }
+        return result
 
     def create_ticket(
         self,

@@ -592,6 +592,27 @@ def test_ticket_macro_preview_requires_approval_and_reuses_ticket_update(tmp_pat
     assert result["data"]["ticket"]["id"] == 9
 
 
+def test_macro_unknown_write_outcome_includes_recovery_without_replay(tmp_path):
+    from zendesk_mcp_server.contracts import failure, ErrorCode
+
+    class TimedOutMacro(MacroStub):
+        def request(self, method, path, *, json_body=None):
+            self.calls.append((method, path, json_body))
+            return failure(ErrorCode.TIMEOUT, "Zendesk request timed out", operation_state="unknown")
+
+    client = TimedOutMacro()
+    store = ApprovalStore(tmp_path / "approvals.json")
+    tools = TicketTools(client, Settings.load({"ZENDESK_WRITE_MODE": "standard", "ZENDESK_ENABLE_PUBLIC_WRITES": "true"}), store)
+    preview = tools.apply_macro(9, 4)
+    request_id = preview["data"]["approval_request_id"]
+    result = tools.apply_macro(9, 4, execution_mode="apply", approval_request_id=request_id, approval_token=store.approve(request_id))
+    assert result["error"]["operation_state"] == "unknown"
+    assert result["error"]["details"]["ticket_id"] == 9
+    assert result["error"]["details"]["macro_id"] == 4
+    assert result["error"]["details"]["recovery"] == "Inspect the ticket and its audits before creating a new approval; do not replay the macro automatically."
+    assert len(client.calls) == 1
+
+
 def test_ticket_macro_raises_all_gates_from_its_actions(tmp_path):
     client = RiskyMacroStub()
     store = ApprovalStore(tmp_path / "approvals.json")
