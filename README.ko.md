@@ -85,7 +85,14 @@ zendesk check --probe
 redirect URI를 Zendesk에 등록했을 때만 사용합니다.
 
 macOS/Linux에서는 `command -v zendesk`, Windows에서는 `where zendesk`로 설치된
-실행 파일을 찾습니다. 그 절대 경로를 MCP client에 등록합니다.
+실행 파일을 찾습니다. Codex에는 그 절대 경로를 등록하고 결과를 확인합니다.
+
+```bash
+codex mcp add zendesk -- /absolute/path/to/zendesk
+codex mcp list
+```
+
+다른 MCP client는 보통 같은 의미의 JSON 설정을 사용합니다.
 
 ```json
 {
@@ -99,6 +106,8 @@ macOS/Linux에서는 `command -v zendesk`, Windows에서는 `where zendesk`로 �
 
 MCP 프로세스는 터미널 환경변수에 의존하지 않고 저장된 연결을 읽습니다. stdio
 서버로 실행되는 동안 브라우저를 열지 않습니다.
+패키지를 제거해도 Zendesk 접근 권한은 철회되지 않습니다. 연결을 더 이상 쓰지
+않으면 Zendesk에서 OAuth grant를 철회하고 위의 정확한 로컬 연결 파일을 제거합니다.
 
 ### API token 설정
 

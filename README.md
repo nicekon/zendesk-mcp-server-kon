@@ -91,7 +91,15 @@ closes the listener. The user does not copy an authorization code. Use `--port`
 only when the same alternate redirect URI is registered in Zendesk.
 
 Find the installed executable with `command -v zendesk` on macOS/Linux or
-`where zendesk` on Windows. Register that absolute path with the MCP client:
+`where zendesk` on Windows. For Codex, register that absolute path and verify
+the entry:
+
+```bash
+codex mcp add zendesk -- /absolute/path/to/zendesk
+codex mcp list
+```
+
+Other MCP clients commonly use the equivalent JSON configuration:
 
 ```json
 {
@@ -105,6 +113,9 @@ Find the installed executable with `command -v zendesk` on macOS/Linux or
 
 The MCP process reads the saved connection without relying on terminal
 environment variables. It never opens a browser while running over stdio.
+Uninstalling the package does not revoke Zendesk access. Revoke the OAuth grant
+in Zendesk and remove the exact local connection file when the connection is no
+longer needed.
 
 ### API-token configuration
 
