@@ -316,7 +316,7 @@ class TicketTools:
             items = projected
         items = _select_ticket_fields(items, fields, include_custom_objects=bool(custom_objects))
         has_more = bool(meta.get("has_more")); next_upstream = meta.get("after_cursor")
-        if has_more and (not isinstance(next_upstream, str) or not next_upstream): return failure(ErrorCode.UPSTREAM_ERROR, "Zendesk returned an invalid ticket export cursor")
+        if has_more and (not isinstance(next_upstream, str) or not next_upstream or next_upstream == upstream_cursor): return failure(ErrorCode.UPSTREAM_ERROR, "Zendesk returned an invalid ticket export cursor")
         if output_format is not None:
             if self._settings is None or self._settings.attachment_cache_root is None: return failure(ErrorCode.NOT_CONFIGURED, "Zendesk export cache is not configured")
             root = self._settings.attachment_cache_root.parent / "exports"

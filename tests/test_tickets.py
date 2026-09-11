@@ -383,6 +383,25 @@ def test_ticket_export_uses_an_opaque_cursor_to_resume_the_same_query():
     assert second.paths == [("/api/v2/search/export.json", {"filter[type]": "ticket", "query": "status:open", "page[size]": "100", "page[after]": "zendesk-next"})]
 
 
+def test_ticket_export_rejects_repeated_upstream_cursor():
+    client = StubClient({"/api/v2/search/export.json": success({"results": [], "meta": {"has_more": True, "after_cursor": "same"}})})
+    tools = TicketTools(client)
+    cursor = tools.export_tickets("status:open")["data"]["next_cursor"]
+    result = tools.export_tickets("status:open", cursor=cursor)
+    assert result["ok"] is False
+    assert result["error"]["code"] == "upstream_error"
+    assert len(client.paths) == 2
+
+
+def test_ticket_export_cursor_cannot_be_reused_for_another_query():
+    client = StubClient({"/api/v2/search/export.json": success({"results": [], "meta": {"has_more": True, "after_cursor": "next"}})})
+    tools = TicketTools(client)
+    cursor = tools.export_tickets("status:open")["data"]["next_cursor"]
+    result = tools.export_tickets("status:closed", cursor=cursor)
+    assert result["error"]["code"] == "cursor_expired"
+    assert len(client.paths) == 1
+
+
 def test_ticket_export_rejects_an_expired_resume_cursor(monkeypatch):
     monkeypatch.setattr("zendesk_mcp_server.tools.tickets.time.time", lambda: 0)
     client = StubClient({"/api/v2/search/export.json": success({"results": [], "meta": {"has_more": True, "after_cursor": "zendesk-next"}})})
