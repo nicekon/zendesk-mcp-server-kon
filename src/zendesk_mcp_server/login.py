@@ -81,10 +81,12 @@ def login(
             parsed = urlsplit(self.path)
             query = parse_qs(parsed.query, keep_blank_values=True)
             expected_host = f"127.0.0.1:{self.server.server_port}"
+            allowed_query = {"state", "code"} if "code" in query else {"state", "error"}
             valid_shape = (
                 self.headers.get("Host") == expected_host
                 and parsed.path == "/oauth/callback"
                 and not parsed.fragment
+                and set(query) == allowed_query
                 and len(query.get("state", [])) == 1
                 and hmac.compare_digest(query["state"][0], expected_state)
                 and ((len(query.get("code", [])) == 1 and "error" not in query) or (len(query.get("error", [])) == 1 and "code" not in query))

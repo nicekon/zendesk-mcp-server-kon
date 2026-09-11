@@ -65,17 +65,20 @@ def main():
         print("OAuth token stored.")
         return
     if args.command == "login":
-        from .config import Settings, saved_connection_path
+        from .config import ConfigurationError, Settings, saved_connection_path
         from .login import login
 
-        settings = Settings.load({
-            "ZENDESK_SUBDOMAIN": args.subdomain,
-            "ZENDESK_AUTH_MODE": "oauth",
-            "ZENDESK_OAUTH_CLIENT_KIND": "public",
-            "ZENDESK_OAUTH_CLIENT_ID": args.client_id,
-            "ZENDESK_OAUTH_TOKEN_STORE": str(saved_connection_path()),
-        })
-        login(settings, port=args.port)
+        try:
+            settings = Settings.load({
+                "ZENDESK_SUBDOMAIN": args.subdomain,
+                "ZENDESK_AUTH_MODE": "oauth",
+                "ZENDESK_OAUTH_CLIENT_KIND": "public",
+                "ZENDESK_OAUTH_CLIENT_ID": args.client_id,
+                "ZENDESK_OAUTH_TOKEN_STORE": str(saved_connection_path()),
+            })
+            login(settings, port=args.port)
+        except ConfigurationError as error:
+            raise SystemExit(str(error)) from None
         print("Zendesk OAuth login completed.")
 
 

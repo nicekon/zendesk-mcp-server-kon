@@ -3,6 +3,7 @@ import socket
 from pathlib import Path
 from urllib.parse import parse_qs, urlencode, urlsplit, urlunsplit
 from urllib.request import urlopen
+from urllib.error import HTTPError
 
 import pytest
 
@@ -128,3 +129,38 @@ def test_slow_callback_connection_cannot_extend_login_timeout(tmp_path: Path):
 
     assert completed_within_deadline is True
     assert errors[0].code == "oauth_callback_timeout"
+
+
+def test_callback_rejects_unexpected_query_parameters(tmp_path: Path):
+    from zendesk_mcp_server.login import login
+
+    def send_extra_parameter(authorization_url: str) -> bool:
+        query = parse_qs(urlsplit(authorization_url).query)
+        redirect = urlsplit(query["redirect_uri"][0])
+        callback = urlunsplit((
+            redirect.scheme,
+            redirect.netloc,
+            redirect.path,
+            urlencode({"code": "code", "state": query["state"][0], "unexpected": "value"}),
+            "",
+        ))
+
+        def request() -> None:
+            try:
+                urlopen(callback, timeout=2).read()
+            except HTTPError:
+                pass
+
+        threading.Thread(target=request, daemon=True).start()
+        return True
+
+    with pytest.raises(ConfigurationError) as error:
+        login(
+            _settings(tmp_path / "connection.json"),
+            port=0,
+            timeout=0.05,
+            browser_open=send_extra_parameter,
+            token_requester=lambda _: pytest.fail("unexpected token exchange"),
+            user_requester=lambda *_: pytest.fail("unexpected probe"),
+        )
+    assert error.value.code == "oauth_callback_timeout"

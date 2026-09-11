@@ -2,8 +2,11 @@ import json
 import sys
 from pathlib import Path
 
+import pytest
+
 from zendesk_mcp_server import main
 from zendesk_mcp_server.config import AuthMode
+from zendesk_mcp_server.config import ConfigurationError
 
 
 def test_login_command_builds_public_read_only_settings(tmp_path, monkeypatch):
@@ -47,3 +50,17 @@ def test_help_explains_login_without_starting_mcp(monkeypatch, capsys):
     output = capsys.readouterr().out
     assert "login" in output
     assert "check" in output
+
+
+def test_login_configuration_error_exits_without_traceback(tmp_path, monkeypatch):
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
+    monkeypatch.setattr(
+        "zendesk_mcp_server.login.login",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(ConfigurationError("oauth_callback_timeout", "OAuth login timed out")),
+    )
+    monkeypatch.setattr(sys, "argv", ["zendesk", "login", "--subdomain", "acme", "--client-id", "client"])
+
+    with pytest.raises(SystemExit) as error:
+        main()
+
+    assert error.value.code == "OAuth login timed out"
