@@ -67,25 +67,35 @@ class TicketTools:
             return client
         return client.get(f"/api/v2/tickets/{ticket_id}.json")
 
-    def list_tickets(self, limit: int = 100) -> dict[str, object]:
+    def list_tickets(self, limit: int = 100, *, cursor: str | None = None) -> dict[str, object]:
         page_size = _page_size(limit)
+        if cursor is not None and (not isinstance(cursor, str) or not cursor):
+            return failure(ErrorCode.VALIDATION_ERROR, "cursor must be a non-empty string")
         if page_size is None:
             return failure(ErrorCode.VALIDATION_ERROR, "limit must be an integer")
         client = self._configured_client()
         if isinstance(client, dict):
             return client
-        result = client.get("/api/v2/tickets.json", params={"page[size]": str(page_size)})
+        params = {"page[size]": str(page_size)}
+        if cursor is not None: params["page[after]"] = cursor
+        result = client.get("/api/v2/tickets.json", params=params)
         if not result.get("ok"):
             return result
         data = result.get("data", {})
         if not isinstance(data, dict):
             return failure(ErrorCode.UPSTREAM_ERROR, "Zendesk returned an invalid ticket list")
         meta = data.get("meta", {})
+        if not isinstance(meta, dict) or not isinstance(data.get("tickets"), list):
+            return failure(ErrorCode.UPSTREAM_ERROR, "Zendesk returned an invalid ticket list")
+        has_more = bool(meta.get("has_more", False))
+        next_cursor = meta.get("after_cursor") if has_more else None
+        if has_more and (not isinstance(next_cursor, str) or not next_cursor or next_cursor == cursor):
+            return failure(ErrorCode.UPSTREAM_ERROR, "Zendesk returned an invalid ticket list cursor")
         return {
             "ok": True,
             "items": data.get("tickets", []),
-            "has_more": bool(meta.get("has_more", False)) if isinstance(meta, dict) else False,
-            "next_cursor": meta.get("after_cursor") if isinstance(meta, dict) else None,
+            "has_more": has_more,
+            "next_cursor": next_cursor,
             "truncated": False,
         }
 

@@ -84,6 +84,13 @@ def test_get_ticket_rejects_zero_without_a_client():
     assert result["error"]["code"] == "validation_error"
 
 
+def test_ticket_list_can_resume_and_clear_final_cursor():
+    client = StubClient({"/api/v2/tickets.json": success({"tickets": [], "meta": {"has_more": False, "after_cursor": "next"}})})
+    result = TicketTools(client).list_tickets(2, cursor="next")
+    assert client.paths == [("/api/v2/tickets.json", {"page[size]": "2", "page[after]": "next"})]
+    assert result == {"ok": True, "items": [], "has_more": False, "next_cursor": None, "truncated": False}
+
+
 def test_list_tickets_normalizes_cursor_response():
     client = StubClient(
         {

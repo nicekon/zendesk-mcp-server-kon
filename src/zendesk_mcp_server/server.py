@@ -102,7 +102,7 @@ def build_tools() -> list[types.Tool]:
         types.Tool(
             name="zendesk_list_tickets",
             description="List Zendesk tickets without making changes.",
-            inputSchema={"type": "object", "properties": {"limit": {"type": "integer", "minimum": 1, "maximum": 100}}},
+            inputSchema={"type": "object", "properties": {"limit": {"type": "integer", "minimum": 1, "maximum": 100}, "cursor": {"type": "string", "minLength": 1}}},
         ),
         types.Tool(
             name="zendesk_search_tickets",
@@ -733,7 +733,7 @@ def create_server(environ: Mapping[str, str] | None = None) -> Server:
                 result = tools
             elif name == "zendesk_list_tickets":
                 limit = (arguments or {}).get("limit", 100)
-                result = tools.list_tickets(limit) if isinstance(limit, int) and not isinstance(limit, bool) else failure(ErrorCode.VALIDATION_ERROR, "limit must be an integer")
+                result = tools.list_tickets(limit, cursor=(arguments or {}).get("cursor")) if isinstance(limit, int) and not isinstance(limit, bool) else failure(ErrorCode.VALIDATION_ERROR, "limit must be an integer")
             elif name == "zendesk_search_tickets":
                 query = (arguments or {}).get("query")
                 limit = (arguments or {}).get("limit", 100)

@@ -5,6 +5,12 @@ import json
 from mcp import types
 
 
+def test_ticket_list_exposes_resume_cursor():
+    from zendesk_mcp_server.server import build_tools
+    tool = next(tool for tool in build_tools() if tool.name == "zendesk_list_tickets")
+    assert tool.inputSchema["properties"]["cursor"] == {"type": "string", "minLength": 1}
+
+
 def test_attachment_download_result_includes_a_resource_link():
     from zendesk_mcp_server.server import attachment_download_content
 
