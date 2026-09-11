@@ -688,6 +688,15 @@ def test_ticket_macro_raises_all_gates_from_its_actions(tmp_path):
     assert client.calls == [("PUT", "/api/v2/tickets/9.json", {"ticket": {"status": "pending", "safe_update": True, "updated_stamp": "2026-09-11T00:00:00Z"}})]
 
 
+def test_macro_public_risk_handles_string_actions_and_unspecified_visibility():
+    from zendesk_mcp_server.tools.tickets import _macro_risks
+    from zendesk_mcp_server.write_policy import WriteRisk
+
+    assert WriteRisk.PUBLIC in _macro_risks({}, [{"field": "comment_mode_is_public", "value": "true"}])
+    assert WriteRisk.PUBLIC in _macro_risks({"comment": {"body": "Hello"}}, [])
+    assert WriteRisk.PUBLIC not in _macro_risks({"comment": {"body": "Hello", "public": False}}, [{"field": "comment_mode_is_public", "value": "false"}])
+
+
 def test_ticket_macro_rejects_an_invalid_action_definition():
     result = TicketTools(InvalidMacroStub()).apply_macro(9, 4)
 

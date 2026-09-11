@@ -735,11 +735,11 @@ class TicketTools:
 
 def _macro_risks(ticket: Mapping[str, object], actions: list[dict[str, object]]) -> tuple[WriteRisk, ...]:
     risks = [WriteRisk.STANDARD]
-    public = isinstance(ticket.get("comment"), dict) and ticket["comment"].get("public") is True
+    public = isinstance(ticket.get("comment"), dict) and ticket["comment"].get("public") is not False
     for action in actions:
         field = action.get("field")
         value = action.get("value")
-        if field == "comment_mode_is_public" and value is True:
+        if field == "comment_mode_is_public" and (value is True or value == "true"):
             public = True
         if isinstance(field, str) and (field.startswith("notification_") or field in {"satisfaction_score", "tweet_requester"}):
             public = True
