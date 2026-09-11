@@ -173,6 +173,23 @@ class OAuthTokenStore:
             raise ConfigurationError("invalid_oauth_tokens", "OAuth token file is invalid") from error
 
     def save(self, tokens: OAuthTokens) -> None:
+        values: dict[str, object] = {}
+        if self.path.exists():
+            self._require_user_only_permissions()
+            try:
+                current = json.loads(self.path.read_text(encoding="utf-8"))
+                if isinstance(current, dict):
+                    values.update(current)
+            except (OSError, ValueError, json.JSONDecodeError):
+                pass
+        values.update({
+            "access_token": tokens.access_token,
+            "refresh_token": tokens.refresh_token,
+            "expires_at": tokens.expires_at,
+        })
+        self._save_values(values)
+
+    def _save_values(self, values: dict[str, object]) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         temporary_path: Path | None = None
         try:
@@ -185,15 +202,7 @@ class OAuthTokenStore:
             ) as temporary_file:
                 temporary_path = Path(temporary_file.name)
                 os.chmod(temporary_path, 0o600)
-                json.dump(
-                    {
-                        "access_token": tokens.access_token,
-                        "refresh_token": tokens.refresh_token,
-                        "expires_at": tokens.expires_at,
-                    },
-                    temporary_file,
-                    separators=(",", ":"),
-                )
+                json.dump(values, temporary_file, separators=(",", ":"))
                 temporary_file.flush()
                 os.fsync(temporary_file.fileno())
             temporary_path.replace(self.path)
@@ -221,6 +230,21 @@ class OAuthTokenStore:
                 "unsafe_oauth_permissions",
                 "OAuth token file permissions must be user-only",
             )
+
+
+def save_connection(settings: Settings, tokens: OAuthTokens) -> None:
+    if settings.oauth is None or settings.subdomain is None or settings.oauth.client_kind != "public":
+        raise ConfigurationError("invalid_oauth_configuration", "Only public OAuth connections can be saved")
+    OAuthTokenStore(settings.oauth.token_store_path)._save_values({
+        "schema_version": 1,
+        "subdomain": settings.subdomain,
+        "client_id": settings.oauth.client_id,
+        "client_kind": settings.oauth.client_kind,
+        "scopes": list(settings.oauth.scopes),
+        "access_token": tokens.access_token,
+        "refresh_token": tokens.refresh_token,
+        "expires_at": tokens.expires_at,
+    })
 
 
 class OAuthStateStore:

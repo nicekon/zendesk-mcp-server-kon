@@ -1,4 +1,5 @@
 import pytest
+from pathlib import Path
 
 from zendesk_mcp_server.config import AuthMode, ConfigurationError, Settings
 
@@ -65,6 +66,68 @@ def test_public_oauth_configuration_does_not_require_client_secret(tmp_path):
     assert settings.oauth is not None
     assert settings.oauth.client_kind == "public"
     assert settings.oauth.client_secret == ""
+
+
+def test_saved_oauth_connection_is_reused_when_auth_environment_is_empty(tmp_path, monkeypatch):
+    from zendesk_mcp_server.auth import OAuthTokens, save_connection
+
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
+    path = tmp_path / ".config" / "zendesk-mcp-server" / "connection.json"
+    login_settings = Settings.load({
+        "ZENDESK_SUBDOMAIN": "acme",
+        "ZENDESK_AUTH_MODE": "oauth",
+        "ZENDESK_OAUTH_CLIENT_KIND": "public",
+        "ZENDESK_OAUTH_CLIENT_ID": "client-id",
+        "ZENDESK_OAUTH_TOKEN_STORE": str(path),
+    })
+    save_connection(login_settings, OAuthTokens("access", "refresh", 999))
+
+    settings = Settings.load({})
+
+    assert settings.auth_mode is AuthMode.OAUTH
+    assert settings.subdomain == "acme"
+    assert settings.oauth is not None
+    assert settings.oauth.client_kind == "public"
+    assert settings.oauth.token_store_path == path
+
+
+def test_explicit_auth_environment_never_mixes_with_saved_connection(tmp_path, monkeypatch):
+    from zendesk_mcp_server.auth import OAuthTokens, save_connection
+
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
+    path = tmp_path / ".config" / "zendesk-mcp-server" / "connection.json"
+    saved = Settings.load({
+        "ZENDESK_SUBDOMAIN": "acme",
+        "ZENDESK_AUTH_MODE": "oauth",
+        "ZENDESK_OAUTH_CLIENT_KIND": "public",
+        "ZENDESK_OAUTH_CLIENT_ID": "client-id",
+        "ZENDESK_OAUTH_TOKEN_STORE": str(path),
+    })
+    save_connection(saved, OAuthTokens("access", "refresh", 999))
+
+    settings = Settings.load({"ZENDESK_SUBDOMAIN": "other"})
+
+    assert settings.subdomain == "other"
+    assert settings.auth_mode is None
+
+
+def test_saved_connection_requires_relogin_before_scope_expansion(tmp_path, monkeypatch):
+    from zendesk_mcp_server.auth import OAuthTokens, save_connection
+
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
+    path = tmp_path / ".config" / "zendesk-mcp-server" / "connection.json"
+    saved = Settings.load({
+        "ZENDESK_SUBDOMAIN": "acme",
+        "ZENDESK_AUTH_MODE": "oauth",
+        "ZENDESK_OAUTH_CLIENT_KIND": "public",
+        "ZENDESK_OAUTH_CLIENT_ID": "client-id",
+        "ZENDESK_OAUTH_TOKEN_STORE": str(path),
+    })
+    save_connection(saved, OAuthTokens("access", "refresh", 999))
+
+    with pytest.raises(ConfigurationError) as error:
+        Settings.load({"ZENDESK_WRITE_MODE": "standard"})
+    assert error.value.code == "oauth_relogin_required"
 
 
 def test_oauth_scopes_are_limited_to_enabled_capabilities_and_gates():

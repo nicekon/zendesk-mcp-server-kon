@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import re
 from dataclasses import dataclass
 from enum import Enum
@@ -20,6 +21,12 @@ _OAUTH_SCOPES = {
     "custom_objects": {"custom_objects:read"},
     "badges": {"hc:read"},
 }
+_AUTH_ENV_NAMES = frozenset({
+    "ZENDESK_SUBDOMAIN", "ZENDESK_AUTH_MODE", "ZENDESK_EMAIL",
+    "ZENDESK_API_TOKEN", "ZENDESK_API_KEY", "ZENDESK_OAUTH_CLIENT_ID",
+    "ZENDESK_OAUTH_CLIENT_SECRET", "ZENDESK_OAUTH_CLIENT_KIND",
+    "ZENDESK_OAUTH_TOKEN_STORE",
+})
 
 
 class AuthMode(str, Enum):
@@ -69,6 +76,21 @@ class Settings:
         environ: Mapping[str, str],
         oauth_config_path: Path | None = None,
     ) -> "Settings":
+        values = dict(environ)
+        saved_scopes: frozenset[str] | None = None
+        if not _AUTH_ENV_NAMES.intersection(values):
+            path = saved_connection_path()
+            if path.exists():
+                saved = _load_saved_connection(path)
+                values.update({
+                    "ZENDESK_SUBDOMAIN": saved["subdomain"],
+                    "ZENDESK_AUTH_MODE": "oauth",
+                    "ZENDESK_OAUTH_CLIENT_KIND": saved["client_kind"],
+                    "ZENDESK_OAUTH_CLIENT_ID": saved["client_id"],
+                    "ZENDESK_OAUTH_TOKEN_STORE": str(path),
+                })
+                saved_scopes = frozenset(saved["scopes"])
+        environ = values
         if environ.get("ZENDESK_API_KEY"):
             raise ConfigurationError(
                 "deprecated_configuration",
@@ -130,6 +152,8 @@ class Settings:
                 scopes=_oauth_scopes(capabilities, write_mode, public_writes_enabled, destructive_writes_enabled, impersonation_enabled, external_uploads_enabled),
                 client_kind=oauth_kind,
             )
+            if saved_scopes is not None and not set(oauth.scopes) <= saved_scopes:
+                raise ConfigurationError("oauth_relogin_required", "OAuth scope expansion requires login again")
 
         selected_mode = _select_auth_mode(
             requested_mode=requested_mode,
@@ -236,3 +260,28 @@ def _oauth_scopes(capabilities: frozenset[str], write_mode: str, public: bool, d
     if public or destructive or external_upload: scopes.add("hc:write")
     if impersonation: scopes.add("impersonate")
     return tuple(sorted(scopes))
+
+
+def saved_connection_path() -> Path:
+    return Path.home() / ".config" / "zendesk-mcp-server" / "connection.json"
+
+
+def _load_saved_connection(path: Path) -> dict[str, object]:
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError, json.JSONDecodeError) as error:
+        raise ConfigurationError("invalid_oauth_tokens", "Saved OAuth connection is invalid") from error
+    if (
+        not isinstance(value, dict)
+        or value.get("schema_version") != 1
+        or not isinstance(value.get("subdomain"), str)
+        or not _SUBDOMAIN_PATTERN.fullmatch(value["subdomain"])
+        or not isinstance(value.get("client_id"), str)
+        or not value["client_id"]
+        or value.get("client_kind") != "public"
+        or not isinstance(value.get("scopes"), list)
+        or not value["scopes"]
+        or any(not isinstance(scope, str) or not scope for scope in value["scopes"])
+    ):
+        raise ConfigurationError("invalid_oauth_tokens", "Saved OAuth connection is invalid")
+    return value

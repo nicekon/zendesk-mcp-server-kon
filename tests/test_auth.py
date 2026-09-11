@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
 
@@ -128,6 +129,29 @@ def test_refresh_and_store_rotates_the_token_file(tmp_path: Path):
     store.save(OAuthTokens("old", "refresh", 1))
     assert refresh_and_store_oauth_tokens(store, lambda _: {"access_token": "new", "refresh_token": "rotated", "expires_in": 100}, "id", "secret", now=1).access_token == "new"
     assert store.load().refresh_token == "rotated"
+
+
+def test_refresh_preserves_saved_connection_identity(tmp_path: Path):
+    from zendesk_mcp_server.auth import save_connection
+    from zendesk_mcp_server.config import Settings
+
+    path = tmp_path / "connection.json"
+    settings = Settings.load({
+        "ZENDESK_SUBDOMAIN": "acme",
+        "ZENDESK_AUTH_MODE": "oauth",
+        "ZENDESK_OAUTH_CLIENT_KIND": "public",
+        "ZENDESK_OAUTH_CLIENT_ID": "client",
+        "ZENDESK_OAUTH_TOKEN_STORE": str(path),
+    })
+    save_connection(settings, OAuthTokens("old", "refresh", 1))
+
+    OAuthTokenStore(path).save(OAuthTokens("new", "rotated", 999))
+
+    saved = json.loads(path.read_text())
+    assert saved["schema_version"] == 1
+    assert saved["subdomain"] == "acme"
+    assert saved["client_id"] == "client"
+    assert saved["access_token"] == "new"
 
 
 def test_refresh_reuses_a_concurrently_rotated_token(tmp_path: Path):
