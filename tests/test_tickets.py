@@ -191,7 +191,7 @@ def test_search_and_count_use_ticket_query():
     assert TicketTools(client).search_tickets("status:open")["items"] == [{"id": 2}]
     assert TicketTools(client).count_tickets("status:open")["data"]["count"] == 1
     assert client.paths == [
-        ("/api/v2/search.json", {"query": "type:ticket status:open", "page[size]": "100"}),
+        ("/api/v2/search.json", {"query": "type:ticket status:open", "per_page": "100"}),
         ("/api/v2/search/count.json", {"query": "type:ticket status:open"}),
     ]
 
@@ -215,7 +215,7 @@ def test_structured_ticket_filter_uses_the_same_serializer_for_search_count_and_
     TicketTools(client).export_tickets(query)
 
     assert client.paths == [
-        ("/api/v2/search.json", {"query": "type:ticket status:open tags:billing -tags:spam assignee:8", "page[size]": "100"}),
+        ("/api/v2/search.json", {"query": "type:ticket status:open tags:billing -tags:spam assignee:8", "per_page": "100"}),
         ("/api/v2/search/count.json", {"query": "type:ticket status:open tags:billing -tags:spam assignee:8"}),
         ("/api/v2/search/export.json", {"filter[type]": "ticket", "query": "status:open tags:billing -tags:spam assignee:8", "page[size]": "100"}),
     ]
@@ -236,7 +236,7 @@ def test_structured_ticket_filter_serializes_documented_ticket_ranges_and_custom
 
     assert client.paths == [(
         "/api/v2/search.json",
-        {"query": 'type:ticket "billing outage" type:incident has_attachment:true created>2026-09-01T00:00:00Z created<2026-09-02T00:00:00Z updated>2026-09-01 solved<2026-09-03 custom_field_10:enterprise', "page[size]": "100"},
+        {"query": 'type:ticket "billing outage" type:incident has_attachment:true created>2026-09-01T00:00:00Z created<2026-09-02T00:00:00Z updated>2026-09-01 solved<2026-09-03 custom_field_10:enterprise', "per_page": "100"},
     )]
 
 
@@ -259,7 +259,7 @@ def test_structured_ticket_filter_resolves_an_exact_user_email_before_searching(
 
     assert client.paths == [
         ("/api/v2/users/search.json", {"query": "agent@example.test"}),
-        ("/api/v2/search.json", {"query": "type:ticket assignee:8", "page[size]": "100"}),
+        ("/api/v2/search.json", {"query": "type:ticket assignee:8", "per_page": "100"}),
     ]
 
 
@@ -281,7 +281,7 @@ def test_structured_ticket_filter_resolves_organization_name_exactly():
 
     assert client.paths == [
         ("/api/v2/organizations/search.json", {"name": "Acme"}),
-        ("/api/v2/search.json", {"query": "type:ticket organization:12", "page[size]": "100"}),
+        ("/api/v2/search.json", {"query": "type:ticket organization:12", "per_page": "100"}),
     ]
 
 
@@ -290,19 +290,19 @@ def test_structured_ticket_filter_serializes_brand_group_and_form_ids():
 
     TicketTools(client).search_tickets({"brand": {"kind": "id", "value": 2}, "group": {"kind": "id", "value": 3}, "form": {"kind": "id", "value": 4}})
 
-    assert client.paths == [("/api/v2/search.json", {"query": "type:ticket brand:2 group:3 form:4", "page[size]": "100"})]
+    assert client.paths == [("/api/v2/search.json", {"query": "type:ticket brand:2 group:3 form:4", "per_page": "100"})]
 
 
 def test_structured_ticket_filter_resolves_brand_name():
     client = StubClient({"/api/v2/brands.json": success({"brands": [{"id": 2, "name": "Acme"}]}), "/api/v2/search.json": success({"results": [], "next_page": None})})
     TicketTools(client).search_tickets({"brand": {"kind": "name", "value": "Acme"}})
-    assert client.paths == [("/api/v2/brands.json", {"page[size]": "100"}), ("/api/v2/search.json", {"query": "type:ticket brand:2", "page[size]": "100"})]
+    assert client.paths == [("/api/v2/brands.json", {"page[size]": "100"}), ("/api/v2/search.json", {"query": "type:ticket brand:2", "per_page": "100"})]
 
 
 def test_structured_ticket_filter_resolves_group_name():
     client = StubClient({"/api/v2/groups.json": success({"groups": [{"id": 3, "name": "Support"}]}), "/api/v2/search.json": success({"results": [], "next_page": None})})
     TicketTools(client).search_tickets({"group": {"kind": "name", "value": "Support"}})
-    assert client.paths == [("/api/v2/groups.json", {"page[size]": "100"}), ("/api/v2/search.json", {"query": "type:ticket group:3", "page[size]": "100"})]
+    assert client.paths == [("/api/v2/groups.json", {"page[size]": "100"}), ("/api/v2/search.json", {"query": "type:ticket group:3", "per_page": "100"})]
 
 
 def test_structured_ticket_filter_resolves_form_name():
@@ -310,7 +310,7 @@ def test_structured_ticket_filter_resolves_form_name():
 
     TicketTools(client).search_tickets({"form": {"kind": "name", "value": "Incident"}})
 
-    assert client.paths == [("/api/v2/ticket_forms.json", {"page[size]": "100"}), ("/api/v2/search.json", {"query": "type:ticket form:4", "page[size]": "100"})]
+    assert client.paths == [("/api/v2/ticket_forms.json", {"page[size]": "100"}), ("/api/v2/search.json", {"query": "type:ticket form:4", "per_page": "100"})]
 
 
 def test_custom_object_projection_requires_its_capability():
@@ -425,6 +425,16 @@ def test_ticket_export_rejects_an_expired_resume_cursor(monkeypatch):
 
     assert result["ok"] is False
     assert result["error"]["code"] == "cursor_expired"
+    assert len(client.paths) == 1
+
+
+def test_search_uses_offset_page_and_enforces_thousand_result_limit():
+    client = StubClient({"/api/v2/search.json": success({"results": [], "next_page": "https://untrusted.example/next"})})
+    tools = TicketTools(client)
+    result = tools.search_tickets("status:open", page=2)
+    assert client.paths == [("/api/v2/search.json", {"query": "type:ticket status:open", "per_page": "100", "page": "2"})]
+    assert result["next_page"] == 3
+    assert tools.search_tickets("status:open", page=11)["error"]["code"] == "validation_error"
     assert len(client.paths) == 1
 
 

@@ -244,7 +244,7 @@ class TicketTools:
             and 0 <= attachment["size"] <= 20 * 1024 * 1024
         )
 
-    def search_tickets(self, query: object, limit: int = 100, *, projection: Mapping[str, object] | None = None) -> dict[str, object]:
+    def search_tickets(self, query: object, limit: int = 100, *, projection: Mapping[str, object] | None = None, page: int = 1) -> dict[str, object]:
         resolved_projection = _ticket_projection(projection)
         if isinstance(resolved_projection, dict): return resolved_projection
         fields, custom_objects = resolved_projection
@@ -260,9 +260,13 @@ class TicketTools:
         client = self._configured_client()
         if isinstance(client, dict):
             return client
+        if type(page) is not int or page < 1 or page * page_size > 1000:
+            return failure(ErrorCode.VALIDATION_ERROR, "page must stay within the 1000-result search limit; use export for larger results")
+        params = {"query": ticket_query, "per_page": str(page_size)}
+        if page != 1: params["page"] = str(page)
         result = client.get(
             "/api/v2/search.json",
-            params={"query": ticket_query, "page[size]": str(page_size)},
+            params=params,
         )
         if not result.get("ok"):
             return result
@@ -276,7 +280,7 @@ class TicketTools:
             if isinstance(projected, dict): return projected
             items = projected
         items = _select_ticket_fields(items, fields, include_custom_objects=bool(custom_objects))
-        return {"ok": True, "items": items, "has_more": has_more, "next_cursor": None, "truncated": has_more}
+        return {"ok": True, "items": items, "has_more": has_more, "next_cursor": None, "next_page": page + 1 if has_more and (page + 1) * page_size <= 1000 else None, "truncated": has_more}
 
     def count_tickets(self, query: object) -> dict[str, object]:
         ticket_query = self._resolve_ticket_query(query)
