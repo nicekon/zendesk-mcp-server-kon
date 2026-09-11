@@ -119,7 +119,16 @@ class ZendeskClient:
                 )
 
             if response.is_success:
-                return success(_response_data(response), request_id=_request_id(response))
+                try:
+                    data = {} if response.status_code == 204 or method == "HEAD" else _response_data(response)
+                except ValueError:
+                    return failure(
+                        ErrorCode.UPSTREAM_ERROR,
+                        "Zendesk returned invalid JSON",
+                        operation_state="not_applied" if read_request else "unknown",
+                        request_id=_request_id(response),
+                    )
+                return success(data, request_id=_request_id(response))
 
             if response.status_code == 401 and not refreshed:
                 refresh = getattr(self._authorization, "refresh", None)
@@ -262,10 +271,7 @@ class ZendeskClient:
 
 
 def _response_data(response: httpx.Response) -> dict[str, object]:
-    try:
-        payload = response.json()
-    except ValueError:
-        return {}
+    payload = response.json()
     return payload if isinstance(payload, dict) else {"items": payload}
 
 

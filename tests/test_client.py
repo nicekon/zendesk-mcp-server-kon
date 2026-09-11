@@ -136,6 +136,26 @@ def test_rejected_writes_report_known_state_without_retry(settings, authorizatio
     assert len(calls) == 1
 
 
+@pytest.mark.parametrize("method,state", [("GET", "not_applied"), ("PUT", "unknown")])
+def test_invalid_success_json_is_not_reported_as_success(settings, authorization, method, state):
+    calls = []
+    def handler(request):
+        calls.append(request)
+        return httpx.Response(200, content=b"<html>private upstream content</html>", request=request)
+    client = ZendeskClient(settings, authorization, transport=httpx.MockTransport(handler))
+    result = client.request(method, "/api/v2/tickets/9.json")
+    assert result["ok"] is False
+    assert result["error"]["code"] == "upstream_error"
+    assert result["error"]["operation_state"] == state
+    assert "private upstream content" not in str(result)
+    assert len(calls) == 1
+
+
+def test_no_content_delete_remains_successful(settings, authorization):
+    client = ZendeskClient(settings, authorization, transport=httpx.MockTransport(lambda request: httpx.Response(204, request=request)))
+    assert client.request("DELETE", "/api/v2/tickets/9.json") == {"ok": True, "data": {}}
+
+
 def test_client_rejects_an_absolute_or_foreign_path(settings, authorization):
     client = ZendeskClient(settings, authorization, transport=httpx.MockTransport(lambda request: None))
 
