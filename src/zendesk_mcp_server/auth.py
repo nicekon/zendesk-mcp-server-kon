@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import base64
+import hashlib
 import hmac
 import json
 import os
+import re
 import secrets
 import stat
 import tempfile
@@ -71,20 +73,33 @@ def oauth_tokens_from_refresh_response(value: object, *, now: int, previous_refr
 
 
 def oauth_refresh_payload(client_id: str, client_secret: str, refresh_token: str) -> dict[str, str]:
-    return {"grant_type": "refresh_token", "client_id": client_id, "client_secret": client_secret, "refresh_token": refresh_token}
+    payload = {"grant_type": "refresh_token", "client_id": client_id, "refresh_token": refresh_token}
+    if client_secret:
+        payload["client_secret"] = client_secret
+    return payload
 
 
-def create_oauth_authorization_request(subdomain: str, client_id: str, redirect_uri: str, scopes: tuple[str, ...], state_store: "OAuthStateStore", *, now: int) -> dict[str, str]:
+def pkce_challenge(verifier: str) -> str:
+    _validate_code_verifier(verifier)
+    digest = hashlib.sha256(verifier.encode("ascii")).digest()
+    return base64.urlsafe_b64encode(digest).rstrip(b"=").decode("ascii")
+
+
+def create_oauth_authorization_request(subdomain: str, client_id: str, redirect_uri: str, scopes: tuple[str, ...], state_store: "OAuthStateStore", *, now: int, code_verifier: str | None = None) -> dict[str, str]:
     _validate_authorization_inputs(subdomain, client_id, redirect_uri, scopes)
     state = state_store.create(redirect_uri, scopes, now=now)
     query = urlencode({"response_type": "code", "client_id": client_id, "redirect_uri": redirect_uri, "scope": " ".join(scopes), "state": state})
+    if code_verifier is not None:
+        query += "&" + urlencode({"code_challenge": pkce_challenge(code_verifier), "code_challenge_method": "S256"})
     return {"state": state, "authorization_url": f"https://{subdomain}.zendesk.com/oauth/authorizations/new?{query}"}
 
 
-def create_settings_oauth_authorization_request(settings: Settings, redirect_uri: str, state_store: "OAuthStateStore", *, now: int) -> dict[str, str]:
+def create_settings_oauth_authorization_request(settings: Settings, redirect_uri: str, state_store: "OAuthStateStore", *, now: int, code_verifier: str | None = None) -> dict[str, str]:
     if settings.auth_mode is not AuthMode.OAUTH or settings.oauth is None or settings.subdomain is None:
         raise ConfigurationError("missing_oauth", "OAuth configuration is missing")
-    return create_oauth_authorization_request(settings.subdomain, settings.oauth.client_id, redirect_uri, settings.oauth.scopes, state_store, now=now)
+    if settings.oauth.client_kind == "public" and code_verifier is None:
+        raise ConfigurationError("missing_pkce", "Public OAuth requires PKCE")
+    return create_oauth_authorization_request(settings.subdomain, settings.oauth.client_id, redirect_uri, settings.oauth.scopes, state_store, now=now, code_verifier=code_verifier)
 
 
 def oauth_state_store(settings: Settings) -> "OAuthStateStore":
@@ -94,16 +109,22 @@ def oauth_state_store(settings: Settings) -> "OAuthStateStore":
     return OAuthStateStore(path.with_name(f".{path.name}.state"))
 
 
-def exchange_oauth_authorization_code(request: Callable[[dict[str, str]], object], client_id: str, client_secret: str, code: str, state: str, redirect_uri: str, scopes: tuple[str, ...], state_store: "OAuthStateStore", token_store: "OAuthTokenStore", *, now: int) -> OAuthTokens:
-    if not isinstance(client_secret, str) or not client_secret or not isinstance(code, str) or not code:
+def exchange_oauth_authorization_code(request: Callable[[dict[str, str]], object], client_id: str, client_secret: str, code: str, state: str, redirect_uri: str, scopes: tuple[str, ...], state_store: "OAuthStateStore", token_store: "OAuthTokenStore", *, now: int, code_verifier: str | None = None) -> OAuthTokens:
+    if not isinstance(client_secret, str) or (not client_secret and code_verifier is None) or not isinstance(code, str) or not code:
         raise ConfigurationError("invalid_oauth_authorization", "OAuth authorization response is invalid")
     state_store.consume(state, redirect_uri, scopes, now=now)
-    tokens = oauth_tokens_from_refresh_response(request({"grant_type": "authorization_code", "code": code, "client_id": client_id, "client_secret": client_secret, "redirect_uri": redirect_uri, "scope": " ".join(scopes)}), now=now)
+    payload = {"grant_type": "authorization_code", "code": code, "client_id": client_id, "redirect_uri": redirect_uri, "scope": " ".join(scopes)}
+    if client_secret:
+        payload["client_secret"] = client_secret
+    if code_verifier is not None:
+        _validate_code_verifier(code_verifier)
+        payload["code_verifier"] = code_verifier
+    tokens = oauth_tokens_from_refresh_response(request(payload), now=now)
     token_store.save(tokens)
     return tokens
 
 
-def exchange_settings_oauth_authorization_code(settings: Settings, code: str, state: str, redirect_uri: str, *, requester: Callable[[dict[str, str]], object] | None = None, now: int | None = None) -> OAuthTokens:
+def exchange_settings_oauth_authorization_code(settings: Settings, code: str, state: str, redirect_uri: str, *, requester: Callable[[dict[str, str]], object] | None = None, now: int | None = None, code_verifier: str | None = None) -> OAuthTokens:
     if settings.auth_mode is not AuthMode.OAUTH or settings.oauth is None or settings.subdomain is None:
         raise ConfigurationError("missing_oauth", "OAuth configuration is missing")
     return exchange_oauth_authorization_code(
@@ -117,6 +138,7 @@ def exchange_settings_oauth_authorization_code(settings: Settings, code: str, st
         oauth_state_store(settings),
         OAuthTokenStore(settings.oauth.token_store_path),
         now=int(time.time()) if now is None else now,
+        code_verifier=code_verifier,
     )
 
 
@@ -252,8 +274,15 @@ class OAuthStateStore:
 
 def _validate_authorization_inputs(subdomain: object, client_id: object, redirect_uri: object, scopes: object) -> None:
     parsed = urlsplit(redirect_uri) if isinstance(redirect_uri, str) else None
-    if not isinstance(subdomain, str) or not subdomain or not isinstance(client_id, str) or not client_id or parsed is None or parsed.scheme != "https" or not parsed.netloc or parsed.username or parsed.password or not isinstance(scopes, tuple) or not scopes or any(not isinstance(scope, str) or not scope for scope in scopes):
+    secure_redirect = parsed is not None and parsed.scheme == "https" and bool(parsed.netloc)
+    loopback_redirect = parsed is not None and parsed.scheme == "http" and parsed.hostname == "127.0.0.1" and parsed.port is not None
+    if not isinstance(subdomain, str) or not subdomain or not isinstance(client_id, str) or not client_id or parsed is None or not (secure_redirect or loopback_redirect) or parsed.username or parsed.password or parsed.fragment or not isinstance(scopes, tuple) or not scopes or any(not isinstance(scope, str) or not scope for scope in scopes):
         raise ConfigurationError("invalid_oauth_authorization", "OAuth authorization configuration is invalid")
+
+
+def _validate_code_verifier(verifier: object) -> None:
+    if not isinstance(verifier, str) or not re.fullmatch(r"[A-Za-z0-9._~-]{43,128}", verifier):
+        raise ConfigurationError("invalid_pkce", "OAuth PKCE verifier is invalid")
 
 
 def build_authorization(settings: Settings, *, oauth_requester: Callable[[dict[str, str]], object] | None = None, now: int | None = None) -> AuthorizationProvider | None:

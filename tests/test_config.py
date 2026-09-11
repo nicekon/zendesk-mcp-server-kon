@@ -50,6 +50,23 @@ def test_auto_prefers_complete_oauth_without_api_token():
     assert settings.auth_mode is AuthMode.OAUTH
 
 
+def test_public_oauth_configuration_does_not_require_client_secret(tmp_path):
+    settings = Settings.load(
+        {
+            "ZENDESK_SUBDOMAIN": "acme",
+            "ZENDESK_AUTH_MODE": "oauth",
+            "ZENDESK_OAUTH_CLIENT_KIND": "public",
+            "ZENDESK_OAUTH_CLIENT_ID": "client-id",
+            "ZENDESK_OAUTH_TOKEN_STORE": str(tmp_path / "oauth.json"),
+        }
+    )
+
+    assert settings.auth_mode is AuthMode.OAUTH
+    assert settings.oauth is not None
+    assert settings.oauth.client_kind == "public"
+    assert settings.oauth.client_secret == ""
+
+
 def test_oauth_scopes_are_limited_to_enabled_capabilities_and_gates():
     settings = Settings.load(
         {

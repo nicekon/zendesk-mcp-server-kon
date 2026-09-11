@@ -42,6 +42,7 @@ class OAuthConfig:
     client_secret: str
     token_store_path: Path
     scopes: tuple[str, ...]
+    client_kind: str = "confidential"
 
 
 @dataclass(frozen=True)
@@ -107,13 +108,14 @@ class Settings:
                 "API token configuration requires subdomain, email, and token",
             )
 
-        oauth_values = (
-            environ.get("ZENDESK_OAUTH_CLIENT_ID"),
-            environ.get("ZENDESK_OAUTH_CLIENT_SECRET"),
-            str(oauth_config_path) if oauth_config_path else environ.get("ZENDESK_OAUTH_TOKEN_STORE"),
-        )
-        oauth_present = any(oauth_values)
-        oauth_complete = all(oauth_values)
+        oauth_kind = environ.get("ZENDESK_OAUTH_CLIENT_KIND", "confidential").strip().lower()
+        if oauth_kind not in {"public", "confidential"}:
+            raise ConfigurationError("invalid_oauth_client_kind", "ZENDESK_OAUTH_CLIENT_KIND is invalid")
+        oauth_client_id = environ.get("ZENDESK_OAUTH_CLIENT_ID")
+        oauth_client_secret = environ.get("ZENDESK_OAUTH_CLIENT_SECRET")
+        oauth_token_store = str(oauth_config_path) if oauth_config_path else environ.get("ZENDESK_OAUTH_TOKEN_STORE")
+        oauth_present = any((oauth_client_id, oauth_client_secret, oauth_token_store, "ZENDESK_OAUTH_CLIENT_KIND" in environ))
+        oauth_complete = all((oauth_client_id, oauth_token_store)) and (oauth_kind == "public" or bool(oauth_client_secret))
         if oauth_present and not oauth_complete:
             raise ConfigurationError("incomplete_oauth", "incomplete OAuth configuration")
 
@@ -122,10 +124,11 @@ class Settings:
             if subdomain is None:
                 raise ConfigurationError("incomplete_oauth", "incomplete OAuth configuration")
             oauth = OAuthConfig(
-                client_id=oauth_values[0],
-                client_secret=oauth_values[1],
-                token_store_path=Path(oauth_values[2]),
+                client_id=oauth_client_id or "",
+                client_secret=oauth_client_secret or "",
+                token_store_path=Path(oauth_token_store or ""),
                 scopes=_oauth_scopes(capabilities, write_mode, public_writes_enabled, destructive_writes_enabled, impersonation_enabled, external_uploads_enabled),
+                client_kind=oauth_kind,
             )
 
         selected_mode = _select_auth_mode(

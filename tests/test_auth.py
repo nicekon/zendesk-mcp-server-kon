@@ -57,6 +57,66 @@ def test_oauth_refresh_payload_uses_refresh_token_grant():
     assert oauth_refresh_payload("client", "secret", "refresh") == {"grant_type": "refresh_token", "client_id": "client", "client_secret": "secret", "refresh_token": "refresh"}
 
 
+def test_public_oauth_refresh_omits_client_secret():
+    from zendesk_mcp_server.auth import oauth_refresh_payload
+
+    assert oauth_refresh_payload("client", "", "refresh") == {
+        "grant_type": "refresh_token",
+        "client_id": "client",
+        "refresh_token": "refresh",
+    }
+
+
+def test_pkce_challenge_matches_rfc_7636_vector():
+    from zendesk_mcp_server.auth import pkce_challenge
+
+    assert pkce_challenge("dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk") == "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM"
+
+
+def test_public_oauth_request_and_exchange_use_pkce_without_secret(tmp_path: Path):
+    from zendesk_mcp_server.auth import create_oauth_authorization_request, exchange_oauth_authorization_code
+
+    verifier = "a" * 43
+    state_store = OAuthStateStore(tmp_path / "state.json")
+    token_store = OAuthTokenStore(tmp_path / "tokens.json")
+    request = create_oauth_authorization_request(
+        "acme",
+        "client",
+        "http://127.0.0.1:3000/oauth/callback",
+        ("tickets:read",),
+        state_store,
+        now=100,
+        code_verifier=verifier,
+    )
+    query = parse_qs(urlsplit(request["authorization_url"]).query)
+    payloads = []
+
+    exchange_oauth_authorization_code(
+        lambda payload: payloads.append(payload) or {"access_token": "access", "refresh_token": "refresh", "expires_in": 300},
+        "client",
+        "",
+        "code",
+        request["state"],
+        "http://127.0.0.1:3000/oauth/callback",
+        ("tickets:read",),
+        state_store,
+        token_store,
+        now=101,
+        code_verifier=verifier,
+    )
+
+    assert query["code_challenge_method"] == ["S256"]
+    assert query["code_challenge"] == ["ZtNPunH49FD35FWYhT5Tv8I7vRKQJ8uxMaL0_9eHjNA"]
+    assert payloads == [{
+        "grant_type": "authorization_code",
+        "code": "code",
+        "client_id": "client",
+        "redirect_uri": "http://127.0.0.1:3000/oauth/callback",
+        "scope": "tickets:read",
+        "code_verifier": verifier,
+    }]
+
+
 def test_refresh_oauth_tokens_uses_injected_requester():
     from zendesk_mcp_server.auth import refresh_oauth_tokens
     assert refresh_oauth_tokens(lambda payload: {"access_token": "new", "refresh_token": payload["refresh_token"], "expires_in": 100}, "id", "secret", "refresh", now=1).access_token == "new"
