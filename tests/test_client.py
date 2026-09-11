@@ -246,6 +246,24 @@ def test_attachment_download_rejects_non_https_tenant_url(settings, authorizatio
     assert client.download_attachment("http://acme.zendesk.com/attachments/token/file", max_bytes=20)["error"]["code"] == "validation_error"
 
 
+@pytest.mark.parametrize("url", [
+    "https://acme.zendesk.com:invalid/attachments/file",
+    "https://acme.zendesk.com:8443/attachments/file",
+    "https://cdn.example.test:invalid/file",
+    "https://[broken/file",
+    None,
+])
+def test_binary_transfer_rejects_malformed_urls_before_network(settings, authorization, url):
+    def unexpected_request(request):
+        pytest.fail("unsafe URL reached transport")
+    client = ZendeskClient(settings, authorization, transport=httpx.MockTransport(unexpected_request))
+    for result in (
+        client.download_attachment(url, max_bytes=10),
+        client.upload_presigned(url, {}, b"test"),
+    ):
+        assert result["error"]["code"] == "validation_error"
+
+
 def test_help_center_image_download_allows_only_tenant_user_images(settings, authorization):
     def handler(request: httpx.Request) -> httpx.Response:
         assert request.headers["Authorization"].startswith("Basic ")

@@ -244,8 +244,10 @@ class ZendeskClient:
         return f"{self._base_url}{parsed.path}"
 
     def _is_attachment_url(self, value: str) -> bool:
-        parsed = urlsplit(value)
-        return parsed.scheme == "https" and not parsed.username and not parsed.password and (parsed.hostname == urlsplit(self._base_url).hostname or _is_public_https_url(value))
+        if not isinstance(value, str): return False
+        try: parsed = urlsplit(value); port = parsed.port
+        except ValueError: return False
+        return parsed.scheme == "https" and port in {None, 443} and not parsed.username and not parsed.password and (parsed.hostname == urlsplit(self._base_url).hostname or _is_public_https_url(value))
 
     def _is_help_center_image_url(self, value: object, subdomain: str | None) -> bool:
         if not isinstance(value, str): return False
@@ -296,8 +298,10 @@ def _error_code(status_code: int) -> ErrorCode:
 
 
 def _is_public_https_url(value: str) -> bool:
-    parsed = urlsplit(value)
-    if parsed.scheme != "https" or not parsed.hostname or parsed.username or parsed.password:
+    if not isinstance(value, str): return False
+    try: parsed = urlsplit(value); port = parsed.port
+    except ValueError: return False
+    if parsed.scheme != "https" or port not in {None, 443} or not parsed.hostname or parsed.username or parsed.password:
         return False
     try:
         addresses = [ipaddress.ip_address(parsed.hostname)]
