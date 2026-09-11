@@ -33,6 +33,22 @@ def test_oauth_store_rejects_group_readable_file(tmp_path: Path):
         OAuthTokenStore(path).load()
 
 
+@pytest.mark.parametrize("field,value", [
+    ("access_token", None), ("access_token", {}), ("access_token", ""),
+    ("refresh_token", []), ("refresh_token", " "),
+    ("expires_at", True), ("expires_at", -1), ("expires_at", 1.5),
+])
+def test_oauth_store_rejects_malformed_token_values(tmp_path, field, value):
+    path = tmp_path / "oauth.json"
+    record = {"access_token": "access", "refresh_token": "refresh", "expires_at": 100}
+    record[field] = value
+    path.write_text(json.dumps(record))
+    path.chmod(0o600)
+    with pytest.raises(ConfigurationError) as error:
+        OAuthTokenStore(path).load()
+    assert error.value.code == "invalid_oauth_tokens"
+
+
 @pytest.mark.parametrize("check_posix", [True, False])
 def test_missing_oauth_file_returns_configuration_error(tmp_path, monkeypatch, check_posix):
     monkeypatch.setattr("zendesk_mcp_server.config._CHECK_POSIX_PERMISSIONS", check_posix)

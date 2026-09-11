@@ -164,10 +164,17 @@ class OAuthTokenStore:
         self._require_user_only_permissions()
         try:
             value = json.loads(self.path.read_text(encoding="utf-8"))
+            if (
+                not isinstance(value, dict)
+                or any(not isinstance(value.get(key), str) or not value[key].strip() for key in ("access_token", "refresh_token"))
+                or type(value.get("expires_at")) is not int
+                or value["expires_at"] < 0
+            ):
+                raise ValueError("invalid OAuth token record")
             return OAuthTokens(
-                access_token=str(value["access_token"]),
-                refresh_token=str(value["refresh_token"]),
-                expires_at=int(value["expires_at"]),
+                access_token=value["access_token"],
+                refresh_token=value["refresh_token"],
+                expires_at=value["expires_at"],
             )
         except (KeyError, TypeError, ValueError, json.JSONDecodeError) as error:
             raise ConfigurationError("invalid_oauth_tokens", "OAuth token file is invalid") from error
