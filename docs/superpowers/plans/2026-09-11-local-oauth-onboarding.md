@@ -10,7 +10,7 @@
 
 **Spec:** `docs/superpowers/specs/2026-09-11-local-oauth-onboarding.md` 전체.
 
-**Implementation status (2026-09-11):** 로컬 기능 구현·패키지 설치·MCP handshake 완료. 실제 Zendesk Public OAuth E2E와 원격 CI는 외부 client 등록 및 push 이후 검증 대기.
+**Implementation status (2026-09-11):** 로컬 기능 구현·패키지 설치·MCP handshake와 실제 Zendesk Public OAuth 최초 로그인·사용자 조회 완료. 실제 token refresh와 원격 CI는 검증 대기.
 
 ## Global Constraints
 
@@ -89,7 +89,8 @@ def test_public_refresh_omits_secret():
 - [x] `mktemp -d`로 새 build 출력·uv tool 저장·실행 디렉터리를 만들고, `uv build --out-dir`로 wheel을 생성한다. `UV_TOOL_DIR`, `UV_TOOL_BIN_DIR`을 이 임시 경로에만 지정하여 정확한 새 wheel을 설치한다. 사용자의 실제 설치·PATH를 변경하지 않는다.
 - [ ] 설치된 절대 실행 파일로 `--help`, 무설정 check, 가짜 OAuth 성공 후 다른 cwd/인증 env 없는 새 프로세스에서 check를 검증한다. 테스트용 HOME은 자식 프로세스에만 격리한다. 실제 사용자 홈이나 token 파일을 읽지 않는다.
 - [x] 같은 설치 실행 파일에 MCP initialize/tools/list를 수행한다. 등록 도구 집합은 변경 전과 동일하고 stdout에 로그인 출력이 없어야 한다. 기존 CI의 Linux Python 3.10–3.12와 macOS/Windows smoke에 해당 계약을 포함한다.
-- [ ] 가능해진 시점에 실제 Zendesk Public client로 브라우저 승인, 사용자 읽기, 토큰 refresh, 새 프로세스 MCP 읽기를 검증한다. 외부 client가 없으면 로컬 구현 완료와 실계정 검증 대기를 분리해 기록한다.
+- [x] 실제 Zendesk Public client로 브라우저 승인, loopback callback, 사용자 읽기와 저장 연결의 새 CLI 프로세스 재사용을 검증한다.
+- [ ] 실제 만료 token refresh와 저장 연결을 사용한 새 MCP 프로세스의 도구 호출을 검증한다.
 - [x] 결과 기록 후 `test: verify installed OAuth onboarding and MCP startup` 커밋. push/공개 배포를 실제 수행한 경우에만 원격 완료라고 표기한다.
 
 ## 준비 점검
@@ -98,4 +99,4 @@ def test_public_refresh_omits_secret():
 - [x] HTTPS-only 제약과 기존 localhost 안내 불일치 확인.
 - [x] Zendesk Public PKCE/refresh 및 uv 설치 공식 계약 확인.
 - [x] 사용자 흐름과 기존 인증 호환성 설계 고정.
-- [ ] 실제 Zendesk Public OAuth와 push 후 원격 CI 결과를 이 계획에 추가해 최종 완료 처리.
+- [ ] 실제 OAuth refresh와 push 후 원격 CI 결과를 이 계획에 추가해 최종 완료 처리.

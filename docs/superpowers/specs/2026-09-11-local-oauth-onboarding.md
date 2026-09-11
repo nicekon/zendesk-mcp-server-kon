@@ -1,6 +1,6 @@
 # 로컬 MCP 설치·OAuth 로그인 설계
 
-작성일: 2026-09-11. 상태: 구현 준비 완료, 기능 구현 전.
+작성일: 2026-09-11. 상태: 로컬 구현 및 Public OAuth 최초 로그인 E2E 완료, refresh·원격 CI 검증 대기.
 
 ## 목적과 기준선
 
@@ -37,6 +37,11 @@
 ## 완료 기준
 
 깨끗한 설치 환경에서 실행 파일 생성 → 가짜 OAuth 서버와 실제 loopback callback → 새 프로세스의 저장 정보 재사용 → MCP initialize/tools/list를 검증한다. 잘못된 state, PKCE payload, timeout, 포트 충돌, 실패 후 기존 연결 유지, 환경변수 우선순위, refresh 회귀를 자동 검증한다. 실제 Zendesk의 Public client 승인·refresh는 별도 읽기 E2E 증거로 기록한다. 로컬 테스트만으로 실제 OAuth 성공을 선언하지 않는다.
+
+2026-09-11 실제 `unicorn-adblock` tenant에서 Public OAuth 브라우저 승인,
+loopback callback, 코드 교환, 저장된 연결의 새 CLI 프로세스 재사용 및
+`users/me` 조회가 `auth_mode: oauth`, admin 사용자로 성공했다. 토큰 값은 출력하지
+않았다. 실제 만료 token refresh와 새 MCP 프로세스의 도구 호출은 별도 대기다.
 
 ## 근거
 
