@@ -86,7 +86,9 @@ class GuideTools:
             if not result.get("ok"): return result
             data = result.get("data"); page = data.get("articles") if isinstance(data, dict) else None; meta = data.get("meta") if isinstance(data, dict) else None
             if not isinstance(page, list) or not isinstance(meta, dict): return failure(ErrorCode.UPSTREAM_ERROR, "Zendesk returned an invalid article export page")
-            articles.extend(page)
+            remaining = max_articles - len(articles)
+            articles.extend(page[:remaining])
+            if len(page) > remaining: return success({"articles": articles, "truncated": True})
             if not meta.get("has_more"): return success({"articles": articles, "truncated": False})
             cursor = meta.get("after_cursor")
             if not isinstance(cursor, str) or not cursor or cursor in seen: return failure(ErrorCode.UPSTREAM_ERROR, "Zendesk returned an invalid article export cursor")

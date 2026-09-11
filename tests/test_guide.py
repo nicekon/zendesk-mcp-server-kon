@@ -174,6 +174,35 @@ def test_article_export_uses_locale_cursor_pagination():
     ]
 
 
+def test_article_export_enforces_local_limit_even_when_upstream_ignores_page_size():
+    class OversizedPageClient:
+        def get(self, path, *, params=None):
+            assert params["page[size]"] == "1"
+            return success({"articles": [{"id": 1}, {"id": 2}], "meta": {"has_more": False}})
+
+    result = GuideTools(OversizedPageClient()).export_articles("en-us", max_articles=1)
+    assert result["data"] == {"articles": [{"id": 1}], "truncated": True}
+
+
+def test_article_export_empty_final_page_and_repeated_cursor():
+    for repeat in (False, True):
+        class PagesClient:
+            calls = 0
+            def get(self, path, *, params=None):
+                self.calls += 1
+                if self.calls == 1:
+                    return success({"articles": [{"id": 1}], "meta": {"has_more": True, "after_cursor": "next"}})
+                return success({"articles": [], "meta": {"has_more": repeat, "after_cursor": "next"}})
+
+        client = PagesClient()
+        result = GuideTools(client).export_articles("en-us")
+        assert client.calls == 2
+        if repeat:
+            assert result["error"]["code"] == "upstream_error"
+        else:
+            assert result["data"] == {"articles": [{"id": 1}], "truncated": False}
+
+
 def test_article_export_writes_a_managed_artifact(tmp_path):
     class ExportClient:
         def get(self, path, *, params=None):
