@@ -34,7 +34,10 @@ def main():
     if args.command == "check":
         from .server import build_connection_status
 
-        print(json.dumps(build_connection_status(os.environ, probe=args.probe), ensure_ascii=False))
+        result = build_connection_status(os.environ, probe=args.probe)
+        print(json.dumps(result, ensure_ascii=False))
+        if not result.get("ok"):
+            raise SystemExit(1)
         return
     if args.command == "approve":
         from .approvals import ApprovalStore

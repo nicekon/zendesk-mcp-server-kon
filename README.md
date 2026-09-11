@@ -148,6 +148,9 @@ configuration is an error and never falls back to API token credentials.
 
 Validate configuration without a network request using `zendesk check`; add
 `--probe` to verify the current Zendesk user without printing secrets.
+The command prints JSON and exits with status 1 when `ok` is false, or 0 when
+`ok` is true. An unconfigured status without `--probe` is a successful inspection;
+check `data.configured` before treating it as a ready connection.
 
 ```bash
 zendesk check

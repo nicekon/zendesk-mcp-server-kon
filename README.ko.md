@@ -138,6 +138,9 @@ API token 인증도 유지합니다. MCP 프로세스에 세 환경 변수를 �
 
 `zendesk check`는 네트워크 요청 없이 구성을 검사하고, `--probe`를 추가하면
 비밀값을 출력하지 않고 현재 Zendesk 사용자를 확인합니다.
+JSON의 `ok`가 false이면 종료 코드 1, true이면 0을 반환합니다.
+`--probe` 없는 무설정 상태 조회도 정상 검사이므로 연결 준비 여부는
+`data.configured` 값까지 확인하세요.
 
 ```bash
 zendesk check

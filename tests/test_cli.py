@@ -39,6 +39,18 @@ def test_check_probe_requests_network_verification(monkeypatch, capsys):
     assert json.loads(capsys.readouterr().out) == {"ok": True}
 
 
+def test_check_configuration_failure_exits_nonzero_with_json(monkeypatch, capsys):
+    monkeypatch.setenv("ZENDESK_API_KEY", "obsolete-test-value")
+    monkeypatch.setattr(sys, "argv", ["zendesk", "check"])
+    with pytest.raises(SystemExit) as error:
+        main()
+    assert error.value.code == 1
+    output = capsys.readouterr()
+    assert json.loads(output.out)["ok"] is False
+    assert "obsolete-test-value" not in output.out
+    assert output.err == ""
+
+
 def test_help_explains_login_without_starting_mcp(monkeypatch, capsys):
     monkeypatch.setattr(sys, "argv", ["zendesk", "--help"])
 
