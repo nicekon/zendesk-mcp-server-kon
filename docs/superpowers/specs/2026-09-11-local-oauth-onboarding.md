@@ -40,8 +40,10 @@
 
 2026-09-11 실제 `unicorn-adblock` tenant에서 Public OAuth 브라우저 승인,
 loopback callback, 코드 교환, 저장된 연결의 새 CLI 프로세스 재사용 및
-`users/me` 조회가 `auth_mode: oauth`, admin 사용자로 성공했다. 토큰 값은 출력하지
-않았다. 실제 만료 token refresh와 새 MCP 프로세스의 도구 호출은 별도 대기다.
+`users/me` 조회가 `auth_mode: oauth`, admin 사용자로 성공했다. 이어서 저장 연결을
+사용하는 새 stdio MCP 프로세스의 `zendesk_get_connection_status`도 같은 OAuth
+tenant와 admin 사용자를 확인했다. 토큰 값은 출력하지 않았다. 실제 만료 token
+refresh는 별도 대기다.
 
 ## 근거
 
