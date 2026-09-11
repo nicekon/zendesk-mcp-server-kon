@@ -124,6 +124,18 @@ def test_client_maps_known_http_errors(settings, authorization, status_code, err
     assert client.get("/api/v2/users/me.json")["error"]["code"] == error_code
 
 
+@pytest.mark.parametrize("status,state", [(401, "not_applied"), (403, "not_applied"), (409, "not_applied"), (412, "not_applied"), (429, "not_applied"), (500, "unknown")])
+def test_rejected_writes_report_known_state_without_retry(settings, authorization, status, state):
+    calls = []
+    def handler(request):
+        calls.append(request)
+        return httpx.Response(status, request=request)
+    client = ZendeskClient(settings, authorization, transport=httpx.MockTransport(handler))
+    result = client.request("PUT", "/api/v2/tickets/9.json", json_body={"ticket": {"status": "pending"}})
+    assert result["error"]["operation_state"] == state
+    assert len(calls) == 1
+
+
 def test_client_rejects_an_absolute_or_foreign_path(settings, authorization):
     client = ZendeskClient(settings, authorization, transport=httpx.MockTransport(lambda request: None))
 

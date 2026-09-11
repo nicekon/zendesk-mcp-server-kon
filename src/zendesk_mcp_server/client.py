@@ -150,7 +150,7 @@ class ZendeskClient:
                 code,
                 f"Zendesk request failed with HTTP {response.status_code}",
                 retryable=read_request and (response.status_code == 429 or response.status_code >= 500),
-                operation_state="not_applied" if read_request else "unknown",
+                operation_state="not_applied" if read_request or response.status_code in {401, 403, 409, 412, 429} else "unknown",
                 request_id=_request_id(response),
             )
 
