@@ -177,6 +177,9 @@ def test_callback_rejects_unexpected_query_parameters(tmp_path: Path):
 def test_invalid_callbacks_do_not_prevent_a_later_valid_callback(tmp_path: Path):
     from zendesk_mcp_server.login import login
 
+    statuses = []
+    workers = []
+
     def send_callbacks(authorization_url: str) -> bool:
         query = parse_qs(urlsplit(authorization_url).query)
         redirect = urlsplit(query["redirect_uri"][0])
@@ -184,19 +187,33 @@ def test_invalid_callbacks_do_not_prevent_a_later_valid_callback(tmp_path: Path)
 
         def request() -> None:
             base = f"http://127.0.0.1:{redirect.port}"
-            _request_ignoring_http_error(f"{base}/oauth/callback?{urlencode({'code': 'code', 'state': 'wrong'})}")
-            _request_ignoring_http_error(f"{base}/wrong?{urlencode({'code': 'code', 'state': state})}")
+            def record(url):
+                try:
+                    with urlopen(url, timeout=2) as response:
+                        statuses.append(response.status)
+                except HTTPError as error:
+                    statuses.append(error.code)
+                    error.close()
+
+            record(f"{base}/oauth/callback?{urlencode({'code': 'code', 'state': 'wrong'})}")
+            record(f"{base}/wrong?{urlencode({'code': 'code', 'state': state})}")
             connection = HTTPConnection("127.0.0.1", redirect.port, timeout=2)
             connection.putrequest("GET", f"/oauth/callback?{urlencode({'code': 'code', 'state': state})}", skip_host=True)
             connection.putheader("Host", "attacker.example")
             connection.endheaders()
-            connection.getresponse().read()
+            response = connection.getresponse()
+            statuses.append(response.status)
+            response.read()
             connection.close()
             duplicate = f"code=one&code=two&{urlencode({'state': state})}"
-            _request_ignoring_http_error(f"{base}/oauth/callback?{duplicate}")
-            urlopen(f"{base}/oauth/callback?{urlencode({'code': 'code', 'state': state})}", timeout=2).read()
+            record(f"{base}/oauth/callback?{duplicate}")
+            record(f"{base}/oauth/callback?error=one&error=two&{urlencode({'state': state})}")
+            record(f"{base}/oauth/callback?{urlencode({'code': 'code', 'error': 'access_denied', 'state': state})}")
+            record(f"{base}/oauth/callback?{urlencode({'code': 'code', 'state': state})}")
 
-        threading.Thread(target=request, daemon=True).start()
+        worker = threading.Thread(target=request, daemon=True)
+        workers.append(worker)
+        worker.start()
         return True
 
     login(
@@ -208,6 +225,9 @@ def test_invalid_callbacks_do_not_prevent_a_later_valid_callback(tmp_path: Path)
         user_requester=lambda *_: {"user": {"id": 7}},
     )
 
+    workers[0].join(2)
+    assert not workers[0].is_alive()
+    assert statuses == [400, 400, 400, 400, 400, 400, 200]
     assert OAuthTokenStore(tmp_path / "connection.json").load().access_token == "access"
 
 

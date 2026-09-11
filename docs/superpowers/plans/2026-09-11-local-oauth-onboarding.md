@@ -53,7 +53,8 @@ def test_public_refresh_omits_secret():
 - [x] 테스트에서 `monkeypatch.setattr(Path, 'home', lambda: tmp_path)` 사용. 저장 연결 생성 후 `Settings.load({})`가 동일 tenant와 OAuth를 선택함을 검증한다. `Settings.load({'ZENDESK_SUBDOMAIN': 'other'})`가 기존 토큰을 선택하지 않음도 검증한다.
 - [x] `uv run pytest tests/test_config.py tests/test_auth.py tests/test_server.py -q`로 red 확인.
 - [x] 기존 NamedTemporaryFile·0600·replace·refresh_lock을 재사용하여 metadata 보존 저장을 구현한다. 단일 연결 파일 읽기는 schema/type 필드 검증을 먼저 한다. 손상 파일은 명확한 오류이며 API token으로 fallback하지 않는다.
-- [x] 토큰 회전 뒤 metadata 보존, 기존 legacy token 파일 호환, 환경변수 경로 격리, scope 확대 거부, POSIX 권한 거부 및 Windows 권한 동작 검증을 추가한다. Windows에서는 POSIX mode bit를 적용하지 않고, 전체 테스트는 실제 사용자 홈과 격리한다.
+- [x] 토큰 회전 뒤 metadata 보존, 기존 legacy token 파일 호환, 환경변수 경로 격리, scope 확대 거부 및 POSIX 권한 거부 테스트를 추가한다. Windows 분기 모의 테스트는 POSIX mode bit 생략과 누락 파일 오류 변환만 검증한다. 테스트와 handshake 자식 프로세스의 홈은 임시 경로로 격리한다.
+- [ ] 실제 Windows에서 저장 파일 ACL 보호와 로그인·저장·갱신 동작을 검증한다. POSIX 검사 생략만으로 사용자 전용 권한이 입증되지는 않는다.
 - [x] focused suite 통과, `feat: share saved OAuth connection with MCP` 커밋.
 
 ## Task 3: 임시 콜백 로그인
@@ -91,7 +92,7 @@ def test_public_refresh_omits_secret():
 - [x] 같은 설치 실행 파일에 MCP initialize/tools/list를 수행한다. 등록 도구 집합은 변경 전과 동일하고 stdout에 로그인 출력이 없어야 한다. 기존 CI의 Linux Python 3.10–3.12와 macOS/Windows smoke에 해당 계약을 포함한다.
 - [x] 실제 Zendesk Public client로 브라우저 승인, loopback callback, 사용자 읽기와 저장 연결의 새 CLI 프로세스 재사용을 검증한다.
 - [x] 저장 연결을 사용한 새 stdio MCP 프로세스에서 `zendesk_get_connection_status` OAuth 사용자 조회를 검증한다.
-- [x] 실제 만료 token refresh를 검증한다. 2026-09-11 저장된 만료 Public OAuth token으로 `zendesk check --probe`를 실행해 refresh token 회전 경로, 30분 만료 갱신, `users/me` 조회를 확인했다. 비밀값과 Zendesk 데이터 쓰기는 사용하지 않았다.
+- [x] 실제 만료 token refresh를 검증한다. 2026-09-11 저장된 만료 Public OAuth token으로 `zendesk check --probe`를 실행해 30분 만료 갱신과 `users/me` 조회를 확인했다. refresh token 값의 변경 여부는 비교하지 않았다. 비밀값을 출력하지 않았고 Zendesk 업무 데이터 쓰기는 실행하지 않았다.
 - [x] 결과 기록 후 `test: verify installed OAuth onboarding and MCP startup` 커밋. push/공개 배포를 실제 수행한 경우에만 원격 완료라고 표기한다.
 
 ## 준비 점검

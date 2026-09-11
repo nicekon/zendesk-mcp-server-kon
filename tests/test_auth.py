@@ -33,6 +33,14 @@ def test_oauth_store_rejects_group_readable_file(tmp_path: Path):
         OAuthTokenStore(path).load()
 
 
+@pytest.mark.parametrize("check_posix", [True, False])
+def test_missing_oauth_file_returns_configuration_error(tmp_path, monkeypatch, check_posix):
+    monkeypatch.setattr("zendesk_mcp_server.config._CHECK_POSIX_PERMISSIONS", check_posix)
+    with pytest.raises(ConfigurationError) as error:
+        OAuthTokenStore(tmp_path / "missing.json").load()
+    assert error.value.code == "missing_oauth_tokens"
+
+
 def test_api_token_header_uses_basic_auth_not_a_bearer_token():
     provider = ApiTokenAuthorization(email="agent@example.test", token="token")
 

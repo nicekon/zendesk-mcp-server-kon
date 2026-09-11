@@ -270,7 +270,8 @@ def saved_connection_path() -> Path:
 
 
 def _has_unsafe_permissions(path: Path) -> bool:
-    return _CHECK_POSIX_PERMISSIONS and bool(stat.S_IMODE(path.stat().st_mode) & 0o077)
+    mode = path.stat().st_mode
+    return _CHECK_POSIX_PERMISSIONS and bool(stat.S_IMODE(mode) & 0o077)
 
 
 def _load_saved_connection(path: Path) -> dict[str, object]:
