@@ -36,6 +36,10 @@ and a fresh stdio MCP process. The mock OAuth tests do not replace this check.
 
 The included publish workflow runs only for a published GitHub Release and its
 PyPI job waits for the complete Python 3.10–3.12 test/build/handshake matrix.
+The Python 3.12 verification job saves its built distributions as the
+`verified-distributions` artifact only after the installed-wheel handshake.
+The publishing job downloads that same run's artifact instead of rebuilding;
+missing artifacts stop publication. No package build occurs in the publishing job.
 Configure PyPI trusted publishing for this repository and its `pypi` GitHub
 environment before creating that release.
 

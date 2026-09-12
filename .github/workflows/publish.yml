@@ -47,6 +47,13 @@ jobs:
 
           asyncio.run(main())
           PY
+      - name: Preserve verified distributions
+        if: matrix.python == '3.12'
+        uses: actions/upload-artifact@v4
+        with:
+          name: verified-distributions
+          path: dist/
+          if-no-files-found: error
 
   publish-pypi:
     needs: verify
@@ -55,7 +62,8 @@ jobs:
     permissions:
       id-token: write
     steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v4
-      - run: uv build
+      - uses: actions/download-artifact@v4
+        with:
+          name: verified-distributions
+          path: dist/
       - uses: pypa/gh-action-pypi-publish@release/v1
