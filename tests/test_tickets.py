@@ -97,7 +97,7 @@ class MutationStub:
 
     def get(self, path, *, params=None):
         self.get_paths.append((path, params))
-        return success({"ticket": {"id": 9, "tags": ["billing"]}})
+        return success({"ticket": {"id": 9, "tags": ["billing"], "updated_at": "2026-09-01T00:00:00Z"}})
 
 
 class MacroStub(MutationStub):
@@ -1136,7 +1136,59 @@ def test_ticket_shortcuts_reuse_update_ticket():
     ]
 
 
-def test_ticket_tag_shortcuts_read_then_reuse_update_ticket():
+def test_ticket_tag_shortcuts_preserve_concurrent_changes():
+    from zendesk_mcp_server.contracts import ErrorCode, failure
+    class Client:
+        def __init__(self):
+            self.tags = ["billing"]
+            self.calls = 0
+        def get(self, path, *, params=None):
+            snapshot = {"id": 9, "tags": self.tags.copy(), "updated_at": "2026-09-01T00:00:00Z"}
+            self.tags.append("concurrent")
+            return success({"ticket": snapshot})
+        def request(self, method, path, *, json_body=None):
+            self.calls += 1
+            payload = json_body["ticket"]
+            if payload.get("safe_update") is True and payload.get("updated_stamp") == "2026-09-01T00:00:00Z":
+                return failure(ErrorCode.CONFLICT, "ticket changed")
+            self.tags = payload["tags"]
+            return success({"ticket": {"tags": self.tags}})
+    for operation, tag in (("add_ticket_tag", "priority"), ("remove_ticket_tag", "billing")):
+        client = Client()
+        tools = TicketTools(client, Settings.load({"ZENDESK_WRITE_MODE": "standard"}))
+        result = getattr(tools, operation)(9, tag)
+        assert client.tags == ["billing", "concurrent"]
+        assert result["error"]["code"] == "conflict"
+        assert client.calls == 1
+
+
+def test_ticket_tag_changes_reject_invalid_timestamps_without_writing():
+    class Client(MutationStub):
+        def get(self, path, *, params=None):
+            return success({"ticket": {"tags": ["billing"], "updated_at": stamp}})
+    for stamp in (None, "invalid", "2026-09-01", 123, {}):
+        for operation, tag in (("add_ticket_tag", "priority"), ("remove_ticket_tag", "billing")):
+            client = Client()
+            tools = TicketTools(client, Settings.load({"ZENDESK_WRITE_MODE": "standard"}))
+            result = getattr(tools, operation)(9, tag)
+            assert result["error"]["code"] == "upstream_error"
+            assert client.calls == []
+
+
+def test_ticket_tag_noops_and_read_only_never_write():
+    client = MutationStub()
+    tools = TicketTools(client, Settings.load({"ZENDESK_WRITE_MODE": "standard"}))
+    assert tools.add_ticket_tag(9, "billing")["data"]["idempotent"] is True
+    assert tools.remove_ticket_tag(9, "absent")["data"]["idempotent"] is True
+    assert client.calls == []
+    client.get_paths.clear()
+    tools = TicketTools(client, Settings.load({}))
+    assert tools.add_ticket_tag(9, "priority")["error"]["code"] == "write_disabled"
+    assert tools.remove_ticket_tag(9, "billing")["error"]["code"] == "write_disabled"
+    assert client.calls == [] and client.get_paths == []
+
+
+def test_ticket_tag_shortcuts_bind_changes_to_read_timestamp():
     client = MutationStub()
     tools = TicketTools(client, Settings.load({"ZENDESK_WRITE_MODE": "standard"}))
 
@@ -1148,8 +1200,8 @@ def test_ticket_tag_shortcuts_read_then_reuse_update_ticket():
         ("/api/v2/tickets/9.json", None),
     ]
     assert client.calls == [
-        ("PUT", "/api/v2/tickets/9.json", {"ticket": {"tags": ["billing", "priority"]}}),
-        ("PUT", "/api/v2/tickets/9.json", {"ticket": {"tags": []}}),
+        ("PUT", "/api/v2/tickets/9.json", {"ticket": {"tags": ["billing", "priority"], "safe_update": True, "updated_stamp": "2026-09-01T00:00:00Z"}}),
+        ("PUT", "/api/v2/tickets/9.json", {"ticket": {"tags": [], "safe_update": True, "updated_stamp": "2026-09-01T00:00:00Z"}}),
     ]
 
 

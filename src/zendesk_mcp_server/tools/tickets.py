@@ -542,20 +542,10 @@ class TicketTools:
         return self.update_ticket(ticket_id, assignee_id=assignee_id, group_id=group_id)
 
     def add_ticket_tag(self, ticket_id: int, tag: str) -> dict[str, object]:
-        tags = self._current_tags(ticket_id, tag)
-        if isinstance(tags, dict):
-            return tags
-        if tag in tags:
-            return success({"ticket_id": ticket_id, "tags": tags, "idempotent": True})
-        return self.update_ticket(ticket_id, tags=[*tags, tag])
+        return self._change_ticket_tag(ticket_id, tag, add=True)
 
     def remove_ticket_tag(self, ticket_id: int, tag: str) -> dict[str, object]:
-        tags = self._current_tags(ticket_id, tag)
-        if isinstance(tags, dict):
-            return tags
-        if tag not in tags:
-            return success({"ticket_id": ticket_id, "tags": tags, "idempotent": True})
-        return self.update_ticket(ticket_id, tags=[value for value in tags if value != tag])
+        return self._change_ticket_tag(ticket_id, tag, add=False)
 
     def post_internal_note(self, ticket_id: int, body: str) -> dict[str, object]:
         payload = _comment_payload(ticket_id, body, public=False)
@@ -740,7 +730,7 @@ class TicketTools:
             return failure(ErrorCode.WRITE_DISABLED, "Zendesk writes require configured write policy")
         return check_write_permission(self._settings, risk)
 
-    def _current_tags(self, ticket_id: int, tag: str) -> list[str] | dict[str, object]:
+    def _change_ticket_tag(self, ticket_id: int, tag: str, *, add: bool) -> dict[str, object]:
         if not _valid_ticket_id(ticket_id):
             return failure(ErrorCode.VALIDATION_ERROR, "ticket_id must be a positive integer")
         if not _valid_tag(tag):
@@ -756,7 +746,17 @@ class TicketTools:
         tags = ticket.get("tags") if isinstance(ticket, dict) else None
         if not isinstance(tags, list) or any(not isinstance(value, str) for value in tags):
             return failure(ErrorCode.UPSTREAM_ERROR, "Zendesk returned invalid ticket tags")
-        return tags
+        if (tag in tags) == add:
+            return success({"ticket_id": ticket_id, "tags": tags, "idempotent": True})
+        stamp = ticket.get("updated_at")
+        if not _valid_due_at(stamp):
+            return failure(ErrorCode.UPSTREAM_ERROR, "Zendesk returned an invalid ticket update timestamp")
+        client = self._configured_mutation_client()
+        if isinstance(client, dict):
+            return client
+        updated_tags = [*tags, tag] if add else [value for value in tags if value != tag]
+        payload = {"tags": updated_tags, "safe_update": True, "updated_stamp": stamp}
+        return _with_automation_notice(client.request("PUT", f"/api/v2/tickets/{ticket_id}.json", json_body={"ticket": payload}))
 
     def _macro_changes(self, ticket_id: int, macro_id: int) -> dict[str, object]:
         client = self._configured_client()

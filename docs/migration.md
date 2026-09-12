@@ -112,6 +112,15 @@ This is the user's current role, not a historical role at comment creation.
 Public/private visibility never determines the side; original comment fields
 are preserved. Deleted or unavailable users do not trigger extra user lookups.
 
+### Ticket tag collision protection
+
+Tag add/remove shortcuts now bind their update to the timestamp read with the
+current tags, using `safe_update` and `updated_stamp`. A concurrent ticket change
+returns `conflict` without automatic replay; inspect the current ticket before
+requesting a fresh change. Invalid or missing timestamps stop the write, while
+already-satisfied tag operations remain no-ops. This avoids replacing another
+agent's tag changes with a stale snapshot.
+
 ### New ticket descriptions are internal notes
 
 Ticket creation now explicitly sends `comment.public=false`. The description is
