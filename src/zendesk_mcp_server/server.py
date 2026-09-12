@@ -23,7 +23,7 @@ from .config import ConfigurationError, Settings
 from .contracts import ErrorCode, failure, success
 from .tools.tickets import TicketTools
 from .tools.metadata import MetadataTools
-from .tools.guide import GuideTools
+from .tools.guide import GuideTools, _CSAT_SCORES
 from .tools.community import CommunityTools
 
 
@@ -288,6 +288,19 @@ def build_tools() -> list[types.Tool]:
         types.Tool(name="zendesk_upload_community_image", description="Preview or safely upload a Community user image from ZENDESK_UPLOAD_ROOT. Apply requires external-upload gate and local approval.", inputSchema={"type": "object", "properties": {"image_path": {"type": "string", "minLength": 1}, "content_type": {"type": "string", "enum": ["image/jpeg", "image/png", "image/gif"]}, "brand_id": {"type": "integer", "minimum": 1}, "execution_mode": {"type": "string", "enum": ["preview", "apply"], "default": "preview"}, "approval_request_id": {"type": "string"}, "approval_token": {"type": "string"}}, "required": ["image_path", "content_type", "brand_id"]}),
         types.Tool(name="zendesk_upload_badge_icon", description="Preview or safely upload a Gather badge icon from ZENDESK_UPLOAD_ROOT. Apply requires external-upload gate and local approval.", inputSchema={"type": "object", "properties": {"image_path": {"type": "string", "minLength": 1}, "content_type": {"type": "string", "enum": ["image/svg+xml", "image/jpeg", "image/png", "image/gif"]}, "execution_mode": {"type": "string", "enum": ["preview", "apply"], "default": "preview"}, "approval_request_id": {"type": "string"}, "approval_token": {"type": "string"}}, "required": ["image_path", "content_type"]}),
     ]
+    for tool in tools:
+        if tool.name in ("zendesk_list_csat", "zendesk_export_satisfaction_ratings"):
+            tool.inputSchema["additionalProperties"] = False
+            tool.inputSchema["properties"].update({key: {"type": "string", "format": "date-time"} for key in ("start_time", "end_time")})
+            tool.inputSchema["properties"]["score"]["enum"] = sorted(_CSAT_SCORES)
+            tool.inputSchema["properties"]["responder_ids"]["minItems"] = 1
+            no_survey_filters = {"not": {"anyOf": [{"required": [key]} for key in ("ticket_id", "responder_ids", "created_at_start", "created_at_end")]}}
+            no_legacy_filters = {"not": {"anyOf": [{"required": [key]} for key in ("score", "start_time", "end_time")]}}
+            tool.inputSchema["oneOf"] = [
+                {"properties": {"backend": {"const": "legacy"}}, "required": ["backend"], **no_survey_filters},
+                {"properties": {"backend": {"const": "survey"}}, "required": ["backend"], **no_legacy_filters},
+                {"properties": {"backend": {"const": "auto"}}, "anyOf": [no_legacy_filters, no_survey_filters]},
+            ]
     return [tool.model_copy(update={"annotations": _tool_annotations(tool.name), "outputSchema": RESULT_SCHEMA}) for tool in tools]
 
 
@@ -689,7 +702,7 @@ def create_server(environ: Mapping[str, str] | None = None) -> Server:
                 values = arguments or {}; result = tools.get_article(values.get("article_id"), brand_id=values.get("brand_id"), locale=values.get("locale"), embed_images=values.get("embed_images", False), include_metadata=values.get("include_metadata", False))
             elif name in {"zendesk_list_csat", "zendesk_export_satisfaction_ratings"}:
                 values = arguments or {}
-                result = tools.export_csat(values.get("backend", "auto"), score=values.get("score"), ticket_id=values.get("ticket_id"), responder_ids=values.get("responder_ids"), created_at_start=values.get("created_at_start"), created_at_end=values.get("created_at_end"), output_format=values.get("format", "json")) if name == "zendesk_export_satisfaction_ratings" else tools.list_csat(values.get("backend", "auto"), score=values.get("score"), ticket_id=values.get("ticket_id"), responder_ids=values.get("responder_ids"), created_at_start=values.get("created_at_start"), created_at_end=values.get("created_at_end"), limit=values.get("limit", 100), cursor=values.get("cursor"))
+                result = tools.export_csat(values.get("backend", "auto"), start_time=values.get("start_time"), end_time=values.get("end_time"), score=values.get("score"), ticket_id=values.get("ticket_id"), responder_ids=values.get("responder_ids"), created_at_start=values.get("created_at_start"), created_at_end=values.get("created_at_end"), output_format=values.get("format", "json")) if name == "zendesk_export_satisfaction_ratings" else tools.list_csat(values.get("backend", "auto"), start_time=values.get("start_time"), end_time=values.get("end_time"), score=values.get("score"), ticket_id=values.get("ticket_id"), responder_ids=values.get("responder_ids"), created_at_start=values.get("created_at_start"), created_at_end=values.get("created_at_end"), limit=values.get("limit", 100), cursor=values.get("cursor"))
             elif name == "zendesk_list_permission_groups": result = tools.list_permission_groups((arguments or {}).get("limit", 100), cursor=(arguments or {}).get("cursor"))
             elif name == "zendesk_list_user_segments":
                 values = arguments or {}; result = tools.list_user_segments(built_in=values.get("built_in"), applicable=values.get("applicable", False), limit=values.get("limit", 100), cursor=values.get("cursor"))

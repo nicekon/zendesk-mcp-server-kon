@@ -368,6 +368,61 @@ def test_mcp_assignment_passes_email_selector_to_resolution(monkeypatch):
     assert writes == [("PUT", "/api/v2/tickets/9.json", {"ticket": {"assignee_id": 7}})]
 
 
+def test_csat_schemas_discriminate_backend_filters():
+    from jsonschema import Draft202012Validator
+    from zendesk_mcp_server.server import build_tools
+    for tool in build_tools():
+        if tool.name not in ("zendesk_list_csat", "zendesk_export_satisfaction_ratings"): continue
+        validator = Draft202012Validator(tool.inputSchema)
+        for arguments in ({}, {"backend": "legacy", "score": "good", "start_time": "2026-09-01T00:00:00Z"}, {"backend": "survey", "ticket_id": 9, "responder_ids": [7]}, {"backend": "auto", "score": "bad"}, {"ticket_id": 9}):
+            assert validator.is_valid(arguments), arguments
+        for arguments in ({"backend": "legacy", "ticket_id": 9}, {"backend": "legacy", "responder_ids": [7]}, {"backend": "survey", "score": "good"}, {"score": "good", "ticket_id": 9}, {"score": "invalid"}, {"responder_ids": []}, {"backend": "unknown"}, {"backend": "legacy", "created_at_start": "2026-09-01T00:00:00Z"}, {"backend": "survey", "start_time": "2026-09-01T00:00:00Z"}, {"start_time": "2026-09-01T00:00:00Z", "created_at_end": "2026-09-02T00:00:00Z"}, {"start_tim": "ignored typo"}):
+            assert not validator.is_valid(arguments), arguments
+
+
+def test_csat_mcp_rejects_cross_backend_filters_before_client_build(monkeypatch):
+    module = importlib.import_module("zendesk_mcp_server.server")
+    def forbidden(_): raise AssertionError("Client must not be built for invalid input")
+    monkeypatch.setattr(module, "build_guide_tools", forbidden)
+    server = module.create_server({"ZENDESK_CAPABILITIES": "csat"})
+    for name in ("zendesk_list_csat", "zendesk_export_satisfaction_ratings"):
+        request = types.CallToolRequest(params=types.CallToolRequestParams(name=name, arguments={"backend": "legacy", "ticket_id": 9}))
+        result = asyncio.run(server.request_handlers[types.CallToolRequest](request))
+        assert result.root.isError is True
+        assert "Client must not" not in str(result.root.content)
+
+
+def test_csat_mcp_dates_reach_list_and_export_adapters(monkeypatch, tmp_path):
+    from zendesk_mcp_server.config import Settings
+    from zendesk_mcp_server.contracts import success
+    from zendesk_mcp_server.tools.guide import GuideTools
+    module = importlib.import_module("zendesk_mcp_server.server")
+    for name in ("zendesk_list_csat", "zendesk_export_satisfaction_ratings"):
+        for backend in ("legacy", "survey", "auto"):
+            calls = []
+            class Client:
+                def get(self, path, *, params=None):
+                    calls.append(path)
+                    if path == "/api/v2/account/settings.json":
+                        return success({"settings": {"active_features": {"customer_satisfaction": True, "customer_satisfaction_survey": False}}})
+                    if backend == "survey":
+                        assert params["filter[created_at_start]"] == "1788220800000"
+                        key = "survey_responses"
+                    else:
+                        assert params["start_time"] == "1788220800"
+                        assert params["end_time"] == "1788307200"
+                        key = "satisfaction_ratings"
+                    return success({key: [], "meta": {"has_more": False}})
+            settings = Settings.load({"ZENDESK_ATTACHMENT_CACHE_ROOT": str(tmp_path / "attachments")})
+            monkeypatch.setattr(module, "build_guide_tools", lambda _: GuideTools(Client(), settings))
+            server = module.create_server({"ZENDESK_CAPABILITIES": "csat"})
+            dates = {"created_at_start": "2026-09-01T09:00:00+09:00"} if backend == "survey" else {"start_time": "2026-09-01T09:00:00+09:00", "end_time": "2026-09-02T00:00:00Z"}
+            request = types.CallToolRequest(params=types.CallToolRequestParams(name=name, arguments={"backend": backend, **dates}))
+            result = asyncio.run(server.request_handlers[types.CallToolRequest](request))
+            assert result.root.structuredContent["ok"] is True
+            assert len(calls) == (2 if backend == "auto" else 1)
+
+
 def test_attachment_download_result_includes_a_resource_link():
     from zendesk_mcp_server.server import attachment_download_content
 

@@ -388,6 +388,13 @@ and badge icon uploader now explicitly listed in section 8.
 
 ## Operations list filters
 
+CSAT list/export input schemas now distinguish `legacy`, `survey`, and `auto` (the default).
+Legacy rejects `ticket_id`/`responder_ids`; survey rejects `score`. Auto rejects a mixed score + survey-filter request before detecting the account backend.
+Scores are restricted to the existing supported values, and responder lists must be non-empty.
+Legacy dates now use timezone-bearing ISO-8601 `start_time`/`end_time` inputs (not epoch numbers); the adapter converts them to seconds. Replace pre-release legacy `created_at_start`/`created_at_end` calls with these canonical names.
+Survey dates remain ISO-8601 `created_at_start`/`created_at_end`, converted to milliseconds. Auto accepts only the detected backend's date family. Mixed date families and unknown keys are rejected instead of ignored.
+Explicit backend/filter mistakes are rejected by the MCP schema before a client is built; auto selection still requires runtime account detection and filter validation.
+
 `zendesk_assign_ticket` additionally accepts `assignee_email`, containing a primary email address or literal `me`.
 Do not combine it with `assignee_id`; `group_id` may still accompany either selector.
 Email resolution checks all available search pages, compares the returned primary email case-insensitively, and requires one non-suspended agent/admin with a valid ID.

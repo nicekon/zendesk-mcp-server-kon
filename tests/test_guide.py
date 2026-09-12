@@ -635,13 +635,20 @@ def test_csat_lists_preserve_backend_filters_across_pages():
 def test_csat_adapters_only_send_their_official_filters():
     client = StubClient(); tools = GuideTools(client)
 
-    tools.list_csat("legacy", score="good", created_at_start="2026-09-01T00:00:00Z", created_at_end="2026-09-02T00:00:00Z")
+    tools.list_csat("legacy", score="good", start_time="2026-09-01T00:00:00Z", end_time="2026-09-02T00:00:00Z")
     tools.list_csat("survey", ticket_id=9, responder_ids=[3, 4], created_at_start="2026-09-01T00:00:00+00:00")
 
     assert client.paths == [
         ("/api/v2/satisfaction_ratings.json", {"page[size]": "100", "score": "good", "start_time": "1788220800", "end_time": "1788307200"}),
         ("/api/v2/guide/survey_responses", {"page[size]": "50", "filter[subject_zrns]": "zen:ticket:9", "filter[responder_ids]": "3,4", "filter[created_at_start]": "1788220800000"}),
     ]
+
+
+def test_csat_date_families_and_timezone_are_validated_for_both_consumers(tmp_path):
+    settings = Settings.load({"ZENDESK_ATTACHMENT_CACHE_ROOT": str(tmp_path / "attachments")})
+    for method in ("list_csat", "export_csat"):
+        for backend, dates in (("legacy", {"created_at_start": "2026-09-01T00:00:00Z"}), ("survey", {"start_time": "2026-09-01T00:00:00Z"}), ("legacy", {"start_time": "2026-09-01T00:00:00"}), ("legacy", {"start_time": "2026-09-02T00:00:00Z", "end_time": "2026-09-01T00:00:00Z"})):
+            assert getattr(GuideTools(None, settings), method)(backend, **dates)["error"]["code"] == "validation_error"
 
 
 @pytest.mark.parametrize("backend,key", [("legacy", "satisfaction_ratings"), ("survey", "survey_responses")])

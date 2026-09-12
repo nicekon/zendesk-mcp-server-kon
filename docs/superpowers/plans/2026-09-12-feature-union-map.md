@@ -187,6 +187,17 @@ me는 인증 사용자를 읽어 agent/admin과 suspended=false를 확인한다.
 MCP 전달·두 번째 검색 묶음에서 일치 사용자 발견·정상 모의 배정·실패시 write-zero 포함 전체 673 passed. 실제 운영 배정은 수행하지 않았다.
 G6 기능 보완은 로컬 구현되었으며 계정별 권한/검색 인덱싱/자동화 효과 검증은 별도다. 다음 G5/G8.
 
+### G8 backend discriminator 후속
+
+CSAT list/export에 legacy/survey/auto oneOf 입력 schema를 추가했다. 기존 runtime 허용 score와 enum을
+공유하며 responder_ids는 비어 있을 수 없다. backend별 필터 혼용과 auto에서 양쪽 필터 동시 지정을
+MCP 클라이언트 생성 전에 거부하는 실제 handler 회귀가 있다. 리뷰에서 legacy 날짜 입력 계약 누락을 확인해
+start_time/end_time ISO-8601 입력을 list/export/auto 감지와 epoch seconds 변환까지 연결했다.
+survey는 created_at_start/end와 milliseconds를 유지한다. 혼합 날짜와 알 수 없는 입력 키는 거부한다.
+기존 pre-release legacy created_at 입력은 canonical start_time/end_time로 변경해야 한다.
+MCP 두 소비자의 세 backend와 timezone 변환·날짜 역전/혼용 거부 포함 전체 677 passed가 로컬 근거다.
+G5 메시징과 전체 수용 색인의 추가 대조는 남아 있다.
+
 M10의 원본 priority/status 정렬, M06의 원본 상세 GitLab metadata, M19의 표시 포맷은
 PRD가 승인한 범위와 추가 대조한다. 원본 입력과 다르다는 이유만으로 위험한 호환 alias나
 승인하지 않은 외부 GitLab 조회를 추가하지 않는다. G 항목을 해결해도 색인의 resolver·
