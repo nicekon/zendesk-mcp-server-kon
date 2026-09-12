@@ -4,13 +4,22 @@
 
 ## 현재 외부 선행 조건 재확인
 
-- 현재 HEAD는 `cad756f1a7aaaa1807effb87ec11de80f89e46db`이며 로컬 변경이 남아 있다. 최신 원격 CI 성공은 `325ff0aed5d52852461c988fff1e368596b80bb0` 대상이다. 현재 변경의 CI 성공 또는 진행 중 실행으로 간주하지 않는다.
+- 구현 검증 기준 커밋은 `2543de3b49f704e7aaecbf91fbe56c2cf2798564`다. [초안 PR #2](https://github.com/nicekon/zendesk-mcp-server-kon/pull/2)에 게시됐고 [CI 실행 34670609455](https://github.com/nicekon/zendesk-mcp-server-kon/actions/runs/34670609455)의 5개 작업이 성공했다. 이후 변경의 검증 여부는 PR의 최신 head와 check를 별도로 확인한다.
 - 사용자 요청으로 다시 시작한 브라우저 로그인 이후 `uv run zendesk check --probe`가 exit 0/ok=true/auth_mode=oauth로 성공했다. 기본 저장 구성의 `reauthorization_required`는 해소됐다. read_only와 빈 active_write_gates를 확인했다.
 - support-only 실제 검색의 `required_scopes: [read]`에 대해 사용자가 정책 예외를 승인했다. Support 활성 시만 broad read를 요청하도록 코드·PRD·README·migration을 변경했다. 이 권한은 검색 전용이 아닌 역할 범위 내 모든 GET 접근이며 broad write와 서버 쓰기 gate는 변경하지 않는다. 재로그인 후 실제 ticket search와 Search Export 한 페이지 조회가 각각 1건/ok=true로 성공했다. 아래 날짜별 broad read 금지/정책 결정 대기 기록은 승인 이전의 이력이다.
-- 현재 PATH에 docker/podman/limactl/colima가 없으며, 이 환경에서 Linux/Windows 실행 증거를 만들지 못했다. 원격 CI 실행에는 현재 변경의 게시가 선행돼야 한다.
-- PRD는 disposable sandbox와 실제 사람 승인 명령을 통한 쓰기 E2E를 요구하고 운영 계정 자동 쓰기를 금지한다. 현재 실제 데이터로 임의 fixture를 만들지 않았다.
+- 원격 Linux Python 3.10–3.12에서 test→build→wheel install→MCP handshake가 통과했다. macOS/Windows에서는 패키지 설치·MCP handshake가 통과했다. Windows OAuth는 private storage 권한을 보장하지 못할 때 unsupported로 중단하며, 패키지 smoke 성공을 OAuth 지원으로 해석하지 않는다.
+- 사용자는 별도 테스트 계정이 없음을 확인했고 재요청하지 않기로 했다. 실제 쓰기·사람 승인·외부 업로드 E2E는 출시 검증의 미검증 항목으로 남긴다. 이것을 코드 검토·자동 테스트·PR 유지의 선행 조건으로 반복 제시하지 않는다. 운영 계정 쓰기로 대체하지 않으며 PRD 14.2 전체 달성을 주장하지 않는다. 병합·배포도 수행하지 않았다.
 
-## 현재 확인한 누락
+## 최근 코드 검증
+
+- 티켓 생성의 최초 comment에 `public=false`를 명시했다. `test_create_ticket_uses_a_validated_standard_write_payload`와 `test_create_ticket_accepts_assignment_and_custom_fields`에서 내부 메모 전송 payload를 검증한다.
+- 태그 추가·삭제는 공통 `_change_ticket_tag`에서 조회한 updated_at에 safe_update를 결합한다. `test_ticket_tag_shortcuts_preserve_concurrent_changes`, `test_ticket_tag_changes_reject_invalid_timestamps_without_writing`, `test_ticket_tag_noops_and_read_only_never_write`가 충돌·잘못된 시각·no-op·쓰기 gate를 검증한다.
+- 직접 closed 변경과 상태 shortcut은 공통 승인 경로를 사용한다. `test_ticket_closure_requires_preview_destructive_gate_and_payload_approval`와 `test_ticket_closure_mcp_dispatch_preserves_approval_options`가 preview의 write 0회, gate, payload 결합, single-use 및 MCP 전달을 검증한다. 다른 일반 상태 변경은 기존 표준 쓰기 동작을 유지한다.
+- 위 변경 후 로컬 전체 521 passed와 원격 CI 성공을 확인했다. 테스트는 실제 Zendesk 쓰기가 아닌 통제된 응답과 전송 경계 검증이며, 실환경 성공 증거로 대체하지 않는다.
+
+## 누적 점검 이력
+
+아래의 현재/미완료/대기 표현과 테스트 개수는 각 점검 당시의 기록이다. 최신 상태는 위의 검증 기준과 PR의 해당 커밋 증거를 우선한다.
 
 - PR 사전 리뷰: limit=99의 검색 cursor=990에서 upstream 99건 페이지가 1,000건 검색 한계를 넘는 오류를 재현했다. logical page/next_page 의미는 유지하고 1,000의 약수가 아닌 upstream page size는 100으로 정규화했다. 공통 offset 수집기도 max_results 잔여량까지만 선택한다. 99건씩 전체 재개와 legacy page=2, 별도 max_results=950 경계를 실패 재현 후 검증했다. 테스트 계정이 없다는 사용자 확인에 따라 실제 쓰기 E2E는 보류한다. PR 게시 허용은 병합·배포 또는 운영 쓰기 허용이 아니다.
 - 재로그인 후 live 읽기 재검증: 저장 OAuth를 사용하는 실제 factory에서 ticket search와 export page adapter를 각각 limit=1로 호출해 성공했다. Operations의 groups/brands/ticket fields/forms/custom statuses/views/macros/triggers도 각각 limit=1, 1건/ok=true였다. 출력은 작업명·성공 여부·건수·오류 코드로 제한했고 고객 본문/ID/token/cursor는 기록하지 않았다. 이는 해당 목록의 소량 조회 증거이며 전체 pagination, 대량 export 파일 생성, 쓰기 또는 원격 CI 증거는 아니다. 아래 timeout/reauthorization_required/live fields permission_denied 기록은 재로그인 전의 이력이다.
