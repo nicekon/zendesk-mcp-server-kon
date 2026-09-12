@@ -11,6 +11,20 @@
 
 ## 조건별 근거
 
+### 최신 설치 검증: f9a6284
+
+- `/tmp/zendesk-final-install.CKQrca`에서 새 sdist/wheel을 빌드하고 정확한 wheel을
+  별도 Python 3.12.5 환경에 설치했다. 격리 import가 site-packages를 가리키며
+  전체 설치 패키지 테스트 861개가 8.39초에 통과했다.
+- 설치된 실행 파일의 stdio initialize와 101개 도구 목록을 확인했다.
+  가짜 package-smoke subdomain을 사용했으며 실제 Zendesk 요청은 하지 않았다.
+- wheel SHA-256: `7c7fe798492ca66103a302be92c081c45b2fee9162f275ff64b0f1b7b6db5535`.
+- 08b1ae0의 잘못된 업로드 응답 단계·요청 ID 보존과 f9a6284의 Badge 오류 단계·
+  기존 오류 상세정보 보존 회귀를 포함한다. 좁은 독립 리뷰에서 Critical/Important
+  결함은 없었고 Minor 테스트 범위 지적을 후속 보완했다.
+- 아래 커밋별 증거는 이력이다. 실제 이미지 업로드 403, Badges 제품/권한 구분,
+  전체 sandbox 수용 증거는 해결되지 않았으며 전체 완료율을 산출하지 않는다.
+
 ### 사용자 지정 Community 게시물의 실제 검증
 
 사용자가 테스트 게시물 한 건의 본문 수정·원복, 댓글 한 건과 이미지 한 개 업로드를
