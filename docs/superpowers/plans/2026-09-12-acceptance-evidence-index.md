@@ -20,7 +20,7 @@ tests/docs/.github 경로는 저장소 루트 기준이며, `auth.py` 같은 소
 | 번호 | 원문 조건 요약 | 현재 근거 | 판단과 남은 범위 |
 | --- | --- | --- | --- |
 | 01 | Canonical 등록·exact contract | `tests/test_server.py::test_support_read_tools_are_registered`, `tests/test_server.py::test_mcp_catalog_matches_frozen_input_output_and_risk_contracts` | 101개 이름·입출력 schema·annotation 회귀 근거. 이름은 PRD 8장과 대조했고 schema fixture는 현재 계약 기준이다. |
-| 02 | 세 구현의 승인된 기능 합집합 | PRD 2.1·7·8, `server.py`, `tools/` | 추가 대조: 원본 9/29/21개 표면과 승인된 보안 예외를 항목별로 연결한 최종 대응표는 아직 없다. 도구 수만으로 충족 판정하지 않는다. |
+| 02 | 세 구현의 승인된 기능 합집합 | [원본 기능 대응표](2026-09-12-feature-union-map.md), PRD 2.1·7·8, `server.py`, `tools/` | 9/29/21개 표면 및 프롬프트/KB를 연결했다. G1–G8의 입력·결과·메시징·schema 차이가 남아 있으므로 전체 합집합 구현 완료가 아니다. |
 | 03 | 두 인증 방식의 독립 인증·조회 | 사용자가 제공한 API-token/OAuth probe 성공 결과, 누적 감사의 OAuth 검색·metadata 읽기 기록 | 실제 성공 기록은 있지만 이 색인 작성 시 두 인증을 새로 실행하지 않았다. 읽기 증거이며 쓰기 증거가 아니다. |
 | 04 | auto 선택·실패 후 no-fallback | `tests/test_config.py::test_auto_uses_api_token_when_no_oauth_settings_exist`, `tests/test_config.py::test_auto_prefers_complete_oauth_without_api_token`, `tests/test_server.py::test_oauth_authorization_failure_requires_reauthorization` | 회귀 근거. |
 | 05 | 불완전 OAuth 구성 거부 | `tests/test_config.py::test_auto_rejects_partial_oauth_without_token_fallback` | API-token이 함께 있어도 구성 오류를 요구한다. |
@@ -58,8 +58,8 @@ tests/docs/.github 경로는 저장소 루트 기준이며, `auth.py` 같은 소
 
 ## 다음 확인 순서
 
-1. 02: PRD 7장의 승인된 기능을 원본 비교 표면과 canonical 도구/리소스/프롬프트에
-   연결한다. 특히 시간 추적·Git-Zen·KB·프롬프트처럼 도구 개수에 가려지는 항목을 확인한다.
+1. 02: 원본 기능 대응표의 G1–G8을 구현·검증한다. 시간 추적·Git-Zen·정렬의
+   명시된 의미 차이는 PRD 승인 범위와 추가 대조한다.
 2. 15·20·29: 복합 요구의 하위 항목별 근거를 대조한다. 특히 Macro의 단일 PUT
    구현에서 확인 가능한 부분 성공과 단순 결과 불명을 구분한다. 재현되는 구현/테스트 누락만
    수정하며 기존 기능을 넓히거나 범위를 축소해 통과시키지 않는다.
