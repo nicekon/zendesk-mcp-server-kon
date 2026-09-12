@@ -53,6 +53,7 @@ class _CommunityHTMLValidator(HTMLParser):
         if self.stack and self.stack[-1] == "x-zendesk-user" and self._mention: self._mention[-1] += data
     def handle_comment(self, data: str) -> None: self.valid = False
     def handle_decl(self, decl: str) -> None: self.valid = False
+    def unknown_decl(self, data: str) -> None: self.valid = False
     def _safe_link(self, value: str) -> bool: return urlsplit(value).scheme in {"http", "https", "mailto"}
     def _safe_image(self, value: str) -> bool:
         if value.startswith("/hc/user_images/"): return True
@@ -455,7 +456,7 @@ class CommunityTools:
     def _valid_html(self, value: str) -> bool:
         validator = _CommunityHTMLValidator(self._settings.subdomain if self._settings else None)
         try: validator.feed(value); validator.close()
-        except ValueError: return False
+        except (AssertionError, ValueError): return False
         return validator.valid and not validator.stack
     def _load_user_image(self, image_path: object, content_type: object, brand_id: object, *, allowed_content_types: set[str] | None = None) -> tuple[dict[str, object], BinaryIO] | dict[str, object]:
         if not isinstance(image_path, str) or not image_path or content_type not in (allowed_content_types or {"image/jpeg", "image/png", "image/gif"}) or not self._valid_id(brand_id, "brand_id"): return failure(ErrorCode.VALIDATION_ERROR, "valid image_path, content_type, and brand_id are required")

@@ -666,6 +666,21 @@ def test_failed_html_write_does_not_read_back_or_replay(tmp_path):
     assert calls == ["write"]
 
 
+@pytest.mark.parametrize("method,args", [
+    ("create_post", (4, "Title", "<![invalid]>")),
+    ("update_post", (2, {"details": "<![invalid]>"})),
+    ("create_comment", (2, "<![invalid]>")),
+    ("update_comment", (2, 3, {"body": "<![invalid]>"})),
+])
+def test_community_html_writes_reject_unknown_declarations_before_approval(method, args):
+    class Client:
+        def get(self, *args, **kwargs): raise AssertionError("invalid HTML must not read")
+        def request(self, *args, **kwargs): raise AssertionError("invalid HTML must not write")
+    tools = CommunityTools(Client())
+    for mode in ("preview", "apply"):
+        assert getattr(tools, method)(*args, execution_mode=mode)["error"]["code"] == "validation_error"
+
+
 def test_community_html_writes_reject_unsafe_tags_and_image_sources(tmp_path):
     tools = CommunityTools(StubClient(), Settings.load({"ZENDESK_SUBDOMAIN": "acme", "ZENDESK_EMAIL": "agent@example.test", "ZENDESK_API_TOKEN": "token"}), ApprovalStore(tmp_path / "approvals.json"))
 

@@ -68,6 +68,18 @@ title/name/description은 원래 일반 텍스트로 보존한다. HTML 실행·
 fallback을 일관되게 사용한다. Python 3.11.16 별도 환경 및 로컬 3.12 환경에서
 각각 전체 728 passed를 확인했다. 이전 723 passed는 로컬 증거이지 해당 CI 성공이 아니다.
 
+## 쓰기 HTML 선언 검증 후속
+
+같은 stdlib 차이를 쓰기용 `_CommunityHTMLValidator`에서도 확인했다. patched 3.11.16은
+알 수 없는 선언을 허용했고, 로컬 3.12.5는 AssertionError가 도메인 경계 밖으로 나갈 수 있었다.
+unknown_decl을 명시적으로 거부하고 기존 `_valid_html` 오류 처리에 AssertionError를 포함했다.
+Post/Comment 생성·수정의 preview/apply 모두 승인 저장·네트워크 전에 validation_error를
+반환하는 회귀를 추가했다. Python 3.11/3.12 각각 전체 732 passed.
+
+Posts의 상태 쓰기 4종, 목록 상태 필터 5종 및 정렬 6종은
+[공식 Posts](https://developer.zendesk.com/api-reference/help_center/help-center-api/posts/)와
+대조해 일치함을 확인했다. 목록의 none을 쓰기 status 값으로 임의 확대하지 않았다.
+
 권한·알림·첨부·구독·badge의 나머지 세부 조건은 별도 대조 대상이다.
 CI `34675808818`은 위 기준 커밋에서 성공했지만, 위 누락 조건을 검사하지 않는 성공이다.
 테스트 계정 재요청·운영 쓰기·병합·배포는 하지 않는다.
