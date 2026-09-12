@@ -224,6 +224,16 @@ display_text_unavailable로 구분한다. 양쪽 소스·원본 보존·파서 �
 G1–G8의 명시된 기능 보완은 각 후속 절에 구현 근거가 있으나 전체 요구사항 수용 색인의
 resolver 세부 조합·Community 세부 계약·fresh wheel write-zero·미검증 외부 동작은 계속 대조해야 한다.
 
+### 새 설치 write-zero 검증 후속
+
+새 wheel을 별도 venv에 설치하고 isolated Python의 site-packages import를 확인했다.
+43개 mutation 도구에 유효한 대표 입력을 넣고 실제 MCP handler/domain/client를 통과시켜
+전부 write_disabled임과 HTTP 전송 경계의 non-GET/HEAD 시도 0을 검증했다.
+읽기 preflight만 모의 응답으로 제공하며 실계정 요청은 없다. source 전체 687 passed,
+새 wheel 전용 검사 1 passed. Linux Python matrix CI에 같은 검사를 추가했다.
+수용 색인 11번의 fresh-wheel gap은 이 대표 입력 범위에서 보강됐다. 나머지 resolver/
+Community 계약·외부 수동 검증 및 출시 조건은 별도이며 전체 완료로 바꾸지 않는다.
+
 M10의 원본 priority/status 정렬, M06의 원본 상세 GitLab metadata, M19의 표시 포맷은
 PRD가 승인한 범위와 추가 대조한다. 원본 입력과 다르다는 이유만으로 위험한 호환 alias나
 승인하지 않은 외부 GitLab 조회를 추가하지 않는다. G 항목을 해결해도 색인의 resolver·

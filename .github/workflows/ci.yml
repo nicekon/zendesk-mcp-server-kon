@@ -32,6 +32,16 @@ jobs:
       - name: Build the project
         run: uv build
 
+      - name: Verify installed wheel read-only write gates
+        shell: bash
+        run: |
+          uv venv --python ${{ matrix.python }} .readonly-wheel-venv
+          wheels=(dist/*.whl)
+          test "${#wheels[@]}" -eq 1
+          uv pip install --python .readonly-wheel-venv/bin/python "${wheels[0]}" pytest
+          .readonly-wheel-venv/bin/python -I -c 'import zendesk_mcp_server; assert ".readonly-wheel-venv" in zendesk_mcp_server.__file__'
+          .readonly-wheel-venv/bin/python -I -m pytest --import-mode=importlib -q tests/test_readonly_catalog.py
+
       - name: Install and handshake the wheel
         shell: bash
         run: |
