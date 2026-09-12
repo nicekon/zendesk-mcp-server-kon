@@ -85,11 +85,11 @@ command -v zendesk
 출력된 경로를 아래 `/absolute/path/to/zendesk` 대신 넣으세요. 따옴표는 그대로 둡니다.
 
 ```bash
-codex mcp add zendesk -- "/absolute/path/to/zendesk"
+codex mcp add zendesk_mcp -- "/absolute/path/to/zendesk"
 codex mcp list
 ```
 
-목록에 `zendesk`가 나오면 등록된 것입니다. Codex를 다시 열고 새 대화에서 “Zendesk 연결 상태를 확인해줘”라고 요청해 보세요.
+목록에 `zendesk_mcp`가 나오면 등록된 것입니다. Codex를 다시 열고 새 대화에서 “Zendesk 연결 상태를 확인해줘”라고 요청해 보세요.
 등록 명령을 찾지 못하거나 다른 앱을 사용한다면 [앱별 연결 설정](docs/advanced-setup.md#connect-app)을 참고하세요.
 
 ## 문제가 생겼을 때

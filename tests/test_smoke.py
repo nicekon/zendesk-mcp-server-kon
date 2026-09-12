@@ -19,6 +19,21 @@ def test_readme_declares_the_mcp_registry_name():
     assert "<!-- mcp-name: io.github.nicekon/zendesk-mcp-server-kon -->" in readme.read_text()
 
 
+def test_readmes_register_zendesk_mcp_for_new_installations():
+    from pathlib import Path
+
+    root = Path(__file__).parents[1]
+    for name in ("README.md", "README.ko.md"):
+        contents = (root / name).read_text()
+        assert "codex mcp add zendesk_mcp" in contents
+        assert "If `zendesk_mcp` appears" in contents or "`zendesk_mcp`가 나오면" in contents
+
+    advanced_setup = (root / "docs" / "advanced-setup.md").read_text()
+    assert "[mcp_servers.zendesk_mcp]" in advanced_setup
+    assert "[mcp_servers.zendesk_mcp.env]" in advanced_setup
+    assert '"zendesk_mcp": {' in advanced_setup
+
+
 def test_release_metadata_matches_the_canonical_major_version():
     from pathlib import Path
 

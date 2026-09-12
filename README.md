@@ -86,11 +86,11 @@ command -v zendesk
 Replace `/absolute/path/to/zendesk` below with the printed path. Keep the quotes.
 
 ```bash
-codex mcp add zendesk -- "/absolute/path/to/zendesk"
+codex mcp add zendesk_mcp -- "/absolute/path/to/zendesk"
 codex mcp list
 ```
 
-If `zendesk` appears, it is registered. Reopen Codex and ask “Check my Zendesk connection” in a new conversation.
+If `zendesk_mcp` appears, it is registered. Reopen Codex and ask “Check my Zendesk connection” in a new conversation.
 If the registration command is unavailable or you use another app, see [app connection settings](docs/advanced-setup.md#connect-app).
 
 ## Troubleshooting

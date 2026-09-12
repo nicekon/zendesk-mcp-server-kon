@@ -13,7 +13,7 @@ Add this entry to your Codex user configuration without replacing unrelated sett
 Replace the example command with the installed executable’s absolute path.
 
 ```toml
-[mcp_servers.zendesk]
+[mcp_servers.zendesk_mcp]
 command = '/absolute/path/to/zendesk'
 ```
 
@@ -32,7 +32,7 @@ For apps that use JSON MCP settings (not Codex’s TOML file):
 ```json
 {
   "mcpServers": {
-    "zendesk": {
+    "zendesk_mcp": {
       "command": "/absolute/path/to/zendesk"
     }
   }
@@ -57,7 +57,7 @@ Codex 설정의 해당 서버 아래에 추가하세요. 예시는 실제 값으
 Add this under the server entry in Codex’s configuration, replacing the placeholders:
 
 ```toml
-[mcp_servers.zendesk.env]
+[mcp_servers.zendesk_mcp.env]
 ZENDESK_AUTH_MODE = "api_token"
 ZENDESK_SUBDOMAIN = "your-company"
 ZENDESK_EMAIL = "agent@example.com"
@@ -82,7 +82,7 @@ For example, to enable CSAT and Custom Objects as well, add this server environm
 ZENDESK_CAPABILITIES = "support,operations,guide,community,csat,custom_objects"
 ```
 
-이 줄은 위 `[mcp_servers.zendesk.env]` 안에 넣으세요. OAuth 연결이라면 API 토큰용 항목은 추가하지 않습니다.
+이 줄은 위 `[mcp_servers.zendesk_mcp.env]` 안에 넣으세요. OAuth 연결이라면 API 토큰용 항목은 추가하지 않습니다.
 Add it inside the server’s `env` table; do not add API-token credentials to an OAuth setup.
 OAuth 사용자는 동일한 기능 목록으로 다시 로그인해야 할 수 있습니다(macOS/Linux 터미널):
 
