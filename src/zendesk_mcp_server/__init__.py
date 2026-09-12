@@ -73,6 +73,11 @@ def main():
 
         try:
             settings = Settings.load({
+                **{name: os.environ[name] for name in (
+                    "ZENDESK_CAPABILITIES", "ZENDESK_WRITE_MODE",
+                    "ZENDESK_ENABLE_PUBLIC_WRITES", "ZENDESK_ENABLE_DESTRUCTIVE_WRITES",
+                    "ZENDESK_ENABLE_IMPERSONATION", "ZENDESK_ENABLE_EXTERNAL_UPLOADS",
+                ) if name in os.environ},
                 "ZENDESK_SUBDOMAIN": args.subdomain,
                 "ZENDESK_AUTH_MODE": "oauth",
                 "ZENDESK_OAUTH_CLIENT_KIND": "public",

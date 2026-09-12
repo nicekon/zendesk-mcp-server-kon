@@ -28,6 +28,37 @@ def test_login_command_builds_public_read_only_settings(tmp_path, monkeypatch):
     assert port == 3456
 
 
+@pytest.mark.parametrize("values,expected", [
+    ({"ZENDESK_CAPABILITIES": "support", "ZENDESK_WRITE_MODE": "standard"}, ["brands:read", "groups:read", "organizations:read", "read", "ticket_attachments:read", "tickets:read", "tickets:write", "users:read"]),
+    ({"ZENDESK_CAPABILITIES": "community", "ZENDESK_ENABLE_PUBLIC_WRITES": "true", "ZENDESK_ENABLE_IMPERSONATION": "true"}, ["hc:read", "hc:write", "impersonate", "users:read"]),
+])
+def test_login_requests_scopes_from_explicit_runtime_gates(tmp_path, monkeypatch, capsys, values, expected):
+    received = []
+    for key, value in values.items(): monkeypatch.setenv(key, value)
+    monkeypatch.setenv("ZENDESK_AUTH_MODE", "api_token")
+    monkeypatch.setenv("ZENDESK_API_TOKEN", "old-secret-token")
+    monkeypatch.setenv("ZENDESK_OAUTH_CLIENT_SECRET", "old-client-secret")
+    monkeypatch.setattr("zendesk_mcp_server.login.login", lambda settings, port: received.append(settings))
+    monkeypatch.setattr(sys, "argv", ["zendesk", "login", "--subdomain", "acme", "--client-id", "public-client"])
+    main()
+    settings = received[0]
+    assert list(settings.oauth.scopes) == expected
+    assert settings.auth_mode is AuthMode.OAUTH and settings.oauth.client_secret == ""
+    assert settings.oauth.client_id == "public-client"
+    assert settings.oauth.token_store_path == tmp_path / ".config" / "zendesk-mcp-server" / "connection.json"
+    assert not settings.oauth.token_store_path.exists()
+    assert "old-secret" not in capsys.readouterr().out
+
+
+def test_login_rejects_invalid_write_gate_before_opening_browser(monkeypatch):
+    monkeypatch.setenv("ZENDESK_WRITE_MODE", "invalid")
+    def unexpected(*args, **kwargs): raise AssertionError("must validate before login")
+    monkeypatch.setattr("zendesk_mcp_server.login.login", unexpected)
+    monkeypatch.setattr(sys, "argv", ["zendesk", "login", "--subdomain", "acme", "--client-id", "public-client"])
+    with pytest.raises(SystemExit, match="ZENDESK_WRITE_MODE is invalid"):
+        main()
+
+
 def test_check_probe_requests_network_verification(monkeypatch, capsys):
     calls = []
     monkeypatch.setattr("zendesk_mcp_server.server.build_connection_status", lambda environ, probe=False: calls.append(probe) or {"ok": True})

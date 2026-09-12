@@ -1,5 +1,15 @@
 # Migration and rollback
 
+## Login scope expansion
+
+Previously `zendesk login` discarded capability/write-gate environment settings,
+so repeating login could not satisfy a newly required `tickets:write` scope.
+It now passes the six scope-related settings to the existing configuration
+validator before opening the browser. Explicit tenant/client arguments and the
+managed Public OAuth token store remain authoritative; old API-token or OAuth
+secret environment settings are not imported. No credentials or persistent gates
+are changed merely by this code update. A user still completes browser consent.
+
 ## Custom Objects activation
 
 Custom-object projection in search and export now checks the official Account

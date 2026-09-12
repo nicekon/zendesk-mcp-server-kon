@@ -100,6 +100,18 @@ stores the connection under `~/.config/zendesk-mcp-server/connection.json`, and
 closes the listener. The user does not copy an authorization code. Use `--port`
 only when the same alternate redirect URI is registered in Zendesk.
 
+Login requests scopes for the current `ZENDESK_CAPABILITIES` and write-gate
+environment settings; without them it remains read-only. To reauthorize ordinary
+ticket writes, for example:
+
+```bash
+ZENDESK_WRITE_MODE=standard zendesk login --subdomain your-zendesk-subdomain --client-id your-client-identifier
+```
+
+This one-command setting does not permanently enable the MCP write gate. The
+MCP runtime must separately enable its gate to write; public/destructive and
+other approval policies still apply independently of the granted OAuth scopes.
+
 OAuth currently returns `unsupported` on Windows because user-only token storage
 ACLs are not implemented. Windows package installation and MCP startup checks do
 not imply OAuth login support. Use API-token configuration on Windows.

@@ -93,6 +93,16 @@ zendesk check --probe
 사용자가 authorization code를 복사할 필요는 없습니다. `--port`는 같은 대체
 redirect URI를 Zendesk에 등록했을 때만 사용합니다.
 
+로그인은 현재 `ZENDESK_CAPABILITIES`와 쓰기 gate 설정에 필요한 scope를 요청합니다.
+설정이 없으면 읽기 전용입니다. 예를 들어 일반 티켓 쓰기 권한으로 재인증하려면:
+
+```bash
+ZENDESK_WRITE_MODE=standard zendesk login --subdomain your-zendesk-subdomain --client-id your-client-identifier
+```
+
+이 일회성 설정은 MCP의 쓰기 gate를 영구적으로 켜지 않습니다. 실제 쓰기를 사용할
+MCP 실행에도 별도로 gate 설정이 필요하며 공개·삭제 등의 추가 승인 정책은 유지됩니다.
+
 현재 Windows에서는 사용자 전용 토큰 저장 권한을 보장하는 ACL 처리가 없어
 OAuth가 `unsupported`로 중단됩니다. Windows 패키지 설치·MCP 시작 검증은
 OAuth 로그인 지원을 의미하지 않습니다. Windows에서는 API token 설정을 사용합니다.
