@@ -388,6 +388,12 @@ and badge icon uploader now explicitly listed in section 8.
 
 ## Operations list filters
 
+`zendesk_search_users` accepts `agents_only` and `exact_name` (both default false).
+The first keeps users whose role is agent or admin; the second compares returned full names with the query using case-insensitive matching and trimming outer whitespace.
+These are local filters on Zendesk search candidates, not new API search parameters. `limit` counts candidates inspected, not matches.
+Keep the query and options unchanged when resuming. Empty matches may still have `has_more: true`; exhaust pages before considering uniqueness, and never choose the first of multiple matching names automatically.
+The 10,000-candidate API ceiling and search indexing limitations still apply; this is not an exhaustive account-directory lookup.
+
 `zendesk_list_ticket_forms` accepts optional `active`; omitting it keeps both active and inactive forms.
 `zendesk_list_triggers` also accepts `active`, string `category_id`, `sort` (`alphabetical`, `created_at`, `updated_at`, `position`), and `sort_order` (`asc`, `desc`).
 Keep these filters unchanged when resuming with a cursor.

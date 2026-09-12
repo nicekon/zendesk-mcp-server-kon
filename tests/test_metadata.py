@@ -99,6 +99,34 @@ def test_user_search_resumes_inside_page_and_crosses_page_boundary():
         assert t.search_users("agent", cursor=cursor)["error"]["code"] == "validation_error"
 
 
+def test_agent_exact_name_search_preserves_duplicates_and_raw_resume_offset():
+    class Client:
+        def get(self, path, *, params=None):
+            assert path == "/api/v2/users/search.json"
+            assert params == {"query": "Alex Kim", "per_page": "100", "page": "1"}
+            return success({"users": [
+                {"id": 1, "name": "Alex Kim", "role": "end-user"},
+                {"id": 2, "name": "Alex Kim", "role": "agent"},
+                {"id": 3, "name": "Alex Kim Jr", "role": "agent"},
+                {"id": 4, "name": "alex kim", "role": "admin"},
+            ], "next_page": None})
+    tools = MetadataTools(Client())
+    result = tools.search_users(" Alex Kim ", limit=3, agents_only=True, exact_name=True)
+    assert result == {"ok": True, "items": [{"id": 2, "name": "Alex Kim", "role": "agent"}], "has_more": True, "next_cursor": "3", "truncated": True}
+    following = tools.search_users("Alex Kim", limit=3, cursor=result["next_cursor"], agents_only=True, exact_name=True)
+    assert following["items"] == [{"id": 4, "name": "alex kim", "role": "admin"}]
+    assert following["has_more"] is False
+
+
+@pytest.mark.parametrize("options", [{"agents_only": 1}, {"exact_name": "true"}, {"exact_name": None}])
+def test_user_search_filters_reject_non_boolean(options):
+    assert MetadataTools(None).search_users("Alex", **options)["error"]["code"] == "validation_error"
+
+
+def test_filtered_user_search_does_not_hide_upstream_failure():
+    assert MetadataTools(None).search_users("Alex", agents_only=True, exact_name=True)["error"]["code"] == "not_configured"
+
+
 def test_user_search_empty_pages_stop_at_api_ceiling():
     class Client:
         def get(self, path, *, params=None):

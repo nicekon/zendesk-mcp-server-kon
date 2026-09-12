@@ -16,10 +16,17 @@ class MetadataTools:
     def __init__(self, client: MetadataClient | None) -> None:
         self._client = client
 
-    def search_users(self, query: str, limit: int = 100, *, cursor: str | None = None) -> dict[str, object]:
+    def search_users(self, query: str, limit: int = 100, *, cursor: str | None = None, agents_only: bool = False, exact_name: bool = False) -> dict[str, object]:
         if not isinstance(query, str) or not query.strip():
             return failure(ErrorCode.VALIDATION_ERROR, "query must be a non-empty string")
-        return collect_offset(self._get, "/api/v2/users/search.json", "users", limit, cursor, filters={"query": query.strip()})
+        if type(agents_only) is not bool or type(exact_name) is not bool:
+            return failure(ErrorCode.VALIDATION_ERROR, "agents_only and exact_name must be booleans")
+        result = collect_offset(self._get, "/api/v2/users/search.json", "users", limit, cursor, filters={"query": query.strip()})
+        if not result.get("ok") or not (agents_only or exact_name): return result
+        items = [user for user in result["items"]
+                 if (not agents_only or user.get("role") in ("agent", "admin"))
+                 and (not exact_name or isinstance(user.get("name"), str) and user["name"].strip().casefold() == query.strip().casefold())]
+        return {**result, "items": items}
 
     def list_groups(self, limit: int = 100, *, cursor: str | None = None) -> dict[str, object]:
         return self._list_cursor("/api/v2/groups.json", "groups", limit, cursor)

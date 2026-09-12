@@ -169,6 +169,15 @@ G7의 usage sideload 및 실제 응답 보존 검증은 남아 있다. 필터 �
 G7의 필터·정렬·통계 요청 구현은 반영했으나 계정별 통계 가용성·실제 응답 동등성은 미검증이다.
 테스트 계정 요청 또는 운영 변경 없이 G6 및 G5/G8 구현을 이어간다.
 
+### G6 사용자 검색 필터 후속
+
+기존 search_users에 agents_only/exact_name 옵션을 연결했다. 반환된 candidate에 역할·전체 이름
+필터를 적용하고 원본 offset/cursor/has_more를 유지한다. 동명이인을 하나로 축약하거나 자동 배정하지 않는다.
+limit는 검사 candidate 수이며 비어 있는 결과에도 다음 페이지가 있을 수 있다. API 검색 상한과
+인덱싱 범위 밖의 전체 계정 일치 보장은 하지 않는다. 기본 일반 query 동작은 유지한다.
+동명이인·관리자·고객 제외·페이지 재개·입력 거부·MCP 전달 포함 로컬 667 passed.
+G6의 assignee_email/me 해석과 안전한 배정 연결은 아직 남아 있다.
+
 M10의 원본 priority/status 정렬, M06의 원본 상세 GitLab metadata, M19의 표시 포맷은
 PRD가 승인한 범위와 추가 대조한다. 원본 입력과 다르다는 이유만으로 위험한 호환 alias나
 승인하지 않은 외부 GitLab 조회를 추가하지 않는다. G 항목을 해결해도 색인의 resolver·

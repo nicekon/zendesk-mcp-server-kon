@@ -316,6 +316,7 @@ def test_metadata_mcp_calls_preserve_pagination_arguments(monkeypatch):
         ("list_triggers", {"active": False, "category_id": "10026", "sort": "position", "sort_order": "desc"}, "/api/v2/triggers.json", "triggers"),
         ("list_triggers", {"include_usage": True}, "/api/v2/triggers.json", "triggers"),
         ("search_users", {"query": "agent"}, "/api/v2/users/search.json", "users"),
+        ("search_users", {"query": "agent", "agents_only": True, "exact_name": True}, "/api/v2/users/search.json", "users"),
         ("list_custom_statuses", {}, "/api/v2/custom_statuses.json", "custom_statuses"),
     ]
     for name, arguments, endpoint, key in cases:
@@ -337,7 +338,7 @@ def test_metadata_mcp_calls_preserve_pagination_arguments(monkeypatch):
         server = module.create_server({"ZENDESK_CAPABILITIES": "operations"})
         request = types.CallToolRequest(params=types.CallToolRequestParams(name=f"zendesk_{name}", arguments={**arguments, "limit": 1, "cursor": "1"}))
         result = asyncio.run(server.request_handlers[types.CallToolRequest](request))
-        assert result.root.structuredContent == {"ok": True, "items": [{"id": 9}], "has_more": False, "next_cursor": None, "truncated": False}, name
+        assert result.root.structuredContent == {"ok": True, "items": [] if arguments.get("agents_only") else [{"id": 9}], "has_more": False, "next_cursor": None, "truncated": False}, name
 
 
 def test_ticket_list_exposes_resume_cursor():
