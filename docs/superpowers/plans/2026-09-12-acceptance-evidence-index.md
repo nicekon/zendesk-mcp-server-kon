@@ -11,6 +11,23 @@
 
 ## 조건별 근거
 
+### 최신 설치 검증: 3f6590981f0eb5a26d9a1cb55e702b4615df8cee
+
+- 새 임시 디렉터리에 sdist와 wheel을 빌드하고 별도 Python 3.12.5 venv에
+  정확한 wheel 파일과 pytest를 설치했다. 개발 환경 `.venv`는 변경하지 않았다.
+- `python -I` import 경로가 `/private/tmp/zendesk-final-wheel.FunjAc/venv/lib/python3.12/site-packages/`
+  아래임을 확인했다. 같은 Python으로 `-I -m pytest --import-mode=importlib -q`를
+  실행하여 전체 780 passed (8.42초)를 확인했다. 저장된 연결은 기존 fixture로 격리한다.
+- 이 실행에는 43개 mutation 도구의 기본 read-only 차단과 HTTP 전송 경계의
+  쓰기 시도 0을 확인하는 `tests/test_readonly_catalog.py`도 포함된다.
+- 설치된 `zendesk` 실행 파일로 별도 stdio handshake를 수행했다. initialize,
+  도구 101개, list_tickets의 created_at offset sort 및 -status cursor sort 입력을 확인했다.
+  실제 사용자 credential을 전달하지 않고 package-smoke 가짜 subdomain만 사용했다.
+- wheel SHA-256: `c0b28033870a452ece044cebff85cd38e72ba2d7c0a8e82d2561fd130a32f369`.
+  해당 커밋의 원격 CI `34677436164`도 completed/success로 확인했다.
+- 이것은 패키지 설치·모의 동작 검증이다. 실제 계정 쓰기·사람 승인 E2E·플랜별 권한·
+  출시/배포를 증명하지 않으며 36개 수용 조건 전체를 완료로 바꾸지 않는다.
+
 tests/docs/.github 경로는 저장소 루트 기준이며, `auth.py` 같은 소스 파일 약칭은
 `src/zendesk_mcp_server/` 기준이다. 테스트 이름은 pytest의 `파일::함수`로 실행한다.
 작성 시 36개 조건의 순서와 58개 테스트 함수 참조가 실제 존재함을 확인했고,
@@ -93,8 +110,8 @@ Post/Comment HTML 저장 후 read-back 누락은 공통 쓰기 경로와 21개 �
 Community 읽기 콘텐츠 표시·분리는 공통 읽기 경로에 보완했고 목록·단건·저장 후 조회·MCP
 전달로 검증했다. 이 두 누락의 보완만으로 20번 전체를 완료로 처리하지 않는다.
 
-1. 02: G1–G8을 미구현으로 재작업하지 않는다. 대응표의 후속 구현 근거를 사용하며,
-   남은 M10 offset 정렬 계약과 전체 합집합의 수용 범위를 대조한다.
+1. 02: G1–G8 및 M10 offset 정렬을 미구현으로 재작업하지 않는다. 대응표의 후속
+   구현·이전 계약 근거를 사용하고 전체 합집합의 수용 범위를 대조한다.
 2. 15·20·29: 복합 요구의 하위 항목별 근거를 대조한다. 특히 Macro의 단일 PUT
    구현에서 확인 가능한 부분 성공과 단순 결과 불명을 구분한다. 재현되는 구현/테스트 누락만
    수정하며 기존 기능을 넓히거나 범위를 축소해 통과시키지 않는다.
