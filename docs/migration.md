@@ -1,5 +1,17 @@
 # Migration and rollback
 
+## Connection status conditional capability detection
+
+`capabilities` remains the locally enabled configuration, not proof that each
+product is available. When CSAT is enabled, a probed connection status now reuses
+the CSAT account-settings detector and includes `capability_detection.csat`.
+Its own `ok`/`error` distinguishes a detected legacy/survey backend from denied,
+unsupported, or malformed detection. A successful identity probe can coexist
+with a failed capability check; consumers must inspect the nested result.
+No capability entry means not checked, not available or unavailable. Unprobed
+status and configurations without CSAT add no account-settings request.
+The detector uses the documented [Account Settings active features](https://developer.zendesk.com/api-reference/ticketing/account-configuration/account_settings/).
+
 ## Connection status OAuth scopes
 
 OAuth connection status now includes `oauth_required_scopes`, derived from the

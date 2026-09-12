@@ -152,3 +152,13 @@ PRD 8.1 대조에서 누락된 OAuth scope 정보를 `oauth_required_scopes`로 
 부여된 권한으로 표시하지 않는다. 모의 설정에서 기본 Community와 대행 gate의 서로
 다른 scope 목록, 비밀정보 비노출, probe 없는 상태 확인의 인증 I/O 부재를 검증했다.
 전체 로컬 테스트 823개 통과. 이 필드만으로 실제 grant·조건부 제품 탐지 수용을 닫지 않는다.
+
+### 연결 상태 CSAT 감지 결과
+
+PRD 8.1의 감지된 조건부 capability 표시를 기존 CSAT detector와 연결했다.
+CSAT 활성 설정의 identity probe가 성공하면 동일 client로 Account Settings를 읽고
+`capability_detection.csat`에 backend 또는 표준 감지 오류를 반환한다. legacy/survey,
+비활성, 불완전한 feature 응답, permission_denied의 다섯 모의 응답과 GET 순서를
+검증했으며 전체 로컬 824개 테스트가 통과했다. `capabilities`는 계속 설정값이고,
+감지 결과에 없는 badges 등의 제품을 사용 가능·불가능으로 추정하지 않는다.
+실제 제품별 계정 검증 및 나머지 조건부 제품 탐지 완료 증거는 아니다.

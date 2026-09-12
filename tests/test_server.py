@@ -978,6 +978,39 @@ def test_connection_status_tool_probes_the_authenticated_user(monkeypatch):
     assert result.root.structuredContent["ok"] is True
 
 
+def test_connection_status_detects_enabled_csat_without_inferring_other_products(monkeypatch):
+    import zendesk_mcp_server.server as module
+    from zendesk_mcp_server.contracts import ErrorCode, failure, success
+
+    for upstream, expected in (
+        (success({"settings": {"active_features": {"customer_satisfaction": True, "customer_satisfaction_survey": False}}}), {"ok": True, "data": {"backend": "legacy"}}),
+        (success({"settings": {"active_features": {"customer_satisfaction": False, "customer_satisfaction_survey": True}}}), {"ok": True, "data": {"backend": "survey"}}),
+        (success({"settings": {"active_features": {"customer_satisfaction": False, "customer_satisfaction_survey": False}}}), {"error": "unsupported"}),
+        (success({"settings": {"active_features": {}}}), {"error": "upstream_error"}),
+        (failure(ErrorCode.PERMISSION_DENIED, "denied"), {"error": "permission_denied"}),
+    ):
+        calls = []
+        class Client:
+            def __init__(self, *_): pass
+            def get(self, path, **kwargs):
+                calls.append(path)
+                if path == "/api/v2/users/me.json":
+                    return success({"user": {"id": 7, "role": "admin"}})
+                assert path == "/api/v2/account/settings.json"
+                return upstream
+        monkeypatch.setattr(module, "ZendeskClient", Client)
+        result = module.build_connection_status({"ZENDESK_SUBDOMAIN": "acme", "ZENDESK_EMAIL": "agent@example.test", "ZENDESK_API_TOKEN": "token", "ZENDESK_CAPABILITIES": "csat,badges"}, probe=True)
+        assert result["ok"] is True
+        detection = result["data"]["capability_detection"]
+        assert set(detection) == {"csat"}
+        if "error" in expected:
+            assert detection["csat"]["ok"] is False
+            assert detection["csat"]["error"]["code"] == expected["error"]
+        else:
+            assert detection["csat"] == expected
+        assert calls == ["/api/v2/users/me.json", "/api/v2/account/settings.json"]
+
+
 def test_connection_status_rejects_invalid_authenticated_user_ids(monkeypatch):
     import zendesk_mcp_server.server as module
 

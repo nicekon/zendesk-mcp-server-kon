@@ -352,10 +352,14 @@ def build_connection_status(environ: Mapping[str, str], *, probe: bool = False) 
         if not probe or settings.auth_mode is None: return success(status)
         authorization = build_authorization(settings)
         if authorization is None: return success(status)
-        result = ZendeskClient(settings, authorization).get("/api/v2/users/me.json")
+        client = ZendeskClient(settings, authorization)
+        result = client.get("/api/v2/users/me.json")
         if not result.get("ok"): return result
         data = result.get("data"); user = data.get("user") if isinstance(data, dict) else None
         if not valid_authenticated_user(user): return failure(ErrorCode.UPSTREAM_ERROR, "Zendesk returned an invalid authenticated user")
+        if settings.has_capability("csat"):
+            backend = GuideTools(client, settings)._resolve_csat_backend("auto")
+            status["capability_detection"] = {"csat": backend if isinstance(backend, dict) else success({"backend": backend})}
         return success({**status, "verified_user": {key: user.get(key) for key in ("id", "role")}})
     except ConfigurationError as error:
         return _configuration_failure(error)
