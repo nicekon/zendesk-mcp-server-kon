@@ -348,7 +348,7 @@ class CommunityTools:
             if self._client is None or not hasattr(self._client, "upload_presigned"): return failure(ErrorCode.NOT_CONFIGURED, "Zendesk upload client is not configured")
             badge = tool == "zendesk_upload_badge_icon"
             prepared = self._client.request("POST", "/api/v2/gather/badges/icon_uploads" if badge else "/api/v2/guide/user_images/uploads", json_body={"content_type": payload["content_type"], "file_size": payload["file_size"]})
-            if not prepared.get("ok"): return prepared
+            if not prepared.get("ok"): return self._upload_failure(prepared, "prepare_upload")
             upload = self._nested_data(prepared, "badge_icon_upload" if badge else "upload")
             if upload is None: return failure(ErrorCode.UPSTREAM_ERROR, "Zendesk returned an invalid image upload response", operation_state="unknown")
             url, headers, identifier = upload.get("url"), upload.get("headers"), upload.get("id" if badge else "token")
@@ -359,15 +359,20 @@ class CommunityTools:
             headers = {name: value for name, value in headers.items() if name.lower() != "content-length"}
             headers["Content-Length"] = size
             uploaded = self._client.upload_presigned(url, headers, iter(lambda: content.read(65536), b""))
-            if not uploaded.get("ok"): return uploaded
+            if not uploaded.get("ok"): return self._upload_failure(uploaded, "upload_binary")
             if badge: return success({"badge_icon_upload_id": identifier}, request_id=prepared.get("request_id"), operation_state="applied")
             created = self._client.request("POST", "/api/v2/guide/user_images", json_body={"token": identifier, "brand_id": payload["brand_id"]})
-            if not created.get("ok"): return created
+            if not created.get("ok"): return self._upload_failure(created, "create_image_path")
             image = self._nested_data(created, "user_image")
             path = image.get("path") if image is not None else None
             if not valid_user_image_path(path):
                 return failure(ErrorCode.UPSTREAM_ERROR, "Zendesk returned an invalid user image path", operation_state="unknown")
             return created
+    @staticmethod
+    def _upload_failure(result: dict[str, object], stage: str) -> dict[str, object]:
+        error = result["error"]
+        return {**result, "error": {**error, "details": {**error.get("details", {}), "upload_stage": stage}}}
+
     def search_content_tags(self, prefix: str, *, cursor: str | None = None, limit: int = 100) -> dict[str, object]:
         if not isinstance(prefix, str): return failure(ErrorCode.VALIDATION_ERROR, "prefix must be a string")
         return collect_cursor(self._get, "/api/v2/guide/content_tags", "records", limit, cursor, filters={"filter[name_prefix]": prefix}, page_size=30)
