@@ -1021,15 +1021,31 @@ def test_custom_object_csv_flattens_nested_fields_without_losing_collisions():
     assert json.loads(_serialize_ticket_export([item], "json")) == [item]
 
 
-def test_custom_object_projection_nests_ticket_lookup_records():
+@pytest.mark.parametrize("record", [{}, {"id": True}, {"id": 99}, {"id": "100"}, {"id": "99", "custom_object_key": "other"}])
+def test_custom_object_projection_rejects_wrong_record_identity(record):
+    settings = Settings.load({"ZENDESK_CAPABILITIES": "support,custom_objects"})
+    for method in ("search_tickets", "export_tickets"):
+        client = StubClient({
+            "/api/v2/search.json": success({"results": [{"id": 1, "custom_fields": [{"id": 10, "value": "99"}]}], "next_page": None}),
+            "/api/v2/search/export.json": success({"results": [{"id": 1, "custom_fields": [{"id": 10, "value": "99"}]}], "meta": {"has_more": False}}),
+            "/api/v2/ticket_fields.json": success({"ticket_fields": [{"id": 10, "relationship_target_type": "zen:custom_object:asset"}], "meta": {"has_more": False}}),
+            "/api/v2/custom_objects/asset/records/99.json": success({"custom_object_record": record}),
+        })
+        result = getattr(TicketTools(client, settings), method)("status:open", projection={"include_custom_objects": ["asset"]})
+        assert result["error"]["code"] == "upstream_error"
+        assert len(client.paths) == 3
+
+
+@pytest.mark.parametrize("reference", ["99", 99])
+def test_custom_object_projection_nests_ticket_lookup_records(reference):
     settings = Settings.load({"ZENDESK_CAPABILITIES": "support,custom_objects"})
     client = StubClient({
-        "/api/v2/search.json": success({"results": [{"id": 1, "custom_fields": [{"id": 10, "value": "99"}]}], "next_page": None}),
+        "/api/v2/search.json": success({"results": [{"id": 1, "custom_fields": [{"id": 10, "value": reference}]}], "next_page": None}),
         "/api/v2/ticket_fields.json": success({"ticket_fields": [{"id": 10, "relationship_target_type": "zen:custom_object:asset"}], "meta": {"has_more": False}}),
-        "/api/v2/custom_objects/asset/records/99.json": success({"custom_object_record": {"id": "99"}}),
+        "/api/v2/custom_objects/asset/records/99.json": success({"custom_object_record": {"id": "99", "custom_object_key": "asset"}}),
     })
     result = TicketTools(client, settings).search_tickets("status:open", projection={"include_custom_objects": ["asset"]})
-    assert result["items"][0]["custom_objects"] == {"asset": [{"id": "99"}]}
+    assert result["items"][0]["custom_objects"] == {"asset": [{"id": "99", "custom_object_key": "asset"}]}
 
 
 def test_custom_object_projection_keeps_all_lookup_records_and_csv_values():

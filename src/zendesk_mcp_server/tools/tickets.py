@@ -736,6 +736,8 @@ class TicketTools:
                     if not record.get("ok"): return record
                     payload = record.get("data"); value = payload.get("custom_object_record") if isinstance(payload, dict) else None
                     if not isinstance(value, dict): return failure(ErrorCode.UPSTREAM_ERROR, "Zendesk returned an invalid custom object record")
+                    if value.get("id") != str(record_id) or ("custom_object_key" in value and value["custom_object_key"] != key):
+                        return failure(ErrorCode.UPSTREAM_ERROR, "Zendesk returned a different custom object record")
                     objects[key].append(value)
             projected.append({**item, "custom_objects": objects})
         return projected

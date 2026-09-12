@@ -64,6 +64,13 @@ tests/docs/.github 경로는 저장소 루트 기준이며, `auth.py` 같은 소
 검색·내보내기 각각의 null/boolean/0/string ID 응답을 검증한다. 전체 734 passed.
 정상 field 선택·객체 확장·CSV 평탄화는 기존 회귀와 함께 통과했으며 실계정 증거는 아니다.
 
+15번 객체 응답 식별 후속: 공식 Custom Object Records의 문자열 id가 요청 ID와 같아야 하며,
+custom_object_key가 제공되면 요청한 객체 key와 같아야 한다. 기존 dict 형태 검증만으로는
+빈 객체나 다른 레코드가 통과했다. `test_custom_object_projection_rejects_wrong_record_identity`
+(tests/test_tickets.py)는 검색·내보내기의 잘못된 5종 응답을 검증한다.
+정상 문자열·정수 lookup 참조가 문자열 응답 ID와 일치하는 경우도 보존한다. 전체 740 passed.
+근거: [Custom Object Records](https://developer.zendesk.com/api-reference/custom-data/custom-objects/custom_object_records/).
+
 29번과 PRD 7.3 대조: 7.3은 가능한 단일 update를 요구하고 여러 호출이 필요한 경우에
 단계별 partial 결과를 요구한다. [원본 michaelrice macros](https://github.com/michaelrice/zendesk-mcp/blob/8313e117094d005dcf1fc48ffb6f9197bc60a712/src/zendesk_mcp/tools/macros.py)는
 필드·댓글을 두 번 갱신하지만, 현재 구현은 단일 PUT이며 분할 쓰기 fallback이 없다.
