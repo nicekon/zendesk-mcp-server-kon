@@ -19,3 +19,6 @@ class HTMLText(HTMLParser):
         if tag in ("p", "div", "li"): self.parts.append("\n")
 
     def handle_data(self, data): self.parts.append(data)
+
+    def unknown_decl(self, data):
+        raise ValueError("unsupported HTML declaration")

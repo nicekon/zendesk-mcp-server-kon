@@ -799,6 +799,23 @@ def test_content_tag_delete_requires_local_destructive_approval(tmp_path):
     assert client.paths[-1] == ("DELETE", "/api/v2/guide/content_tags/tag-1", None)
 
 
+def test_user_subscription_invalid_mode_stops_before_lookup():
+    class Client:
+        def get(self, *args, **kwargs): raise AssertionError("invalid mode must not read")
+    result = CommunityTools(Client()).upsert_user_subscription("me", 1, execution_mode="invalid")
+    assert result["error"]["code"] == "validation_error"
+
+
+@pytest.mark.parametrize("followed_id", [True, None, "1", 0])
+def test_user_subscription_rejects_malformed_followed_id_before_noop(followed_id):
+    class Client:
+        def get(self, path, *, params=None):
+            return success({"user_subscriptions": [{"id": 5, "followed_id": followed_id, "include_comments": False}], "meta": {"has_more": False}})
+        def request(self, *args, **kwargs): raise AssertionError("malformed response must not write")
+    result = CommunityTools(Client()).upsert_user_subscription("me", 1)
+    assert result["error"]["code"] == "upstream_error"
+
+
 def test_user_subscription_list_and_upsert_require_fixed_path_and_public_approval(tmp_path):
     class SubscriptionClient(StubClient):
         def get(self, path, *, params=None):

@@ -233,6 +233,7 @@ class CommunityTools:
         if path is None or direction not in {"followers", "followings"}: return failure(ErrorCode.VALIDATION_ERROR, "valid user_id and direction are required")
         return collect_cursor(self._get, path, "user_subscriptions", limit, cursor, filters={"type": direction})
     def upsert_user_subscription(self, user_id: int | str, followed_id: int, *, include_comments: bool = False, execution_mode: str = "preview", approval_request_id: str | None = None, approval_token: str | None = None) -> dict[str, object]:
+        if execution_mode not in ("preview", "apply"): return failure(ErrorCode.VALIDATION_ERROR, "execution_mode must be preview or apply")
         path = self._user_subscription_path(user_id)
         if path is None or not self._valid_id(followed_id, "followed_id") or not isinstance(include_comments, bool): return failure(ErrorCode.VALIDATION_ERROR, "valid user subscription fields are required")
         payload = {"user_id": user_id, "followed_id": followed_id, "include_comments": include_comments}
@@ -551,6 +552,8 @@ class CommunityTools:
             data = result.get("data"); subscriptions = data.get("user_subscriptions") if isinstance(data, dict) else None; meta = data.get("meta", {}) if isinstance(data, dict) else None
             if not isinstance(subscriptions, list) or not isinstance(meta, dict) or len(subscriptions) > page_size or any(not isinstance(subscription, dict) for subscription in subscriptions) or not isinstance(meta.get("has_more"), bool): return failure(ErrorCode.UPSTREAM_ERROR, "Zendesk returned an invalid user subscription page")
             scanned += len(subscriptions)
+            if any(not self._valid_id(subscription.get("followed_id"), "followed_id") for subscription in subscriptions):
+                return failure(ErrorCode.UPSTREAM_ERROR, "Zendesk returned an invalid followed user ID")
             found = next((subscription for subscription in subscriptions if isinstance(subscription, dict) and subscription.get("followed_id") == followed_id), None)
             if found is not None: return success({"subscription": found})
             if not meta.get("has_more"): return success({"subscription": None})

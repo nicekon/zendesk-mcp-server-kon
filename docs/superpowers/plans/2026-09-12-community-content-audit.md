@@ -54,6 +54,20 @@ title/name/description은 원래 일반 텍스트로 보존한다. HTML 실행·
 7개 읽기 경로·잘못된 HTML·저장 후 조회·실제 MCP 전달 회귀 포함 전체 723 passed.
 이 증거는 두 콘텐츠 누락의 로컬 보완 근거이며 Community의 나머지 조건을 대체하지 않는다.
 
+## User Subscription 대상 검증 후속
+
+[공식 User Subscriptions](https://developer.zendesk.com/api-reference/help_center/help-center-api/user_subscriptions/)
+계약의 followed_id는 필수 integer다. 공통 조회가 이를 검증하지 않아 boolean true를 ID 1로
+오인할 수 있었으므로, 비교 전에 양의 정수임을 검증한다. 기존 구독 확인과 쓰기 후 재조회에
+동일하게 적용한다. 잘못된 실행 모드도 GET/no-op 판단 전에 거부한다.
+5개 실패 재현 후 회귀를 추가했으며 전체 728 passed. 실제 follow 요청은 없다.
+
+추가로 CI 34676130829에서 patched Python 3.10/3.11/3.12의 HTMLParser가
+`<![invalid]>`를 unknown_decl 기본 no-op으로 버리는 차이를 발견했다.
+공통 parser에서 unknown_decl을 명시적 ValueError로 처리해 양쪽 소비자의 원문 보존
+fallback을 일관되게 사용한다. Python 3.11.16 별도 환경 및 로컬 3.12 환경에서
+각각 전체 728 passed를 확인했다. 이전 723 passed는 로컬 증거이지 해당 CI 성공이 아니다.
+
 권한·알림·첨부·구독·badge의 나머지 세부 조건은 별도 대조 대상이다.
 CI `34675808818`은 위 기준 커밋에서 성공했지만, 위 누락 조건을 검사하지 않는 성공이다.
 테스트 계정 재요청·운영 쓰기·병합·배포는 하지 않는다.
