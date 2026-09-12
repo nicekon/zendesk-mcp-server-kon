@@ -112,6 +112,21 @@ This is the user's current role, not a historical role at comment creation.
 Public/private visibility never determines the side; original comment fields
 are preserved. Deleted or unavailable users do not trigger extra user lookups.
 
+### Ticket closure approval
+
+`zendesk_update_ticket` and `zendesk_set_ticket_status` no longer close a ticket
+with standard-write permission alone. With `status=closed`, omission of
+`execution_mode` creates a preview without an outbound write. Review and approve
+the request with `zendesk approve <approval_request_id>`, then call the same
+operation with `execution_mode=apply`, `approval_request_id` and `approval_token`.
+Apply also requires standard write mode and `ZENDESK_ENABLE_DESTRUCTIVE_WRITES=true`.
+The one-time approval binds the ticket ID and every submitted field; the status
+shortcut uses the shared `zendesk_update_ticket` approval identity.
+
+Other status/field updates keep their existing direct standard-write behavior;
+approval options are rejected unless `status=closed`. Both tools now advertise
+potentially destructive behavior to MCP clients. Real closure E2E is unverified.
+
 ### Ticket tag collision protection
 
 Tag add/remove shortcuts now bind their update to the timestamp read with the

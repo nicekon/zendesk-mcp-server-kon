@@ -1122,6 +1122,29 @@ def test_update_ticket_validates_custom_status_due_date_and_custom_fields():
     assert client.calls == [("PUT", "/api/v2/tickets/9.json", {"ticket": {"custom_status_id": 7, "due_at": "2026-09-05T12:00:00Z", "custom_fields": [{"id": 12, "value": "gold"}]}})]
 
 
+def test_ticket_closure_requires_preview_destructive_gate_and_payload_approval(tmp_path):
+    for method in ("update_ticket", "set_ticket_status"):
+        client = MutationStub()
+        store = ApprovalStore(tmp_path / (method + ".json"))
+        settings = Settings.load({"ZENDESK_WRITE_MODE": "standard"})
+        tools = TicketTools(client, settings, store)
+        preview = getattr(tools, method)(9, status="closed")
+        assert client.calls == []
+        request_id = preview["data"]["approval_request_id"]
+        assert preview["data"]["destructive"] is True
+        token = store.approve(request_id)
+        options = {"execution_mode": "apply", "approval_request_id": request_id, "approval_token": token}
+        assert getattr(tools, method)(9, status="closed", **options)["error"]["code"] == "write_disabled"
+        assert client.calls == []
+        tools = TicketTools(client, Settings.load({"ZENDESK_WRITE_MODE": "standard", "ZENDESK_ENABLE_DESTRUCTIVE_WRITES": "true"}), store)
+        assert getattr(tools, method)(10, status="closed", **options)["error"]["code"] == "approval_required"
+        assert client.calls == []
+        assert getattr(tools, method)(9, status="closed", **options)["ok"] is True
+        assert client.calls == [("PUT", "/api/v2/tickets/9.json", {"ticket": {"status": "closed"}})]
+        assert getattr(tools, method)(9, status="closed", **options)["error"]["code"] == "approval_required"
+        assert len(client.calls) == 1
+
+
 def test_ticket_shortcuts_reuse_update_ticket():
     client = MutationStub()
     settings = Settings.load({"ZENDESK_WRITE_MODE": "standard"})

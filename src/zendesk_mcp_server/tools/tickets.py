@@ -500,6 +500,9 @@ class TicketTools:
         custom_status_id: int | None = None,
         due_at: str | None = None,
         custom_fields: list[dict[str, object]] | None = None,
+        execution_mode: str | None = None,
+        approval_request_id: str | None = None,
+        approval_token: str | None = None,
     ) -> dict[str, object]:
         if not _valid_ticket_id(ticket_id):
             return failure(ErrorCode.VALIDATION_ERROR, "ticket_id must be a positive integer")
@@ -519,6 +522,22 @@ class TicketTools:
         )
         if isinstance(payload, dict) and "error" in payload:
             return payload
+        if status == "closed":
+            approval_payload = {"ticket_id": ticket_id, "ticket": payload, "irreversible": True}
+            mode = "preview" if execution_mode is None else execution_mode
+            if mode == "preview":
+                if self._approvals is None:
+                    return failure(ErrorCode.NOT_CONFIGURED, "Zendesk approval store is not configured")
+                request_id = self._approvals.create("zendesk_update_ticket", approval_payload)
+                return success({"approval_request_id": request_id, "execution_mode": "preview", "destructive": True, "outbound_write": False, **approval_payload})
+            if mode != "apply":
+                return failure(ErrorCode.VALIDATION_ERROR, "execution_mode must be preview or apply")
+            if (blocked := self._write_permitted(WriteRisk.DESTRUCTIVE)) is not None:
+                return blocked
+            if self._approvals is None or not isinstance(approval_request_id, str) or not isinstance(approval_token, str) or not self._approvals.consume(approval_request_id, "zendesk_update_ticket", approval_payload, approval_token):
+                return failure(ErrorCode.APPROVAL_REQUIRED, "a matching local approval is required")
+        elif any(value is not None for value in (execution_mode, approval_request_id, approval_token)):
+            return failure(ErrorCode.VALIDATION_ERROR, "approval options apply only to closed status updates")
         permitted = self._write_permitted(WriteRisk.STANDARD)
         if permitted is not None:
             return permitted
@@ -527,8 +546,8 @@ class TicketTools:
             return client
         return _with_automation_notice(client.request("PUT", f"/api/v2/tickets/{ticket_id}.json", json_body={"ticket": payload}))
 
-    def set_ticket_status(self, ticket_id: int, status: str) -> dict[str, object]:
-        return self.update_ticket(ticket_id, status=status)
+    def set_ticket_status(self, ticket_id: int, status: str, *, execution_mode: str | None = None, approval_request_id: str | None = None, approval_token: str | None = None) -> dict[str, object]:
+        return self.update_ticket(ticket_id, status=status, execution_mode=execution_mode, approval_request_id=approval_request_id, approval_token=approval_token)
 
     def assign_ticket(
         self,

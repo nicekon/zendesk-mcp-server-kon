@@ -144,7 +144,7 @@ def build_tools() -> list[types.Tool]:
         ),
         types.Tool(
             name="zendesk_update_ticket",
-            description="Update Zendesk ticket fields. Requires standard write mode and may trigger account automations.",
+            description="Update Zendesk ticket fields. Standard changes execute directly; closed status defaults to preview and requires destructive-write permission plus local approval to apply. Approval options apply only to closed status. May trigger account automations.",
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -160,6 +160,9 @@ def build_tools() -> list[types.Tool]:
                     "tags": {"type": "array", "items": {"type": "string"}},
                     "custom_status_id": {"type": "integer", "minimum": 1},
                     "due_at": {"type": "string", "format": "date-time"},
+                    "execution_mode": {"type": "string", "enum": ["preview", "apply"], "description": "For closed status only; defaults to preview when closing."},
+                    "approval_request_id": {"type": "string"},
+                    "approval_token": {"type": "string"},
                     "custom_fields": {"type": "array", "items": {"type": "object", "properties": {"id": {"type": "integer", "minimum": 1}, "value": {}}, "required": ["id", "value"], "additionalProperties": False}},
                 },
                 "required": ["ticket_id"],
@@ -167,8 +170,8 @@ def build_tools() -> list[types.Tool]:
         ),
         types.Tool(
             name="zendesk_set_ticket_status",
-            description="Set a Zendesk ticket status. Requires standard write mode and may trigger account automations.",
-            inputSchema={"type": "object", "properties": {"ticket_id": {"type": "integer", "minimum": 1}, "status": {"type": "string", "enum": ["new", "open", "pending", "hold", "solved", "closed"]}}, "required": ["ticket_id", "status"]},
+            description="Set a Zendesk ticket status. Standard changes execute directly; closed status defaults to preview and requires destructive-write permission plus local approval to apply. Approval options apply only to closed status. May trigger account automations.",
+            inputSchema={"type": "object", "properties": {"ticket_id": {"type": "integer", "minimum": 1}, "status": {"type": "string", "enum": ["new", "open", "pending", "hold", "solved", "closed"]}, "execution_mode": {"type": "string", "enum": ["preview", "apply"], "description": "For closed status only; defaults to preview when closing."}, "approval_request_id": {"type": "string"}, "approval_token": {"type": "string"}}, "required": ["ticket_id", "status"]},
         ),
         types.Tool(
             name="zendesk_assign_ticket",
@@ -289,7 +292,7 @@ def build_tools() -> list[types.Tool]:
 
 def _tool_annotations(name: str) -> types.ToolAnnotations:
     read_only = name == "zendesk_get_connection_status" or name.startswith(("zendesk_get_", "zendesk_list_", "zendesk_search_", "zendesk_count_", "zendesk_export_", "zendesk_preview_", "zendesk_download_", "zendesk_inspect_", "zendesk_ticket_to_issue_context"))
-    destructive = "_delete_" in name or name in {"zendesk_remove_community_vote", "zendesk_replace_article_translation_body"}
+    destructive = "_delete_" in name or name in {"zendesk_remove_community_vote", "zendesk_replace_article_translation_body", "zendesk_update_ticket", "zendesk_set_ticket_status"}
     return types.ToolAnnotations(readOnlyHint=read_only, destructiveHint=destructive, idempotentHint=read_only or name == "zendesk_upsert_user_subscription", openWorldHint=name != "zendesk_get_connection_status")
 
 
@@ -789,10 +792,13 @@ def create_server(environ: Mapping[str, str] | None = None) -> Server:
                     custom_status_id=values.get("custom_status_id"),
                     due_at=values.get("due_at"),
                     custom_fields=values.get("custom_fields"),
+                    execution_mode=values.get("execution_mode"),
+                    approval_request_id=values.get("approval_request_id"),
+                    approval_token=values.get("approval_token"),
                 )
             elif name == "zendesk_set_ticket_status":
                 values = arguments or {}
-                result = tools.set_ticket_status(values.get("ticket_id"), values.get("status"))
+                result = tools.set_ticket_status(values.get("ticket_id"), values.get("status"), execution_mode=values.get("execution_mode"), approval_request_id=values.get("approval_request_id"), approval_token=values.get("approval_token"))
             elif name == "zendesk_assign_ticket":
                 values = arguments or {}
                 result = tools.assign_ticket(

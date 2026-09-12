@@ -548,6 +548,8 @@ def test_every_tool_declares_mcp_risk_annotations():
     assert tools["zendesk_get_ticket"].annotations.readOnlyHint is True
     assert tools["zendesk_delete_community_post"].annotations.destructiveHint is True
     assert tools["zendesk_remove_ticket_tag"].annotations.destructiveHint is False
+    assert tools["zendesk_update_ticket"].annotations.destructiveHint is True
+    assert tools["zendesk_set_ticket_status"].annotations.destructiveHint is True
     assert tools["zendesk_create_ticket"].annotations.readOnlyHint is False
 
 
@@ -894,6 +896,44 @@ def test_every_registered_tool_reaches_a_domain_dispatcher(monkeypatch):
         result = asyncio.run(handler(request))
         assert result.root.structuredContent is not None, tool.name
         assert result.root.structuredContent["ok"] is True, tool.name
+
+
+def test_ticket_closure_mcp_dispatch_preserves_approval_options(tmp_path, monkeypatch):
+    import asyncio
+    from mcp import types
+    import zendesk_mcp_server.server as module
+    from zendesk_mcp_server.approvals import ApprovalStore
+    from zendesk_mcp_server.config import Settings
+    from zendesk_mcp_server.contracts import success
+    from zendesk_mcp_server.tools.tickets import TicketTools
+    class Client:
+        def __init__(self): self.calls = []
+        def request(self, method, path, *, json_body=None):
+            self.calls.append((method, path, json_body))
+            return success({"ticket": {"id": 9}})
+    settings = Settings.load({"ZENDESK_WRITE_MODE": "standard", "ZENDESK_ENABLE_DESTRUCTIVE_WRITES": "true"})
+    store = ApprovalStore(tmp_path / "approvals.json")
+    client = Client()
+    tools = TicketTools(client, settings, store)
+    monkeypatch.setattr(module, "build_ticket_tools", lambda *_: tools)
+    server = module.create_server({})
+    handler = server.request_handlers[types.CallToolRequest]
+    registered = {tool.name: tool for tool in module.build_tools()}
+    def call(name, arguments):
+        request = types.CallToolRequest(params=types.CallToolRequestParams(name=name, arguments=arguments))
+        return asyncio.run(handler(request)).root.structuredContent
+    for name in ("zendesk_update_ticket", "zendesk_set_ticket_status"):
+        assert "execution_mode" in registered[name].inputSchema["properties"]
+        before = len(client.calls)
+        args = {"ticket_id": 9, "status": "closed"}
+        if name == "zendesk_update_ticket": args["subject"] = "Approved subject"
+        preview = call(name, args)
+        assert len(client.calls) == before
+        request_id = preview["data"]["approval_request_id"]
+        token = store.approve(request_id)
+        result = call(name, {**args, "execution_mode": "apply", "approval_request_id": request_id, "approval_token": token})
+        assert result["ok"] is True and len(client.calls) == before + 1
+        assert client.calls[-1][2] == {"ticket": {key: value for key, value in args.items() if key != "ticket_id"}}
 
 
 def test_support_read_tools_are_registered():
