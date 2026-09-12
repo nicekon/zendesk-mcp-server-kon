@@ -562,6 +562,24 @@ def test_every_tool_declares_the_standard_result_schema():
     assert all(tool.outputSchema["required"] == ["ok"] for tool in tools)
 
 
+def test_mcp_catalog_matches_frozen_input_output_and_risk_contracts():
+    from pathlib import Path
+    from zendesk_mcp_server.server import create_server
+
+    # Intentional contract changes require reviewing the affected fixture entry
+    # against the PRD and migration notes, not regenerating the whole baseline.
+    expected = json.loads((Path(__file__).parent / "fixtures/tool-contracts.json").read_text())
+    server = create_server({})
+    result = asyncio.run(server.request_handlers[types.ListToolsRequest](types.ListToolsRequest()))
+    tools = result.root.tools
+    assert len(tools) == len(expected) == 101
+    assert {tool.name for tool in tools} == set(expected)
+    for tool in tools:
+        actual = {"inputSchema": tool.inputSchema, "outputSchema": tool.outputSchema,
+                  "annotations": tool.annotations.model_dump(mode="json", exclude_none=True)}
+        assert actual == expected[tool.name], tool.name
+
+
 def test_help_center_article_create_accepts_brand_scope():
     from zendesk_mcp_server.server import build_tools
 

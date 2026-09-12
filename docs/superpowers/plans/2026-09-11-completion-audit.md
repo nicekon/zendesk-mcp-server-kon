@@ -12,6 +12,7 @@
 
 ## 최근 코드 검증
 
+- 전체 MCP 계약 회귀: `tests/fixtures/tool-contracts.json`에 101개 도구의 inputSchema/outputSchema/annotations 기준을 고정했다. `test_mcp_catalog_matches_frozen_input_output_and_risk_contracts`는 실제 MCP 목록 응답과 각 항목을 정확히 비교한다. public reply의 approval_token 삭제, 출력 required 삭제, readOnlyHint 반전의 세 런타임 변형을 각각 실패로 탐지했고 정상 전체 523 passed. 기준은 현 구현의 계약 회귀 방지용이며 모든 schema의 제품 의미가 PRD와 일치한다는 독립 증거는 아니다. 의도된 계약 변경은 해당 fixture 항목과 PRD·migration을 함께 검토하고 전체 기준을 자동 재생성하지 않는다.
 - Canonical 이름 대조: PRD 8장의 99개 중 6개가 구현에서 다른 이름을 사용했다. 문서 기준 이름으로 등록·dispatch·승인 identity를 교정하고 Guide capability와 badge 해제의 destructive annotation을 유지했다. 기존 CSAT selector와 badge icon uploader도 문서 목록에 명시해 101개가 누락/별칭 없이 일치한다. 기존 exact name 테스트에서 실패 재현 후 통과했으며 실제 MCP factory의 6개 호출·capability별 노출·승인 identity·read-only 차단 테스트를 추가했다. 로컬 전체 522 passed. 이는 전체 도구 schema의 exact snapshot 또는 기능 합집합 전체 감사 완료를 의미하지 않는다. 변경 전 이름으로 발급한 승인은 새 preview가 필요하다.
 - 티켓 생성의 최초 comment에 `public=false`를 명시했다. `test_create_ticket_uses_a_validated_standard_write_payload`와 `test_create_ticket_accepts_assignment_and_custom_fields`에서 내부 메모 전송 payload를 검증한다.
 - 태그 추가·삭제는 공통 `_change_ticket_tag`에서 조회한 updated_at에 safe_update를 결합한다. `test_ticket_tag_shortcuts_preserve_concurrent_changes`, `test_ticket_tag_changes_reject_invalid_timestamps_without_writing`, `test_ticket_tag_noops_and_read_only_never_write`가 충돌·잘못된 시각·no-op·쓰기 gate를 검증한다.
