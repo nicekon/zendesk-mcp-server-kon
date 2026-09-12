@@ -138,10 +138,14 @@ class CommunityTools:
     def list_topics(self, *, cursor: str | None = None, limit: int = 100) -> dict[str, object]:
         return collect_cursor(self._get, "/api/v2/community/topics.json", "topics", limit, cursor)
     def get_topic(self, topic_id: int) -> dict[str, object]: return self._by_id("/api/v2/community/topics/{id}.json", topic_id, "topic_id")
-    def list_votes(self, post_id: int | None = None, *, user_id: int | str | None = None, cursor: str | None = None, limit: int = 100) -> dict[str, object]:
+    def list_votes(self, post_id: int | None = None, *, comment_id: int | None = None, user_id: int | str | None = None, cursor: str | None = None, limit: int = 100) -> dict[str, object]:
+        if comment_id is not None and (post_id is None or not self._valid_id(comment_id, "comment_id")):
+            return failure(ErrorCode.VALIDATION_ERROR, "comment_id must be a positive integer with post_id")
         if (post_id is None) == (user_id is None) or (post_id is not None and not self._valid_id(post_id, "post_id")) or (user_id is not None and user_id != "me" and not self._valid_id(user_id, "user_id")) or not isinstance(limit, int) or isinstance(limit, bool) or not 1 <= limit <= 1000:
             return failure(ErrorCode.VALIDATION_ERROR, "exactly one valid post_id or user_id and a limit from 1 to 1000 are required")
         if post_id is not None:
+            if comment_id is not None:
+                return collect_cursor(self._get, f"/api/v2/community/posts/{post_id}/comments/{comment_id}/votes", "votes", limit, cursor)
             return collect_cursor(self._get, f"/api/v2/community/posts/{post_id}/votes.json", "votes", limit, cursor)
         state = _decode_vote_cursor(cursor, user_id)
         if state is None: return failure(ErrorCode.VALIDATION_ERROR, "cursor is invalid for this user")

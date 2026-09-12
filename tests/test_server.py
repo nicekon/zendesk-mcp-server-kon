@@ -1323,6 +1323,22 @@ def test_support_read_tools_are_registered():
     ]
 
 
+def test_comment_vote_mcp_dispatch_preserves_comment_scope(tmp_path, monkeypatch):
+    from zendesk_mcp_server import server as module
+    from zendesk_mcp_server.contracts import success
+    class Client:
+        def __init__(self, *args, **kwargs): pass
+        def get(self, path, *, params=None):
+            assert path == "/api/v2/community/posts/2/comments/3/votes"
+            assert params == {"page[size]": "1"}
+            return success({"votes": [{"id": 8}], "meta": {"has_more": False}})
+    monkeypatch.setattr(module, "ZendeskClient", Client)
+    server = module.create_server({"ZENDESK_SUBDOMAIN": "example", "ZENDESK_EMAIL": "test@example.test", "ZENDESK_API_TOKEN": "test-only", "ZENDESK_CAPABILITIES": "community", "ZENDESK_AUDIT_LOG": str(tmp_path / "audit.jsonl")})
+    request = types.CallToolRequest(params=types.CallToolRequestParams(name="zendesk_list_community_votes", arguments={"post_id": 2, "comment_id": 3, "limit": 1}))
+    result = asyncio.run(server.request_handlers[types.CallToolRequest](request)).root.structuredContent
+    assert result["ok"] is True and result["items"] == [{"id": 8}]
+
+
 def test_community_vote_tool_accepts_post_or_user_cursor_pagination():
     from zendesk_mcp_server.server import build_tools
 
@@ -1332,11 +1348,12 @@ def test_community_vote_tool_accepts_post_or_user_cursor_pagination():
         "type": "object",
         "properties": {
             "post_id": {"type": "integer", "minimum": 1},
+            "comment_id": {"type": "integer", "minimum": 1},
             "user_id": {"oneOf": [{"type": "integer", "minimum": 1}, {"type": "string", "enum": ["me"]}]},
             "cursor": {"type": "string", "minLength": 1},
             "limit": {"type": "integer", "minimum": 1, "maximum": 1000, "default": 100},
         },
-        "anyOf": [{"required": ["post_id"]}, {"required": ["user_id"]}],
+        "oneOf": [{"required": ["post_id"], "not": {"required": ["user_id"]}}, {"required": ["user_id"], "not": {"anyOf": [{"required": ["post_id"]}, {"required": ["comment_id"]}]}}],
     }
 
 

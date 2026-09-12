@@ -278,6 +278,24 @@ def test_subscription_lookup_never_scans_more_than_1000_records():
     assert client.scanned == 1000
 
 
+def test_comment_votes_use_the_official_endpoint_and_resume():
+    calls = []
+    class Client:
+        def get(self, path, *, params=None):
+            calls.append(path)
+            assert path == "/api/v2/community/posts/2/comments/3/votes"
+            after = params.get("page[after]")
+            return success({"votes": [{"id": 9 if after else 8}], "meta": {"has_more": not bool(after), "after_cursor": "next" if not after else None}})
+    tools = CommunityTools(Client())
+    first = tools.list_votes(post_id=2, comment_id=3, limit=1)
+    last = tools.list_votes(post_id=2, comment_id=3, limit=1, cursor=first["next_cursor"])
+    assert first["items"] == [{"id": 8}] and first["has_more"] is True
+    assert last["items"] == [{"id": 9}] and last["has_more"] is False
+    for scope in ({"comment_id": 3}, {"user_id": "me", "comment_id": 3}, {"post_id": 2, "comment_id": True}, {"post_id": 2, "comment_id": 0}):
+        assert tools.list_votes(**scope)["error"]["code"] == "validation_error"
+    assert len(calls) == 2
+
+
 def test_post_votes_use_the_official_community_endpoint():
     class Client:
         def get(self, path, *, params=None):

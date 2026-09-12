@@ -431,3 +431,11 @@ Inline statistics stay in `items`; any additional non-pagination response fields
 Missing values are not filled with zero and null values stay null. Errors are returned without retrying a less informative request.
 The official reference does not give a usage response example: local tests prove lossless handling of simulated inline and root-level fields, not the exact live response shape.
 See [Triggers](https://developer.zendesk.com/api-reference/ticketing/business-rules/triggers/) and [side-loading](https://developer.zendesk.com/documentation/api-basics/working-with-data/side_loading/).
+
+### Community comment votes
+
+`zendesk_list_community_votes` now accepts `post_id` plus `comment_id` to list votes for one post comment.
+Post-only and user-only inputs are unchanged; user scope cannot be mixed with post/comment scope.
+Keep both IDs unchanged when resuming `next_cursor`. This read-only operation reuses cursor pagination
+and propagates Zendesk permission errors; it does not change votes or subscriptions.
+See [Votes](https://developer.zendesk.com/api-reference/help_center/help-center-api/votes/).
