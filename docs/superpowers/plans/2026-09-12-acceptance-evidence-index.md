@@ -58,6 +58,14 @@ tests/docs/.github 경로는 저장소 루트 기준이며, `auth.py` 같은 소
 
 ## 다음 확인 순서
 
+15번 복합 필터 후속: `tests/test_tickets.py::test_combined_ticket_filters_preserve_resolved_conditions_and_reject_ambiguity`는
+검색·개수·내보내기에 text/status/priority/type/attachment/date/custom field/tag와
+assignee/requester/organization/brand/group/form 참조를 한 번에 전달한다.
+서로 다른 사용자 ID 및 모든 필터의 최종 query 보존, export의 filter[type] 분리,
+입력 객체 불변을 검증한다. 마지막 form 이름이 모호하면 후보 ID를 반환하고 티켓
+검색 요청에 도달하지 않는 경우까지 6개 합성 사례가 통과했다. 기존 구현 변경은 없으며,
+이 대표 복합 조건의 근거가 모든 필터 조합이나 projection 전체 계약을 증명하지는 않는다.
+
 15번 projection 후속: `_project_custom_objects`가 잘못된 ticket field ID를 조용히 제외해
 불완전한 연결 정보를 성공으로 반환할 수 있어, 공통 경로에서 upstream_error로 차단했다.
 `tests/test_tickets.py::test_custom_object_projection_rejects_malformed_lookup_metadata`는

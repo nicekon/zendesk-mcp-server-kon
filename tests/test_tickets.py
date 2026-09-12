@@ -643,6 +643,53 @@ def test_structured_ticket_filter_uses_the_same_serializer_for_search_count_and_
     ]
 
 
+@pytest.mark.parametrize("method", ["search_tickets", "count_tickets", "export_tickets"])
+@pytest.mark.parametrize("ambiguous_form", [False, True])
+def test_combined_ticket_filters_preserve_resolved_conditions_and_reject_ambiguity(method, ambiguous_form):
+    from copy import deepcopy
+
+    query = {
+        "text": "billing outage", "status": "open", "priority": "urgent", "type": "incident",
+        "has_attachment": True, "created": {"after": "2026-09-01", "before": "2026-09-03"},
+        "tags": {"include": ["billing"], "exclude": ["spam"]},
+        "custom_fields": [{"id": 10, "value": "enterprise plan"}],
+        "assignee": {"kind": "email", "value": "alex@example.test"},
+        "requester": {"kind": "phone", "value": "+821012345678"},
+        "organization": {"kind": "name", "value": "Acme"},
+        "brand": {"kind": "name", "value": "Main"},
+        "group": {"kind": "name", "value": "Support"},
+        "form": {"kind": "name", "value": "Incident"},
+    }
+    original = deepcopy(query)
+    forms = [{"id": 4, "name": "Incident"}] + ([{"id": 5, "name": "Incident"}] if ambiguous_form else [])
+    client = StubClient({
+        "/api/v2/users/search.json": success({"users": [
+            {"id": 8, "email": "alex@example.test", "phone": "+821011111111"},
+            {"id": 9, "email": "requester@example.test", "phone": "+821012345678"},
+        ], "next_page": None}),
+        "/api/v2/organizations/search.json": success({"organizations": [{"id": 12, "name": "Acme"}]}),
+        "/api/v2/brands.json": success({"brands": [{"id": 2, "name": "Main"}], "meta": {"has_more": False}}),
+        "/api/v2/groups.json": success({"groups": [{"id": 3, "name": "Support"}], "meta": {"has_more": False}}),
+        "/api/v2/ticket_forms.json": success({"ticket_forms": forms, "meta": {"has_more": False}}),
+        "/api/v2/search.json": success({"results": [], "next_page": None}),
+        "/api/v2/search/count.json": success({"count": {"value": 0}}),
+        "/api/v2/search/export.json": success({"results": [], "meta": {"has_more": False}}),
+    })
+    result = getattr(TicketTools(client), method)(query)
+    assert query == original
+    if ambiguous_form:
+        assert result["error"]["code"] == "validation_error"
+        assert result["error"]["details"]["candidate_ids"] == [4, 5]
+        assert all(not path.startswith("/api/v2/search") for path, _ in client.paths)
+        return
+    assert result["ok"] is True
+    expected = '"billing outage" status:open priority:urgent type:incident has_attachment:true created>2026-09-01 created<2026-09-03 custom_field_10:"enterprise plan" tags:billing -tags:spam assignee:8 requester:9 organization:12 brand:2 group:3 form:4'
+    params = client.paths[-1][1]
+    assert params["query"] == ("" if method == "export_tickets" else "type:ticket ") + expected
+    if method == "export_tickets":
+        assert params["filter[type]"] == "ticket"
+
+
 def test_structured_ticket_filter_serializes_documented_ticket_ranges_and_custom_fields():
     client = StubClient({"/api/v2/search.json": success({"results": [], "next_page": None})})
 
