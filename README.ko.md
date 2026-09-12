@@ -1,53 +1,29 @@
-# Zendesk MCP 서버 KON
+# Zendesk MCP
 
 [English](README.md)
 
-[![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
+Codex 같은 AI 앱에서 **Zendesk 티켓·도움말·커뮤니티를 대화로 조회**할 수 있게 해주는 연결 도구입니다.
 
-Zendesk용 Model Context Protocol 서버이며,
-[통합 Zendesk MCP PRD](docs/superpowers/specs/2026-09-04-unified-zendesk-mcp-design.md)를
-단계적으로 구현합니다.
-[capability manifest](docs/capability-manifest.md)에는 Community 도구가 따르는
-Zendesk 공식 API 계약을 기록합니다.
-[출시 절차](docs/releasing.md)에는 wheel·MCPB·MCP Registry 배포 순서를 기록합니다.
-기존 KON 또는 OAuth 설치를 바꾸기 전에는 [migration·rollback 절차](docs/migration.md)를
-확인합니다.
+- “최근 접수된 미해결 티켓을 찾아줘.”
+- “이 티켓의 대화를 요약하고 답변 초안을 작성해줘.”
+- “도움말에서 환불 관련 문서를 찾아줘.”
 
-## 현재 상태
+기본은 **읽기 전용**입니다. 답변 초안을 만들어도 고객에게 자동으로 전송하지 않습니다.
+수정·전송은 관리자가 별도로 설정해야 합니다.
 
-현재 pre-release는 다음의 guard된 도메인을 제공합니다.
+## 준비하기
 
-- `zendesk_get_connection_status`: 비밀값 없이 설정을 보고하고, 자격증명이 있으면
-  인증된 Zendesk 사용자를 확인합니다.
-- Support: 티켓 조회·검색·건수·export, guard된 수정, 댓글, 매크로 preview/apply,
-  metadata, 안전한 첨부 다운로드·검사를 제공합니다.
-- Guide·CSAT: locale, category, section, 문서 검색·export, 권한 metadata,
-  만족도, draft 문서·번역 workflow를 제공합니다.
-- Community: 게시물·댓글·topic, vote, subscription, content tag, badge,
-  안전한 user image/badge icon upload workflow를 제공합니다.
-- 조건부 Support 도구: ticket audit 시간 추적과 명시적으로 설정한 custom field의
-  Git-Zen 링크 추출을 제공합니다.
+- Zendesk 계정과 MCP를 지원하는 AI 앱이 필요합니다. 아래는 **Codex 기준**입니다.
+- [Git](https://git-scm.com/downloads)과 [uv](https://docs.astral.sh/uv/getting-started/installation/)를 설치하세요. uv는 이 도구를 설치하는 프로그램입니다.
+- 명령은 AI 채팅창이 아니라 **내 컴퓨터의 터미널**에 입력합니다. macOS에서는 ‘터미널’ 앱을 여세요.
+- 관리자에게 **Zendesk 서브도메인과 OAuth 클라이언트 식별자**를 요청하세요.
 
-서버는 기본 `read_only` 모드로 시작합니다. 표준 쓰기는
-`ZENDESK_WRITE_MODE=standard`가 필요하고, public·destructive·impersonation·external
-upload은 각각의 `ZENDESK_ENABLE_*` gate가 필요합니다. preview/apply 작업은 항상
-일회성 로컬 승인을 요구합니다.
+현재 소스에서 설치하는 버전입니다. 아래 브라우저 로그인은 macOS·Linux용입니다.
+**Windows는 [API 토큰 연결](docs/advanced-setup.md#api-token)을 사용하세요.**
 
-```bash
-zendesk approve <approval_request_id>
-```
+## 1. 설치하기
 
-이 명령은 MCP 서버와 같은 `ZENDESK_SUBDOMAIN` 환경에서 실행해야 합니다. 승인은
-해당 tenant에 결합되므로 다른 tenant에서 재사용할 수 없습니다.
-
-첨부 다운로드는 `ticket_id + attachment_id`로 소속과 악성코드 상태를 다시 확인하고
-server-managed cache에만 저장합니다. 캐시 위치는 `ZENDESK_ATTACHMENT_CACHE_ROOT`,
-안전한 로컬 image upload root는 `ZENDESK_UPLOAD_ROOT`로 설정할 수 있습니다.
-
-## 설치와 설정
-
-아직 변경 불가능한 사용자용 release는 게시되지 않았습니다. release commit을
-push한 뒤 소스 패키지는 다음처럼 설치합니다.
+터미널에서 한 줄씩 실행하세요.
 
 ```bash
 git clone https://github.com/nicekon/zendesk-mcp-server-kon.git
@@ -56,157 +32,85 @@ uv tool install .
 zendesk --help
 ```
 
-uv가 실행 파일 경로가 `PATH`에 없다고 알리면 `uv tool update-shell`을 실행하고
-새 터미널을 엽니다. `uv tool install`은 격리된 환경에 `zendesk` 명령을 설치합니다.
-아래의 `uv sync`는 저장소 개발용입니다.
+사용 안내가 나오면 설치 완료입니다. `zendesk` 명령을 찾을 수 없다고 나오면
+`uv tool update-shell`을 실행한 뒤 터미널을 새로 열어 주세요.
 
-### 브라우저 OAuth 로그인
+## 2. Zendesk에 로그인하기
 
-Zendesk 관리자가 해당 tenant에 **Public** OAuth client를 한 번 만들고 다음 redirect
-URI를 정확히 등록합니다.
+아래 두 값을 관리자에게 받은 정보로 바꾸세요.
+
+- `your-company`: 주소가 `your-company.zendesk.com`이라면 `your-company`만 입력합니다. 전체 주소나 별도 고객센터 도메인이 아닙니다.
+- `your-client-id`: **클라이언트 식별자**입니다. 이메일이나 API 토큰이 아닙니다.
+
+```bash
+zendesk login --subdomain your-company --client-id your-client-id
+```
+
+브라우저가 열리면 Zendesk에 로그인하고 접근을 허용하세요.
+주소창의 코드를 복사하거나 별도 서버를 실행할 필요는 없습니다.
+연결 정보는 내 컴퓨터에 저장되므로 매번 로그인하지 않아도 됩니다.
+
+<details>
+<summary>관리자라면: 최초 연결 준비</summary>
+
+Zendesk에 **Public 유형의 OAuth 클라이언트**를 만들고, 다음 리디렉션 주소를 정확히 등록하세요.
 
 ```text
 http://127.0.0.1:3000/oauth/callback
 ```
 
-client에는 활성 capability가 요청하는 읽기 scope가 허용돼야 합니다. 관리자는
-client identifier만 사용자에게 전달하며 client secret은 배포하지 않습니다.
-기본 활성화된 Support는 Search/Search Export를 위해 승인된 예외인 broad `read`도
-요청합니다. 이는 검색만이 아니라 사용자 역할에 허용된 모든 GET 접근 권한입니다.
-쓰기 권한을 활성화하지 않으며 서버 쓰기 gate는 별도로 유지됩니다.
-`read`가 없는 기존 grant는 다시 로그인해야 합니다.
-Community 대행을 활성화하면 현재 사용자 역할 확인을 위해 `users:read`도 요청합니다.
-게시글·댓글의 작성자나 생성 시각을 대신 지정하려면 로컬 정책상 관리자 역할,
-대행 gate, 대화형 사람 승인이 모두 필요합니다. Zendesk의 Help Center manager
-권한은 별도로 적용됩니다. 기존 grant의 재인증 조건은
-[이전 안내](docs/migration.md)를 참고하세요.
-사용자는 다음 명령을 실행합니다.
+사용자에게 서브도메인과 클라이언트 식별자를 전달하세요. 클라이언트 비밀키는 전달하지 않습니다.
+기본 로그인은 읽기 권한을 요청합니다. 검색에 필요한 `read` 권한은 검색 외에도 사용자의 역할이 허용하는 데이터 조회에 적용됩니다.
+[관리자용 상세 설정](docs/advanced-setup.md)에서 추가 설정을 확인할 수 있습니다.
+
+</details>
+
+## 3. 연결 확인하기
 
 ```bash
-zendesk login --subdomain your-zendesk-subdomain --client-id your-client-identifier
 zendesk check --probe
 ```
 
-`zendesk login`은 `127.0.0.1:3000`에서 임시 callback을 열고 시스템 브라우저를
-실행합니다. state와 PKCE code 및 Zendesk 사용자를 확인한 뒤 연결을
-`~/.config/zendesk-mcp-server/connection.json`에 저장하고 listener를 종료합니다.
-사용자가 authorization code를 복사할 필요는 없습니다. `--port`는 같은 대체
-redirect URI를 Zendesk에 등록했을 때만 사용합니다.
+결과에 `"ok": true`, `"configured": true`, `"verified_user"`가 있으면 로그인 확인이 끝났습니다.
+오류가 나오면 아래 표를 확인하세요. **토큰이나 비밀번호를 채팅에 붙여 넣지 마세요.**
 
-로그인은 현재 `ZENDESK_CAPABILITIES`와 쓰기 gate 설정에 필요한 scope를 요청합니다.
-설정이 없으면 읽기 전용입니다. 예를 들어 일반 티켓 쓰기 권한으로 재인증하려면:
+## 4. Codex에 등록하기
+
+Codex CLI가 설치된 터미널에서 실행 파일의 위치를 확인하세요.
 
 ```bash
-ZENDESK_WRITE_MODE=standard zendesk login --subdomain your-zendesk-subdomain --client-id your-client-identifier
+command -v zendesk
 ```
 
-이 일회성 설정은 MCP의 쓰기 gate를 영구적으로 켜지 않습니다. 실제 쓰기를 사용할
-MCP 실행에도 별도로 gate 설정이 필요하며 공개·삭제 등의 추가 승인 정책은 유지됩니다.
-
-현재 Windows에서는 사용자 전용 토큰 저장 권한을 보장하는 ACL 처리가 없어
-OAuth가 `unsupported`로 중단됩니다. Windows 패키지 설치·MCP 시작 검증은
-OAuth 로그인 지원을 의미하지 않습니다. Windows에서는 API token 설정을 사용합니다.
-
-macOS/Linux에서는 `command -v zendesk`, Windows에서는 `where zendesk`로 설치된
-실행 파일을 찾습니다. Codex에는 그 절대 경로를 등록하고 결과를 확인합니다.
+출력된 경로를 아래 `/absolute/path/to/zendesk` 대신 넣으세요. 따옴표는 그대로 둡니다.
 
 ```bash
-codex mcp add zendesk -- /absolute/path/to/zendesk
+codex mcp add zendesk -- "/absolute/path/to/zendesk"
 codex mcp list
 ```
 
-다른 MCP client는 보통 같은 의미의 JSON 설정을 사용합니다.
+목록에 `zendesk`가 나오면 등록된 것입니다. Codex를 다시 열고 새 대화에서 “Zendesk 연결 상태를 확인해줘”라고 요청해 보세요.
+등록 명령을 찾지 못하거나 다른 앱을 사용한다면 [앱별 연결 설정](docs/advanced-setup.md#connect-app)을 참고하세요.
 
-```json
-{
-  "mcpServers": {
-    "zendesk": {
-      "command": "/absolute/path/to/zendesk"
-    }
-  }
-}
-```
+## 문제가 생겼을 때
 
-MCP 프로세스는 터미널 환경변수에 의존하지 않고 저장된 연결을 읽습니다. stdio
-서버로 실행되는 동안 브라우저를 열지 않습니다.
-패키지를 제거해도 Zendesk 접근 권한은 철회되지 않습니다. 연결을 더 이상 쓰지
-않으면 Zendesk에서 OAuth grant를 철회하고 위의 정확한 로컬 연결 파일을 제거합니다.
+| 증상 | 확인할 내용 |
+| --- | --- |
+| 명령을 찾을 수 없음 | `uv tool update-shell` 실행 후 터미널을 다시 여세요. |
+| 로그인이 끝나지 않음 | 브라우저의 허용 화면을 확인하세요. 시간이 지났다면 로그인 명령을 다시 실행하세요. |
+| `401` 또는 `authentication_failed` | 다시 로그인하세요. API 토큰 방식이면 서브도메인·이메일·토큰을 확인하세요. |
+| `403` 또는 `permission_denied` | 관리자에게 해당 기능의 계정 권한을 확인해 달라고 요청하세요. |
+| `not_configured` 또는 `unsupported` | 별도 설정이나 Zendesk 요금제가 필요한 기능일 수 있습니다. |
+| 조회는 되지만 수정은 안 됨 | 기본 읽기 전용 상태입니다. 오류가 아닙니다. |
 
-### API token 설정
+일부 기능은 추가 설정이 필요하며 계정·요금제·사용자 권한에 따라 사용 범위가 다릅니다.
+**이미지 업로드는 실제 환경의 권한 문제로 검증이 끝나지 않았습니다.**
 
-API token 인증도 유지합니다. MCP 프로세스에 세 환경 변수를 모두 제공합니다.
+## 더 알아보기
 
-```json
-{
-  "mcpServers": {
-    "zendesk": {
-      "command": "uv",
-      "args": ["--directory", "/path/to/zendesk-mcp-server-kon", "run", "zendesk"],
-      "env": {
-        "ZENDESK_SUBDOMAIN": "your-zendesk-subdomain",
-        "ZENDESK_EMAIL": "your-zendesk-email",
-        "ZENDESK_API_TOKEN": "your-zendesk-api-token"
-      }
-    }
-  }
-}
-```
+- [API 토큰·쓰기 권한·선택 기능 설정](docs/advanced-setup.md)
+- [기존 버전에서 이전하거나 되돌리기](docs/migration.md)
+- [전체 기능과 API 참고](docs/capability-manifest.md)
+- [개발·출시 안내](docs/releasing.md)
 
-`ZENDESK_API_KEY`는 더 이상 허용하지 않습니다. `ZENDESK_API_TOKEN`으로
-이관해야 하며, 서버는 예전 이름을 조용히 사용하지 않고 오류로 알려줍니다.
-
-`ZENDESK_AUTH_MODE`의 기본값은 `auto`입니다. 완전한 OAuth 설정이 있으면 OAuth를,
-그렇지 않으면 완전한 API token 설정을 선택합니다. OAuth 설정이 일부만 있으면
-오류가 나며 API token으로 fallback하지 않습니다.
-
-`zendesk check`는 네트워크 요청 없이 구성을 검사하고, `--probe`를 추가하면
-비밀값을 출력하지 않고 현재 Zendesk 사용자를 확인합니다.
-JSON의 `ok`가 false이면 종료 코드 1, true이면 0을 반환합니다.
-`--probe` 없는 무설정 상태 조회도 정상 검사이므로 연결 준비 여부는
-`data.configured` 값까지 확인하세요.
-
-```bash
-zendesk check
-```
-
-서버 환경을 위한 기존 confidential OAuth도 유지합니다. 사용하려면
-`ZENDESK_SUBDOMAIN`, `ZENDESK_AUTH_MODE=oauth`,
-`ZENDESK_OAUTH_CLIENT_ID`, `ZENDESK_OAUTH_CLIENT_SECRET`, 사용자 전용
-`ZENDESK_OAUTH_TOKEN_STORE` 경로를 설정합니다. Zendesk에 등록한 redirect URI를
-두 명령에서 정확히 동일하게 사용합니다.
-
-```bash
-zendesk oauth-start https://your-app.example/callback
-zendesk oauth-finish https://your-app.example/callback <state>
-```
-
-`oauth-start`는 authorization URL을 출력하고 일회성 state를 저장합니다.
-Zendesk가 redirect한 뒤 반환된 `state`를 `oauth-finish`에 넘기면 authorization
-code를 화면에 보이지 않게 입력받아 user-only 권한의 token store에 저장합니다.
-
-`ZENDESK_CAPABILITIES`로 조건부 도메인을 활성화할 수 있습니다. 비활성 도구도
-목록에는 남지만 Zendesk 요청 전에 `not_configured`를 반환합니다. `git_zen`을
-활성화한 경우에만 `ZENDESK_GIT_ZEN_FIELD_ID`를 설정합니다.
-시간 추적은 기본적으로 ticket audit metadata 방식을 사용합니다.
-Time Tracking 앱의 두 필드를 사용하려면 `ZENDESK_TIME_TRACKING_TOTAL_FIELD_ID`와
-`ZENDESK_TIME_TRACKING_LAST_FIELD_ID`를 모두 설정합니다. 두 필드는 서로 다른
-양의 ID여야 하며, 앱 방식은 누적 시간과 마지막 작업 시간을 초 단위로 갱신합니다.
-두 방식 모두 내부 note를 포함하며 동시에 기록하지 않습니다.
-
-## 프롬프트
-
-- `analyze-ticket(ticket_id)`
-- `draft-ticket-response(ticket_id)`
-
-프롬프트는 안내 문구만 만듭니다. Zendesk 쓰기를 실행하지 않습니다.
-
-## 개발
-
-```bash
-uv sync --group dev
-uv run pytest -v
-uv build
-```
-
-현재 범위는 [foundation 구현 계획](docs/superpowers/plans/2026-09-04-unified-zendesk-mcp-foundation.md),
-전체 기능 로드맵은 PRD에서 확인할 수 있습니다.
+라이선스: [Apache-2.0](LICENSE)
