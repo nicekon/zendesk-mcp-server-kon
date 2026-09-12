@@ -261,6 +261,38 @@ def test_conversation_sides_use_sideloaded_roles_not_visibility():
     assert all(c["public"] is True for c in comments)
 
 
+def test_conversation_names_use_sideloads_without_role_or_name_guessing():
+    class Client:
+        def get(self, path, *, params=None):
+            return success({"comments": [{"author_id": 1}, {"author_id": 2}, {"author_id": 3}, {"author_id": True}], "users": [{"id": 1, "name": "Alex", "role": "agent"}, {"id": 2, "name": "Sam"}, {"id": 3, "name": None}], "meta": {"has_more": False}})
+    comments = TicketTools(Client()).get_conversation(7)["data"]["comments"]
+    assert [item.get("author_name") for item in comments] == ["Alex", "Sam", None, None]
+    assert comments[1]["side"] == "unknown"
+
+
+def test_conversation_auto_uses_messaging_flag_and_reports_resolved_source():
+    for messaging in (True, False):
+        class Client:
+            def get(self, path, *, params=None):
+                if path == "/api/v2/tickets/7.json":
+                    return success({"ticket": {"id": 7, "from_messaging_channel": messaging}})
+                assert path == ("/api/v2/tickets/7/conversation_log" if messaging else "/api/v2/tickets/7/comments.json")
+                return success({("events" if messaging else "comments"): [], "meta": {"has_more": False}})
+        result = TicketTools(Client()).get_conversation(7, source="auto")
+        assert result["ok"] is True
+        assert result["data"]["source"] == ("conversation_log" if messaging else "comments")
+
+
+def test_conversation_auto_cannot_guess_or_reinterpret_a_cursor():
+    for value in (None, 1, "false"):
+        class Client:
+            def get(self, path, *, params=None):
+                assert path == "/api/v2/tickets/7.json"
+                return success({"ticket": {"id": 7, "from_messaging_channel": value}})
+        assert TicketTools(Client()).get_conversation(7, source="auto")["error"]["code"] == "upstream_error"
+    assert TicketTools(None).get_conversation(7, source="auto", cursor="next")["error"]["code"] == "validation_error"
+
+
 def test_conversation_roles_across_pages_preserve_raw_fields_and_unknown_authors():
     class Client:
         def get(self, path, *, params=None):

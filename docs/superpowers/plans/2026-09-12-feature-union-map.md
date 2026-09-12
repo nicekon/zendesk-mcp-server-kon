@@ -206,6 +206,15 @@ get_ticket_conversation의 source=conversation_log를 공식 endpoint로 연결�
 두 페이지 이벤트 보존·외부 next 무시·권한 오류 no-fallback·MCP source/cursor 전달 포함 680 passed.
 자동 채널 선택, 기존 댓글 작성자 이름/이미지 표시 보강은 아직 남아 있어 G5 전체 완료는 아니다.
 
+### G5 자동 선택·작성자 이름 후속
+
+source=auto는 최초 요청의 ticket.from_messaging_channel boolean으로만 경로를 결정한다.
+누락/잘못된 값은 거부하고, 응답의 확정 source로 재개하도록 auto+cursor를 막는다.
+댓글 author_name은 기존 users sideload를 재사용하며 역할과 독립적으로 이름을 보존한다.
+기본 comments 및 첨부 소속 확인은 변경하지 않았다. strict flag/양쪽 경로/이름 없음/실제 MCP
+전달 포함 684 passed. 이미지 표시 보강과 전체 기능 수용 감사는 남아 있다.
+근거: [Tickets](https://developer.zendesk.com/api-reference/ticketing/tickets/tickets/).
+
 M10의 원본 priority/status 정렬, M06의 원본 상세 GitLab metadata, M19의 표시 포맷은
 PRD가 승인한 범위와 추가 대조한다. 원본 입력과 다르다는 이유만으로 위험한 호환 alias나
 승인하지 않은 외부 GitLab 조회를 추가하지 않는다. G 항목을 해결해도 색인의 resolver·

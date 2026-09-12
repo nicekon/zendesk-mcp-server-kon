@@ -392,7 +392,10 @@ and badge icon uploader now explicitly listed in section 8.
 This mode returns `data.events` (raw event fields plus the untrusted-content marker) and `data.source`; it does not flatten buttons, author objects, attachments or private metadata into comment text.
 Events are requested in created-at order. Resume with the same source and returned cursor; never move a cursor between comments and conversation-log endpoints.
 The default remains `comments`, including for attachment ownership checks. Log permission/rate-limit errors do not fall back to comments.
-Automatic channel selection and normalized display enhancements remain pending. No live conversation-log request was performed during implementation.
+`source: "auto"` reads the ticket's boolean `from_messaging_channel` on the initial page: true selects the log, false selects comments. A missing or invalid flag stops with an error; there is no guessed fallback.
+Auto returns the resolved `data.source`. Use that explicit value for every resumed request; auto rejects cursors to avoid moving continuation tokens across sources if ticket state changes.
+Comment results now include `author_name` when the existing users sideload supplies it. Missing names are not guessed, and original fields remain intact.
+Image display enhancements remain pending. No live conversation-log request was performed during implementation.
 Reference: [Conversation Log](https://developer.zendesk.com/api-reference/ticketing/tickets/conversation_log/).
 
 CSAT list/export input schemas now distinguish `legacy`, `survey`, and `auto` (the default).

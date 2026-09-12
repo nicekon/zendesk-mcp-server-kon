@@ -363,6 +363,25 @@ def test_mcp_conversation_log_source_and_cursor_are_forwarded(monkeypatch):
     assert result.root.structuredContent["data"]["events"] == [{"id": "message-b", "untrusted_user_content": True}]
 
 
+def test_mcp_conversation_auto_selects_log_from_ticket_origin(monkeypatch):
+    from zendesk_mcp_server.contracts import success
+    from zendesk_mcp_server.tools.tickets import TicketTools
+    module = importlib.import_module("zendesk_mcp_server.server")
+    calls = []
+    class Client:
+        def get(self, path, *, params=None):
+            calls.append(path)
+            if path == "/api/v2/tickets/9.json": return success({"ticket": {"id": 9, "from_messaging_channel": True}})
+            assert path == "/api/v2/tickets/9/conversation_log"
+            return success({"events": [], "meta": {"has_more": False}})
+    monkeypatch.setattr(module, "build_ticket_tools", lambda _: TicketTools(Client()))
+    server = module.create_server({"ZENDESK_CAPABILITIES": "support"})
+    request = types.CallToolRequest(params=types.CallToolRequestParams(name="zendesk_get_ticket_conversation", arguments={"ticket_id": 9, "source": "auto"}))
+    result = asyncio.run(server.request_handlers[types.CallToolRequest](request))
+    assert result.root.structuredContent["data"]["source"] == "conversation_log"
+    assert calls == ["/api/v2/tickets/9.json", "/api/v2/tickets/9/conversation_log"]
+
+
 def test_mcp_assignment_passes_email_selector_to_resolution(monkeypatch):
     from zendesk_mcp_server.config import Settings
     from zendesk_mcp_server.contracts import success

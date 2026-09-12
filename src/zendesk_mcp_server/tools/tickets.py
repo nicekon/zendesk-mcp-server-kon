@@ -83,14 +83,27 @@ class TicketTools:
         return collect_cursor(client.get, "/api/v2/tickets.json", "tickets", limit, cursor, filters={"sort": sort} if sort is not None else None)
 
     def get_conversation(self, ticket_id: int, *, limit: int = 100, cursor: str | None = None, source: str = "comments") -> dict[str, object]:
-        if source not in ("comments", "conversation_log"):
-            return failure(ErrorCode.VALIDATION_ERROR, "source must be comments or conversation_log")
+        if source not in ("comments", "conversation_log", "auto"):
+            return failure(ErrorCode.VALIDATION_ERROR, "source must be comments, conversation_log, or auto")
         if not _valid_ticket_id(ticket_id):
             return failure(ErrorCode.VALIDATION_ERROR, "ticket_id must be a positive integer")
+        if source == "auto":
+            if cursor is not None or type(limit) is not int or not 1 <= limit <= 1000:
+                return failure(ErrorCode.VALIDATION_ERROR, "auto requires an initial page and limit 1 to 1000; resume with the returned source")
+            snapshot = self.get_ticket(ticket_id)
+            if not snapshot.get("ok"): return snapshot
+            data = snapshot.get("data")
+            ticket = data.get("ticket") if isinstance(data, dict) else None
+            messaging = ticket.get("from_messaging_channel") if isinstance(ticket, dict) else None
+            if type(messaging) is not bool:
+                return failure(ErrorCode.UPSTREAM_ERROR, "Ticket did not identify its messaging origin; choose an explicit source")
+            resolved = "conversation_log" if messaging else "comments"
+            result = self.get_conversation(ticket_id, limit=limit, source=resolved)
+            return {**result, "data": {**result["data"], "source": resolved}} if result.get("ok") else result
         client = self._configured_client()
         if isinstance(client, dict):
             return client
-        roles = {}
+        roles = {}; names = {}
         if source == "conversation_log":
             result = collect_cursor(client.get, f"/api/v2/tickets/{ticket_id}/conversation_log", "events", limit, cursor, filters={"sort": "created_at"})
             if not result.get("ok"): return result
@@ -102,6 +115,8 @@ class TicketTools:
                 if not isinstance(users, list):
                     return failure(ErrorCode.UPSTREAM_ERROR, "Zendesk returned invalid conversation users")
                 for user in users:
+                    if isinstance(user, dict) and type(user.get("id")) is int and isinstance(user.get("name"), str):
+                        names[user["id"]] = user["name"]
                     if isinstance(user, dict) and type(user.get("id")) is int and isinstance(user.get("role"), str):
                         roles[user["id"]] = user["role"]
             return page
@@ -112,6 +127,8 @@ class TicketTools:
         for comment in result["items"]:
             item = {**comment, "untrusted_user_content": True}
             role = roles.get(comment.get("author_id")) if type(comment.get("author_id")) is int else None
+            name = names.get(comment.get("author_id")) if type(comment.get("author_id")) is int else None
+            if name is not None: item.setdefault("author_name", name)
             if role is not None: item.setdefault("author_role", role)
             item.setdefault("side", {"end-user": "customer", "agent": "agent", "admin": "agent"}.get(role, "unknown"))
             metadata = comment.get("metadata")
