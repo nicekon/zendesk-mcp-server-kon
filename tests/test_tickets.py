@@ -270,6 +270,29 @@ def test_conversation_names_use_sideloads_without_role_or_name_guessing():
     assert comments[1]["side"] == "unknown"
 
 
+def test_conversation_image_placeholders_preserve_raw_html_in_both_sources():
+    html = '<p>Before &amp; after<img src="https://untrusted.invalid/x" onerror="alert(1)">tail</p><p><IMG alt="Screenshot" src="cid:1" /></p>'
+    for source in ("comments", "conversation_log"):
+        record = {"id": 1, "html_body": html} if source == "comments" else {"id": "event-a", "content": {"type": "html", "body": html}}
+        key = "comments" if source == "comments" else "events"
+        class Client:
+            def get(self, path, *, params=None):
+                assert path == ("/api/v2/tickets/7/comments.json" if source == "comments" else "/api/v2/tickets/7/conversation_log")
+                return success({key: [record], "meta": {"has_more": False}})
+        result = TicketTools(Client()).get_conversation(7, source=source)["data"][key][0]
+        assert result["display_text"] == "Before & after[image]tail\n[image: Screenshot]"
+        assert all(result[field] == value for field, value in record.items())
+        assert result["untrusted_user_content"] is True
+
+
+def test_malformed_image_html_does_not_break_conversation_read():
+    html = '<img src="cid:1"><![invalid]>'
+    client = StubClient({"/api/v2/tickets/7/comments.json": success({"comments": [{"id": 1, "html_body": html}], "meta": {"has_more": False}})})
+    result = TicketTools(client).get_conversation(7)
+    assert result["ok"] is True
+    assert result["data"]["comments"][0]["html_body"] == html
+
+
 def test_conversation_auto_uses_messaging_flag_and_reports_resolved_source():
     for messaging in (True, False):
         class Client:

@@ -395,7 +395,9 @@ The default remains `comments`, including for attachment ownership checks. Log p
 `source: "auto"` reads the ticket's boolean `from_messaging_channel` on the initial page: true selects the log, false selects comments. A missing or invalid flag stops with an error; there is no guessed fallback.
 Auto returns the resolved `data.source`. Use that explicit value for every resumed request; auto rejects cursors to avoid moving continuation tokens across sources if ticket state changes.
 Comment results now include `author_name` when the existing users sideload supplies it. Missing names are not guessed, and original fields remain intact.
-Image display enhancements remain pending. No live conversation-log request was performed during implementation.
+HTML bodies containing images additionally receive `display_text`, with `[image]` or `[image: alt text]` markers in source order. Original HTML, rich content and attachments remain unchanged; no image URL is fetched.
+This is an untrusted plain-text convenience field, not HTML sanitization. Malformed HTML that cannot be parsed retains its original data and sets `display_text_unavailable: true`.
+No live conversation-log request was performed during implementation.
 Reference: [Conversation Log](https://developer.zendesk.com/api-reference/ticketing/tickets/conversation_log/).
 
 CSAT list/export input schemas now distinguish `legacy`, `survey`, and `auto` (the default).

@@ -215,6 +215,15 @@ source=auto는 최초 요청의 ticket.from_messaging_channel boolean으로만 �
 전달 포함 684 passed. 이미지 표시 보강과 전체 기능 수용 감사는 남아 있다.
 근거: [Tickets](https://developer.zendesk.com/api-reference/ticketing/tickets/tickets/).
 
+### G5 HTML 이미지 텍스트 표시 후속
+
+댓글 html_body와 log의 HTML content.body 공통 경로에 display_text를 추가했다.
+HTML img 위치에 이미지/alt 표식을 남기고 원본 body·첨부·버튼 등은 유지한다. URL 다운로드/HTML 실행은 없다.
+표시는 untrusted 데이터이며 sanitization 보장이 아니다. HTML 파싱 실패는 원본을 반환하고
+display_text_unavailable로 구분한다. 양쪽 소스·원본 보존·파서 실패 회귀 포함 전체 686 passed.
+G1–G8의 명시된 기능 보완은 각 후속 절에 구현 근거가 있으나 전체 요구사항 수용 색인의
+resolver 세부 조합·Community 세부 계약·fresh wheel write-zero·미검증 외부 동작은 계속 대조해야 한다.
+
 M10의 원본 priority/status 정렬, M06의 원본 상세 GitLab metadata, M19의 표시 포맷은
 PRD가 승인한 범위와 추가 대조한다. 원본 입력과 다르다는 이유만으로 위험한 호환 alias나
 승인하지 않은 외부 GitLab 조회를 추가하지 않는다. G 항목을 해결해도 색인의 resolver·

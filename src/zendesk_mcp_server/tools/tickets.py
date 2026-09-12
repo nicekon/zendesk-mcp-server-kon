@@ -18,6 +18,7 @@ import zipfile
 import json
 import re
 from datetime import datetime
+from html.parser import HTMLParser
 from pathlib import Path
 from typing import Callable, Iterable, Iterator, Mapping, Protocol
 
@@ -31,6 +32,42 @@ from ..write_policy import WriteRisk, check_write_permission
 _TIME_SPENT = re.compile(r"(?=.+$)(?:[1-9]\d*h)?(?:[1-9]\d*m)?(?:[1-9]\d*s)?$")
 _OBJECT_PATH_PART = re.compile(r"(?!\.{1,2}$)[A-Za-z0-9._~-]+")
 _GIT_ZEN_URL = re.compile(r"https://(?:github\.com/[^\s/]+/[^\s/]+/(?:(?:issues|pull)/\d+|commit/[0-9a-fA-F]{7,64})|gitlab\.com/[^\s<>\"']+/-/(?:(?:issues|merge_requests)/\d+|commit/[0-9a-fA-F]{7,64}))")
+
+
+class _ConversationImageText(HTMLParser):
+    def __init__(self):
+        super().__init__(convert_charrefs=True)
+        self.parts = []; self.has_images = False
+
+    def handle_starttag(self, tag, attrs):
+        if tag == "img":
+            self.has_images = True
+            alt = dict(attrs).get("alt")
+            self.parts.append(f"[image: {alt}]" if alt else "[image]")
+        elif tag in ("br", "p", "div", "li"):
+            self.parts.append("\n")
+
+    def handle_endtag(self, tag):
+        if tag in ("p", "div", "li"): self.parts.append("\n")
+
+    def handle_data(self, data): self.parts.append(data)
+
+
+def _conversation_display(record):
+    item = {**record, "untrusted_user_content": True}
+    content = record.get("content")
+    html = record.get("html_body")
+    if not isinstance(html, str) and isinstance(content, dict) and content.get("type") == "html":
+        html = content.get("body")
+    if isinstance(html, str) and "<img" in html.lower():
+        parser = _ConversationImageText()
+        try:
+            parser.feed(html); parser.close()
+        except (AssertionError, ValueError):
+            return {**item, "display_text_unavailable": True}
+        if parser.has_images:
+            item.setdefault("display_text", "\n".join(line for line in "".join(parser.parts).splitlines() if line).strip())
+    return item
 
 
 class TicketClient(Protocol):
@@ -107,7 +144,7 @@ class TicketTools:
         if source == "conversation_log":
             result = collect_cursor(client.get, f"/api/v2/tickets/{ticket_id}/conversation_log", "events", limit, cursor, filters={"sort": "created_at"})
             if not result.get("ok"): return result
-            return success({"source": source, "events": [{**event, "untrusted_user_content": True} for event in result["items"]], **{key: result[key] for key in ("has_more", "next_cursor", "truncated")}})
+            return success({"source": source, "events": [_conversation_display(event) for event in result["items"]], **{key: result[key] for key in ("has_more", "next_cursor", "truncated")}})
         def get_page(path, *, params=None):
             page = client.get(path, params=params)
             if page.get("ok") and isinstance(page.get("data"), dict):
@@ -125,7 +162,7 @@ class TicketTools:
             return result
         marked = []
         for comment in result["items"]:
-            item = {**comment, "untrusted_user_content": True}
+            item = _conversation_display(comment)
             role = roles.get(comment.get("author_id")) if type(comment.get("author_id")) is int else None
             name = names.get(comment.get("author_id")) if type(comment.get("author_id")) is int else None
             if name is not None: item.setdefault("author_name", name)
