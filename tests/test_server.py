@@ -200,11 +200,11 @@ def test_guide_mcp_calls_preserve_pagination_arguments(monkeypatch):
     cases = [
         ("list_help_center_categories", {}, "/api/v2/help_center/categories.json", "categories", {}),
         ("list_help_center_sections", {}, "/api/v2/help_center/sections.json", "sections", {}),
-        ("list_guide_user_segments", {"built_in": False, "applicable": True}, "/api/v2/help_center/user_segments/applicable.json", "user_segments", {"built_in": "false"}),
+        ("list_user_segments", {"built_in": False, "applicable": True}, "/api/v2/help_center/user_segments/applicable.json", "user_segments", {"built_in": "false"}),
         ("get_satisfaction_ratings", {}, "/api/v2/satisfaction_ratings.json", "satisfaction_ratings", {}),
         ("list_csat", {"backend": "legacy", "score": "good"}, "/api/v2/satisfaction_ratings.json", "satisfaction_ratings", {"score": "good"}),
         ("list_csat", {"backend": "survey", "ticket_id": 9}, "/api/v2/guide/survey_responses", "survey_responses", {"filter[subject_zrns]": "zen:ticket:9"}),
-        ("list_guide_permission_groups", {}, "/api/v2/guide/permission_groups.json", "permission_groups", None),
+        ("list_permission_groups", {}, "/api/v2/guide/permission_groups.json", "permission_groups", None),
         ("search_help_center_articles", {"query": "billing"}, "/api/v2/help_center/articles/search.json", "results", None),
     ]
     for name, arguments, endpoint, key, filters in cases:
@@ -936,6 +936,56 @@ def test_ticket_closure_mcp_dispatch_preserves_approval_options(tmp_path, monkey
         assert client.calls[-1][2] == {"ticket": {key: value for key, value in args.items() if key != "ticket_id"}}
 
 
+def test_canonical_names_preserve_dispatch_capabilities_and_approval_identity(tmp_path, monkeypatch):
+    from zendesk_mcp_server import server as module
+    from zendesk_mcp_server.approvals import ApprovalStore
+    from zendesk_mcp_server.contracts import success
+
+    responses = {
+        "/api/v2/guide/permission_groups.json": {"permission_groups": [{"id": 1}], "next_page": None},
+        "/api/v2/help_center/user_segments.json": {"user_segments": [{"id": 2}], "meta": {"has_more": False}},
+        "/api/v2/tickets/9.json": {"ticket": {"id": 9, "status": "open", "updated_at": "2026-09-11T00:00:00Z"}},
+        "/api/v2/tickets/9/macros/4/apply.json": {"result": {"ticket": {"status": "pending"}}},
+        "/api/v2/macros/4.json": {"macro": {"actions": [{"field": "status", "value": "pending"}]}},
+    }
+    class Client:
+        def __init__(self, *args, **kwargs): pass
+        def get(self, path, *, params=None): return success(responses[path])
+        def request(self, *args, **kwargs): raise AssertionError("read-only must not write")
+        def upload_presigned(self, *args, **kwargs): raise AssertionError("read-only must not upload")
+    monkeypatch.setattr(module, "ZendeskClient", Client)
+    (tmp_path / "image.png").write_bytes(b"test-image")
+    cases = (
+        ("zendesk_list_permission_groups", "guide", {}, 1),
+        ("zendesk_list_user_segments", "guide", {}, 2),
+        ("zendesk_apply_macro", "operations", {"ticket_id": 9, "macro_id": 4}, None),
+        ("zendesk_assign_badge", "badges", {"badge_id": "badge-1", "user_id": 7}, None),
+        ("zendesk_unassign_badge", "badges", {"assignment_id": "assignment-1"}, None),
+        ("zendesk_upload_community_image", "community", {"image_path": "image.png", "content_type": "image/png", "brand_id": 1}, None),
+    )
+    for name, capability, arguments, item_id in cases:
+        env = {"ZENDESK_SUBDOMAIN": "example", "ZENDESK_EMAIL": "test@example.test", "ZENDESK_API_TOKEN": "test-only", "ZENDESK_CAPABILITIES": capability, "ZENDESK_APPROVAL_STORE": str(tmp_path / "approvals.json"), "ZENDESK_UPLOAD_ROOT": str(tmp_path)}
+        server = module.create_server(env)
+        registered = asyncio.run(server.request_handlers[types.ListToolsRequest](types.ListToolsRequest())).root.tools
+        tool = next(tool for tool in registered if tool.name == name)
+        assert tool.annotations.readOnlyHint is (item_id is not None)
+        assert tool.annotations.destructiveHint is (name == "zendesk_unassign_badge")
+        def call(values):
+            request = types.CallToolRequest(params=types.CallToolRequestParams(name=name, arguments=values))
+            return asyncio.run(server.request_handlers[types.CallToolRequest](request)).root.structuredContent
+        result = call(arguments)
+        assert result["ok"] is True
+        if item_id is not None:
+            assert result["items"] == [{"id": item_id}]
+        else:
+            store = ApprovalStore.from_environment(env)
+            request_id = result["data"]["approval_request_id"]
+            assert store.preview(request_id)["tool"] == name
+            token = store.approve(request_id)
+            applied = call({**arguments, "execution_mode": "apply", "approval_request_id": request_id, "approval_token": token})
+            assert applied["error"]["code"] == "write_disabled"
+
+
 def test_support_read_tools_are_registered():
     from zendesk_mcp_server.server import build_tools
 
@@ -947,7 +997,7 @@ def test_support_read_tools_are_registered():
         "zendesk_count_tickets",
         "zendesk_export_tickets",
         "zendesk_preview_macro",
-        "zendesk_apply_ticket_macro",
+        "zendesk_apply_macro",
         "zendesk_get_ticket",
         "zendesk_create_ticket",
         "zendesk_update_ticket",
@@ -986,8 +1036,8 @@ def test_support_read_tools_are_registered():
         "zendesk_get_satisfaction_ratings",
         "zendesk_list_csat",
         "zendesk_export_satisfaction_ratings",
-        "zendesk_list_guide_permission_groups",
-        "zendesk_list_guide_user_segments",
+        "zendesk_list_permission_groups",
+        "zendesk_list_user_segments",
         "zendesk_create_help_center_article",
         "zendesk_upsert_article_translation",
         "zendesk_replace_article_translation_body",
@@ -1037,9 +1087,9 @@ def test_support_read_tools_are_registered():
         "zendesk_update_badge",
         "zendesk_delete_badge",
         "zendesk_list_badge_assignments",
-        "zendesk_create_badge_assignment",
-        "zendesk_delete_badge_assignment",
-        "zendesk_upload_community_user_image",
+        "zendesk_assign_badge",
+        "zendesk_unassign_badge",
+        "zendesk_upload_community_image",
         "zendesk_upload_badge_icon",
     ]
 

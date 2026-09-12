@@ -378,7 +378,7 @@ Community 세부 규칙:
 ## 8. 표준 도구 표면
 
 모든 이름은 `zendesk_*` prefix를 사용한다. 아래 목록이 `1.0.0`의 canonical
-manifest 99개다. 동일 capability를 구현하는 옛 이름은 alias로 남기지 않는다.
+manifest 101개다. 동일 capability를 구현하는 옛 이름은 alias로 남기지 않는다.
 
 ### 8.1 연결·계정
 
@@ -445,6 +445,7 @@ redacted 형태로 반환한다.
 - `zendesk_list_permission_groups`
 - `zendesk_list_user_segments`
 - `zendesk_get_satisfaction_ratings`
+- `zendesk_list_csat`
 - `zendesk_export_satisfaction_ratings`
 
 ### 8.5 Community
@@ -471,7 +472,7 @@ redacted 형태로 반환한다.
   `zendesk_update_community_post`의 `content_tag_ids`를 사용한다.
 - User subscriptions: `zendesk_list_user_subscriptions`,
   `zendesk_upsert_user_subscription`, `zendesk_delete_user_subscription`
-- Images: `zendesk_upload_community_image`
+- Images: `zendesk_upload_community_image`, `zendesk_upload_badge_icon`
 - Badge categories: `zendesk_list_badge_categories`,
   `zendesk_get_badge_category`, `zendesk_create_badge_category`,
   `zendesk_delete_badge_category`

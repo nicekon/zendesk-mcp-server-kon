@@ -296,13 +296,13 @@ class CommunityTools:
     def create_badge_assignment(self, badge_id: str, user_id: int, *, execution_mode: str = "preview", approval_request_id: str | None = None, approval_token: str | None = None) -> dict[str, object]:
         if not self._valid_tag_id(badge_id) or not self._valid_id(user_id, "user_id"): return failure(ErrorCode.VALIDATION_ERROR, "valid badge_id and user_id are required")
         payload = {"badge_assignment": {"badge_id": badge_id, "user_id": str(user_id)}}
-        return self._approved_request("zendesk_create_badge_assignment", payload, "POST", "/api/v2/gather/badge_assignments", payload, (WriteRisk.PUBLIC, WriteRisk.IMPERSONATION), execution_mode, approval_request_id, approval_token)
+        return self._approved_request("zendesk_assign_badge", payload, "POST", "/api/v2/gather/badge_assignments", payload, (WriteRisk.PUBLIC, WriteRisk.IMPERSONATION), execution_mode, approval_request_id, approval_token)
     def delete_badge_assignment(self, assignment_id: str, *, execution_mode: str = "preview", approval_request_id: str | None = None, approval_token: str | None = None) -> dict[str, object]:
         if not self._valid_tag_id(assignment_id): return failure(ErrorCode.VALIDATION_ERROR, "assignment_id must be a non-empty path-safe string")
-        return self._approved_request("zendesk_delete_badge_assignment", {"assignment_id": assignment_id}, "DELETE", f"/api/v2/gather/badge_assignments/{assignment_id}", None, (WriteRisk.DESTRUCTIVE, WriteRisk.IMPERSONATION), execution_mode, approval_request_id, approval_token)
+        return self._approved_request("zendesk_unassign_badge", {"assignment_id": assignment_id}, "DELETE", f"/api/v2/gather/badge_assignments/{assignment_id}", None, (WriteRisk.DESTRUCTIVE, WriteRisk.IMPERSONATION), execution_mode, approval_request_id, approval_token)
     def upload_user_image(self, image_path: str, content_type: str, brand_id: int, *, execution_mode: str = "preview", approval_request_id: str | None = None, approval_token: str | None = None) -> dict[str, object]:
         loaded = self._load_user_image(image_path, content_type, brand_id)
-        return self._upload_image(loaded, "zendesk_upload_community_user_image", execution_mode, approval_request_id, approval_token)
+        return self._upload_image(loaded, "zendesk_upload_community_image", execution_mode, approval_request_id, approval_token)
     def upload_badge_icon(self, image_path: str, content_type: str, *, execution_mode: str = "preview", approval_request_id: str | None = None, approval_token: str | None = None) -> dict[str, object]:
         loaded = self._load_user_image(image_path, content_type, 1, allowed_content_types={"image/svg+xml", "image/png", "image/jpeg", "image/gif"})
         if not isinstance(loaded, dict): loaded[0].pop("brand_id")

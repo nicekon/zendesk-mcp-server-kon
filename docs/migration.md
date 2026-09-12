@@ -279,3 +279,23 @@ store, and run `zendesk check` before restarting. A package rollback never
 reverses Zendesk writes already applied. For an `outcome_unknown` response,
 inspect the specific Zendesk resource manually before retrying; do not infer
 success from a timeout or connection failure.
+
+## Canonical tool names before 1.0.0
+
+The pre-release implementation used six names that differed from PRD section 8.
+Clients must now use the canonical names below; the old names are not aliases.
+Refresh the MCP tool list after updating. HTTP endpoints and write gates are unchanged.
+
+| Previous pre-release name | Canonical name |
+| --- | --- |
+| `zendesk_apply_ticket_macro` | `zendesk_apply_macro` |
+| `zendesk_list_guide_permission_groups` | `zendesk_list_permission_groups` |
+| `zendesk_list_guide_user_segments` | `zendesk_list_user_segments` |
+| `zendesk_create_badge_assignment` | `zendesk_assign_badge` |
+| `zendesk_delete_badge_assignment` | `zendesk_unassign_badge` |
+| `zendesk_upload_community_user_image` | `zendesk_upload_community_image` |
+
+Pending approvals bound to an old name cannot authorize a new-name operation.
+Run preview and the local approval command again; do not edit approval records.
+The catalog still contains 101 tools, including the existing CSAT backend selector
+and badge icon uploader now explicitly listed in section 8.

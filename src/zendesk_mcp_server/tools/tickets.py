@@ -426,13 +426,13 @@ class TicketTools:
         if execution_mode == "preview":
             if self._approvals is None:
                 return failure(ErrorCode.NOT_CONFIGURED, "Zendesk approval store is not configured")
-            return success({"approval_request_id": self._approvals.create("zendesk_apply_ticket_macro", payload), "execution_mode": "preview", "standard": True, "public": public, "required_risks": payload["required_risks"], "actions": actions, "ticket": ticket, "outbound_write": False})
+            return success({"approval_request_id": self._approvals.create("zendesk_apply_macro", payload), "execution_mode": "preview", "standard": True, "public": public, "required_risks": payload["required_risks"], "actions": actions, "ticket": ticket, "outbound_write": False})
         if execution_mode != "apply":
             return failure(ErrorCode.VALIDATION_ERROR, "execution_mode must be preview or apply")
         for risk in risks:
             if (blocked := self._write_permitted(risk)) is not None:
                 return blocked
-        if self._approvals is None or not isinstance(approval_request_id, str) or not isinstance(approval_token, str) or not self._approvals.consume(approval_request_id, "zendesk_apply_ticket_macro", payload, approval_token):
+        if self._approvals is None or not isinstance(approval_request_id, str) or not isinstance(approval_token, str) or not self._approvals.consume(approval_request_id, "zendesk_apply_macro", payload, approval_token):
             return failure(ErrorCode.APPROVAL_REQUIRED, "a matching local approval is required")
         client = self._configured_mutation_client()
         if isinstance(client, dict):
