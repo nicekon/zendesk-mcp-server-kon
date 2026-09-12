@@ -366,14 +366,15 @@ def test_conversation_marks_customer_text_untrusted():
     assert result["data"]["comments"][0]["untrusted_user_content"] is True
 
 
-def test_ticket_list_keeps_sort_across_cursor_pages():
+@pytest.mark.parametrize("sort", ["-updated_at", "status", "-status"])
+def test_ticket_list_keeps_sort_across_cursor_pages(sort):
     class Client:
         def get(self, path, *, params=None):
-            assert params["sort"] == "-updated_at"
+            assert params["sort"] == sort
             if params.get("page[after]") == "next":
                 return success({"tickets": [{"id": 1}], "meta": {"has_more": False}})
             return success({"tickets": [{"id": 2}], "meta": {"has_more": True, "after_cursor": "next"}})
-    assert TicketTools(Client()).list_tickets(2, sort="-updated_at")["items"] == [{"id": 2}, {"id": 1}]
+    assert TicketTools(Client()).list_tickets(2, sort=sort)["items"] == [{"id": 2}, {"id": 1}]
     assert TicketTools(Client()).list_tickets(2, sort="created_at")["error"]["code"] == "validation_error"
 
 

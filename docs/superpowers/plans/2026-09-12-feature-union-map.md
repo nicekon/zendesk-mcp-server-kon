@@ -251,5 +251,22 @@ test_entity_name_and_id_references_match_across_ticket_consumers,
 test_user_resolver_cannot_discard_malformed_candidates_to_claim_uniqueness,
 test_named_entity_resolvers_reject_malformed_ids_in_all_consumers.
 
-다음 구현 순서는 G1 → G2/G3 → G4/G6/G7 → G5/G8이며, 작업 중 공통 경로 결함이
-확인되면 그 원인을 먼저 수정한다. 테스트 계정 재요청·운영 쓰기·병합·배포는 하지 않는다.
+### M06/M19 범위 대조 및 M10 상태 정렬 후속
+
+PRD 4·7.2의 Git-Zen 범위는 설정 필드의 issue/MR/commit 링크 추출까지다.
+따라서 원본 GitLab state/labels 조회는 이 범위의 구현 누락으로 취급하지 않는다.
+`test_git_zen_links_are_extracted_only_from_the_configured_ticket_field`와
+GitHub commit/GitLab markup 회귀가 링크 추출 계약의 근거다.
+시간 추적은 PRD 7.2·설정 이전 규칙에 따라 명시 필드 ID로 읽고 기록하며,
+`test_time_tracking_app_reads_fields_and_updates_with_conflict_guard`가 초 단위
+합산·내부 메모·동시 변경 보호를 검증한다. 원본 표시 포맷 그대로 반환하는 조건은 없다.
+
+[공식 List Tickets Sorting](https://developer.zendesk.com/api-reference/ticketing/tickets/tickets/#list-tickets)을
+다시 확인하여 cursor sort의 `status`/`-status` 누락을 추가했다. 기존 id/updated_at
+정렬과 공통 cursor 수집기는 유지하며, MCP schema와 계약 fixture도 함께 확장했다.
+`test_ticket_list_keeps_sort_across_cursor_pages`는 양방향 상태 정렬이 다음 페이지에도
+전달되는지 검증한다. offset 전용 정렬을 cursor 정렬로 가장하지 않으며,
+원본 offset 입력과의 전체 동등성을 이 변경으로 주장하지 않는다.
+
+G1–G8의 구현 기록은 위 후속 절을 기준으로 읽는다. 남은 수용 근거 대조 중 공통 경로
+결함이 확인되면 먼저 수정한다. 테스트 계정 재요청·운영 쓰기·병합·배포는 하지 않는다.

@@ -89,8 +89,8 @@ class TicketTools:
         return client.get(f"/api/v2/tickets/{ticket_id}.json")
 
     def list_tickets(self, limit: int = 100, *, cursor: str | None = None, sort: str | None = None) -> dict[str, object]:
-        if sort is not None and (not isinstance(sort, str) or sort not in ("id", "-id", "updated_at", "-updated_at")):
-            return failure(ErrorCode.VALIDATION_ERROR, "sort must be id, -id, updated_at, or -updated_at")
+        if sort is not None and (not isinstance(sort, str) or sort not in ("id", "-id", "updated_at", "-updated_at", "status", "-status")):
+            return failure(ErrorCode.VALIDATION_ERROR, "sort must be id, -id, updated_at, -updated_at, status, or -status")
         if cursor is not None and (not isinstance(cursor, str) or not cursor):
             return failure(ErrorCode.VALIDATION_ERROR, "cursor must be a non-empty string")
         if type(limit) is not int or not 1 <= limit <= 1000:

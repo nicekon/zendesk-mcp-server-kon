@@ -103,7 +103,7 @@ def build_tools() -> list[types.Tool]:
         types.Tool(
             name="zendesk_list_tickets",
             description="List Zendesk tickets up to limit (default 100, maximum 1000). Resume next_cursor with the same sort when truncated; '-' means descending. No changes are made.",
-            inputSchema={"type": "object", "properties": {"limit": {"type": "integer", "minimum": 1, "maximum": 1000, "default": 100}, "cursor": {"type": "string", "minLength": 1}, "sort": {"type": "string", "enum": ["id", "-id", "updated_at", "-updated_at"]}}},
+            inputSchema={"type": "object", "properties": {"limit": {"type": "integer", "minimum": 1, "maximum": 1000, "default": 100}, "cursor": {"type": "string", "minLength": 1}, "sort": {"type": "string", "enum": ["id", "-id", "updated_at", "-updated_at", "status", "-status"]}}},
         ),
         types.Tool(
             name="zendesk_search_tickets",
