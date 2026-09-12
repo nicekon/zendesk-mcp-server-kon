@@ -1160,25 +1160,28 @@ def test_user_image_upload_requires_approved_external_upload_and_safe_local_file
     ]
 
 
-@pytest.mark.parametrize("stage,count", [("prepare_upload", 1), ("upload_binary", 2), ("create_image_path", 3)])
-def test_image_upload_failure_identifies_stage_without_replay(tmp_path, stage, count):
+@pytest.mark.parametrize("badge,stage,count", [(False, "prepare_upload", 1), (False, "upload_binary", 2), (False, "create_image_path", 3), (True, "prepare_upload", 1), (True, "upload_binary", 2)])
+def test_image_upload_failure_identifies_stage_without_replay(tmp_path, badge, stage, count):
     from zendesk_mcp_server.contracts import failure, ErrorCode
     (tmp_path / "image.png").write_bytes(b"image")
-    denied = failure(ErrorCode.PERMISSION_DENIED, "denied", operation_state="not_applied", request_id="request-1")
+    denied = failure(ErrorCode.PERMISSION_DENIED, "denied", operation_state="not_applied", request_id="request-1", details={"required_scopes": ["hc:write"]})
     class Client(StubClient):
         def request(self, method, path, *, json_body=None):
             result = super().request(method, path, json_body=json_body)
-            current = "prepare_upload" if path.endswith("/uploads") else "create_image_path"
+            current = "prepare_upload" if path.endswith(("/uploads", "/icon_uploads")) else "create_image_path"
             return denied if current == stage else result
         def upload_presigned(self, url, headers, content):
             result = super().upload_presigned(url, headers, content)
             return denied if stage == "upload_binary" else result
     client = Client(); store = ApprovalStore(tmp_path / "approvals.json")
     tools = CommunityTools(client, Settings.load({"ZENDESK_WRITE_MODE": "standard", "ZENDESK_ENABLE_EXTERNAL_UPLOADS": "true", "ZENDESK_UPLOAD_ROOT": str(tmp_path)}), store)
-    preview = tools.upload_user_image("image.png", "image/png", 4)
+    upload = tools.upload_badge_icon if badge else tools.upload_user_image
+    args = ("image.png", "image/png") if badge else ("image.png", "image/png", 4)
+    preview = upload(*args)
     request_id = preview["data"]["approval_request_id"]
-    result = tools.upload_user_image("image.png", "image/png", 4, execution_mode="apply", approval_request_id=request_id, approval_token=store.approve(request_id))
+    result = upload(*args, execution_mode="apply", approval_request_id=request_id, approval_token=store.approve(request_id))
     assert result["error"]["details"]["upload_stage"] == stage
+    assert result["error"]["details"]["required_scopes"] == ["hc:write"]
     assert result["error"]["code"] == "permission_denied"
     assert result["error"]["operation_state"] == "not_applied"
     assert result["error"]["request_id"] == "request-1"
