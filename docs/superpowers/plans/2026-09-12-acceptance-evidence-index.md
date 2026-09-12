@@ -11,6 +11,33 @@
 
 ## 조건별 근거
 
+### 사용자 지정 Community 게시물의 실제 검증
+
+사용자가 테스트 게시물 한 건의 본문 수정·원복, 댓글 한 건과 이미지 한 개 업로드를
+허용했다. 기존 CLI의 브라우저 재로그인이 완료됐으며 저장된 요청 scope 목록에는
+hc:write가 포함됐다. 이것만으로 모든 endpoint의 권한이 증명되지는 않는다.
+
+- 실제 MCP handler에서 preview 후 사용자가 로컬 CLI로 발급한 일회성 토큰으로
+  댓글 한 건을 작성했다. notify_subscribers=false로 요청했고 결과는 applied였다.
+  최초 보조 목록 확인 스크립트는 목록 envelope를 data.comments로 잘못 읽어 빈
+  결과를 표시했다. 재작성 없이 comment ID와 post ID를 지정한 단건 재조회로
+  정확한 본문 저장을 확인했다. 이는 서버 목록 기능의 실패 증거가 아니다.
+- 본문 수정과 원복의 별도 승인 토큰을 검증하고 원문 일치 여부를 확인한 뒤
+  각각 한 번 apply했다. 두 결과 모두 applied였고 각 본문을 재조회했다.
+  원래 본문으로 복원됐고 제목은 유지됐다. 테스트 댓글은 남겨 두었다.
+- 브랜드의 host_mapping을 확인한 뒤 개인정보 없는 16×16 PNG(79 bytes)를
+  external-upload preview에 바인딩했다. 사람 승인 후 apply는 HTTP 403,
+  permission_denied 및 실패 요청의 not_applied를 반환했다. 자동 재시도하지 않았다.
+  전체 업로드 완료는 미검증이다. 기록된 오류만으로 첫 URL 발급과 마지막 경로
+  생성 중 어느 Zendesk POST가 거부됐는지 구별할 수 없으므로 중간 업로드가
+  전혀 없었다고 주장하지 않는다. presigned PUT 오류는 별도 메시지를 사용한다.
+
+공식 User Images 문서와 endpoint·payload는 일치하며 익명 사용자도 Allowed for에
+명시돼 있다. 따라서 관리자 권한 부족이나 OAuth scope 부족으로 원인을 단정하지
+않는다. 재시도 시 단계별 진단이 필요하며 승인 토큰을 재사용하지 않는다.
+토큰·이미지 업로드 URL·고객 본문·리소스 식별자는 이 문서에 기록하지 않는다.
+다른 게시물, 삭제, Guide/Badge 쓰기 또는 전체 sandbox release 검증의 증거는 아니다.
+
 ### 최신 런타임 설치 검증: cb2d16be6cb7911c9f38cd5aa975b1b7013108d3
 
 - `/tmp/zendesk-approved-package.r2xyhP`에 sdist/wheel을 새로 빌드하고 별도
