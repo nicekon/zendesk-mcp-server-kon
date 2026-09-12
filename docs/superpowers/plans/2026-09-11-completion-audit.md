@@ -2,6 +2,11 @@
 
 이 문서는 PRD 14.2의 완료 조건을 대체하지 않는다. 테스트 개수나 개별 수정만으로 전체 완료를 선언하지 않는다.
 
+36개 완료 조건별 근거와 추가 대조 순서는
+[검증 근거 색인](2026-09-12-acceptance-evidence-index.md)을 참조한다.
+이하 누적 작업 이력과 달리 원문 체크리스트 순서로 정리하며, 실제 쓰기 보류와
+코드/계약의 미확인 범위를 별도로 표시한다.
+
 ## 현재 외부 선행 조건 재확인
 
 - 구현 검증 기준 커밋은 `2543de3b49f704e7aaecbf91fbe56c2cf2798564`다. [초안 PR #2](https://github.com/nicekon/zendesk-mcp-server-kon/pull/2)에 게시됐고 [CI 실행 34670609455](https://github.com/nicekon/zendesk-mcp-server-kon/actions/runs/34670609455)의 5개 작업이 성공했다. 이후 변경의 검증 여부는 PR의 최신 head와 check를 별도로 확인한다.
