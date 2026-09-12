@@ -17,6 +17,7 @@ from .auth import (
     create_oauth_authorization_request,
     exchange_oauth_authorization_code,
     save_connection,
+    valid_authenticated_user,
     _oauth_refresh_requester,
 )
 from .config import AuthMode, ConfigurationError, Settings, require_private_file_support
@@ -161,7 +162,7 @@ def login(
             code_verifier=verifier,
         )
         verified = (user_requester or _request_current_user)(settings.subdomain, tokens.access_token)
-        if not isinstance(verified, dict) or not isinstance(verified.get("user"), dict) or not verified["user"].get("id"):
+        if not isinstance(verified, dict) or not valid_authenticated_user(verified.get("user")):
             raise ConfigurationError("oauth_probe_failed", "OAuth user verification failed")
         save_connection(settings, tokens)
     finally:

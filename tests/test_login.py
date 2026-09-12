@@ -100,6 +100,23 @@ def test_login_does_not_replace_connection_when_user_probe_fails(tmp_path: Path)
     assert OAuthTokenStore(path).load().access_token == "old"
 
 
+@pytest.mark.parametrize("user", [{}, {"id": True}, {"id": "7"}, {"id": 0}, {"id": -1}, {"id": 7.5}])
+def test_login_preserves_connection_on_invalid_authenticated_user_id(tmp_path, user):
+    from zendesk_mcp_server.auth import OAuthTokens, save_connection
+    from zendesk_mcp_server.login import login
+
+    path = tmp_path / "connection.json"
+    settings = _settings(path)
+    save_connection(settings, OAuthTokens("old", "old-refresh", 999))
+    previous = path.read_bytes()
+    with pytest.raises(ConfigurationError) as error:
+        login(settings, port=0, timeout=2, browser_open=_approve_in_browser,
+              token_requester=lambda _: {"access_token": "new", "refresh_token": "new-refresh", "expires_in": 300},
+              user_requester=lambda *_: {"user": user}, now=lambda: 100)
+    assert error.value.code == "oauth_probe_failed"
+    assert path.read_bytes() == previous
+
+
 def test_login_times_out_and_closes_listener(tmp_path: Path):
     from zendesk_mcp_server.login import login
 

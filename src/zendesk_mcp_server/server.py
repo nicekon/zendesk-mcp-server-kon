@@ -17,7 +17,7 @@ from mcp.server.stdio import stdio_server
 
 from .approvals import ApprovalStore
 from .audit import AuditLog
-from .auth import build_authorization
+from .auth import build_authorization, valid_authenticated_user
 from .client import ZendeskClient
 from .config import ConfigurationError, Settings
 from .contracts import ErrorCode, failure, success
@@ -355,7 +355,7 @@ def build_connection_status(environ: Mapping[str, str], *, probe: bool = False) 
         result = ZendeskClient(settings, authorization).get("/api/v2/users/me.json")
         if not result.get("ok"): return result
         data = result.get("data"); user = data.get("user") if isinstance(data, dict) else None
-        if not isinstance(user, dict): return failure(ErrorCode.UPSTREAM_ERROR, "Zendesk returned an invalid authenticated user")
+        if not valid_authenticated_user(user): return failure(ErrorCode.UPSTREAM_ERROR, "Zendesk returned an invalid authenticated user")
         return success({**status, "verified_user": {key: user.get(key) for key in ("id", "role")}})
     except ConfigurationError as error:
         return _configuration_failure(error)

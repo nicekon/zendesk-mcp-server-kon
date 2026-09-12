@@ -952,6 +952,23 @@ def test_connection_status_tool_probes_the_authenticated_user(monkeypatch):
     assert result.root.structuredContent["ok"] is True
 
 
+def test_connection_status_rejects_invalid_authenticated_user_ids(monkeypatch):
+    import zendesk_mcp_server.server as module
+
+    for user in ({}, {"id": True}, {"id": "7"}, {"id": 0}, {"id": -1}, {"id": 7.5}):
+        class Client:
+            def __init__(self, *_): pass
+            def get(self, path):
+                assert path == "/api/v2/users/me.json"
+                return {"ok": True, "data": {"user": user}}
+
+        monkeypatch.setattr(module, "ZendeskClient", Client)
+        result = module.build_connection_status({"ZENDESK_SUBDOMAIN": "acme", "ZENDESK_EMAIL": "agent@example.test", "ZENDESK_API_TOKEN": "token"}, probe=True)
+        assert result["ok"] is False, user
+        assert result["error"]["code"] == "upstream_error"
+        assert "verified_user" not in result.get("data", {})
+
+
 def test_mcp_dispatch_forwards_ticket_pagination_inputs(monkeypatch):
     import zendesk_mcp_server.server as module
     from zendesk_mcp_server.tools.tickets import TicketTools

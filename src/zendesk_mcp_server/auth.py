@@ -24,6 +24,10 @@ from .config import AuthMode, ConfigurationError, Settings, _has_unsafe_permissi
 from .locking import exclusive_lock
 
 
+def valid_authenticated_user(user: object) -> bool:
+    return isinstance(user, dict) and type(user.get("id")) is int and user["id"] > 0
+
+
 class AuthorizationProvider(Protocol):
     def headers(self) -> dict[str, str]:
         """Return the authorization header for one Zendesk API request."""
