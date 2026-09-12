@@ -20,7 +20,7 @@ tests/docs/.github 경로는 저장소 루트 기준이며, `auth.py` 같은 소
 | 번호 | 원문 조건 요약 | 현재 근거 | 판단과 남은 범위 |
 | --- | --- | --- | --- |
 | 01 | Canonical 등록·exact contract | `tests/test_server.py::test_support_read_tools_are_registered`, `tests/test_server.py::test_mcp_catalog_matches_frozen_input_output_and_risk_contracts` | 101개 이름·입출력 schema·annotation 회귀 근거. 이름은 PRD 8장과 대조했고 schema fixture는 현재 계약 기준이다. |
-| 02 | 세 구현의 승인된 기능 합집합 | [원본 기능 대응표](2026-09-12-feature-union-map.md), PRD 2.1·7·8, `server.py`, `tools/` | 9/29/21개 표면 및 프롬프트/KB를 연결했다. G1–G8의 입력·결과·메시징·schema 차이가 남아 있으므로 전체 합집합 구현 완료가 아니다. |
+| 02 | 세 구현의 승인된 기능 합집합 | [원본 기능 대응표](2026-09-12-feature-union-map.md), PRD 2.1·7·8, `server.py`, `tools/` | 9/29/21개 표면 및 프롬프트/KB를 연결했고 G1–G8은 대응표의 후속 절에서 구현·로컬 검증했다. M06/M19는 PRD의 링크 추출·설정 필드 시간 추적 계약으로 대조했고 M10 cursor 상태 정렬도 보완했다. 원본 offset 정렬 입력과의 동등성 및 전체 합집합 수용 판단은 아직 별도다. |
 | 03 | 두 인증 방식의 독립 인증·조회 | 사용자가 제공한 API-token/OAuth probe 성공 결과, 누적 감사의 OAuth 검색·metadata 읽기 기록 | 실제 성공 기록은 있지만 이 색인 작성 시 두 인증을 새로 실행하지 않았다. 읽기 증거이며 쓰기 증거가 아니다. |
 | 04 | auto 선택·실패 후 no-fallback | `tests/test_config.py::test_auto_uses_api_token_when_no_oauth_settings_exist`, `tests/test_config.py::test_auto_prefers_complete_oauth_without_api_token`, `tests/test_server.py::test_oauth_authorization_failure_requires_reauthorization` | 회귀 근거. |
 | 05 | 불완전 OAuth 구성 거부 | `tests/test_config.py::test_auto_rejects_partial_oauth_without_token_fallback` | API-token이 함께 있어도 구성 오류를 요구한다. |
@@ -93,12 +93,13 @@ Post/Comment HTML 저장 후 read-back 누락은 공통 쓰기 경로와 21개 �
 Community 읽기 콘텐츠 표시·분리는 공통 읽기 경로에 보완했고 목록·단건·저장 후 조회·MCP
 전달로 검증했다. 이 두 누락의 보완만으로 20번 전체를 완료로 처리하지 않는다.
 
-1. 02: 원본 기능 대응표의 G1–G8을 구현·검증한다. 시간 추적·Git-Zen·정렬의
-   명시된 의미 차이는 PRD 승인 범위와 추가 대조한다.
+1. 02: G1–G8을 미구현으로 재작업하지 않는다. 대응표의 후속 구현 근거를 사용하며,
+   남은 M10 offset 정렬 계약과 전체 합집합의 수용 범위를 대조한다.
 2. 15·20·29: 복합 요구의 하위 항목별 근거를 대조한다. 특히 Macro의 단일 PUT
    구현에서 확인 가능한 부분 성공과 단순 결과 불명을 구분한다. 재현되는 구현/테스트 누락만
    수정하며 기존 기능을 넓히거나 범위를 축소해 통과시키지 않는다.
-3. 11: 설치 검증과 read-only 보안 검증이 같은 배포 코드에 적용됨을 연결한다.
+3. 11: 설치 wheel의 read-only 보안 검증 연결은 구현되어 있다. 최신 배포 후보를
+   확정할 때 동일 CI와 설치 검사를 다시 실행한다.
 4. 13 등 실제 쓰기/수동 운영 검증은 보류로 유지한다. 계정 재요청·운영 쓰기·병합·
    출시·배포를 자동으로 수행하지 않는다. 이 보류를 코드 검토의 차단 사유로 삼지 않는다.
 

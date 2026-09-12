@@ -5,6 +5,24 @@
 
 ## 확인한 경로
 
+### 배지·구독 검증 근거 갱신 (b4b8c06 기준)
+
+`uv run pytest -q tests/test_community.py -k 'subscription or badge'`를 실행해
+40개 사례가 통과했다. 다음은 테스트 이름만 찾은 결과가 아니라 source와 assertion을
+함께 대조한 범위다. 실제 Zendesk 요청은 하지 않았다.
+
+| 요구 | 확인한 동작과 근거 | 남은 경계 |
+| --- | --- | --- |
+| User Subscription upsert | `test_user_subscription_upsert_is_idempotent_when_the_setting_already_matches`: 설정이 같으면 POST 0. `test_user_subscription_upsert_previews_change_and_reads_back_after_approval`: 현재/제안 표시와 POST 후 GET, applied 반환 | 실제 서버의 follow 갱신·알림 효과는 미검증 |
+| 구독 read-back 실패 | `test_subscription_write_with_unverified_readback_is_unknown_without_retry`: 잘못된 boolean·누락·빈 결과·불완전 page를 성공으로 처리하지 않고 쓰기 1회만 수행 | 서버가 저장했는지 판정할 수 없는 경우 unknown 유지 |
+| 배지 삭제 cascade | `test_badge_delete_binds_cascade_snapshot_to_approval`: 개수·복구 불가 표시, assignment ID 집합이 바뀌면 재승인 필요. `test_badge_delete_cannot_approve_unknown_cascade`: 중복·다른 badge·권한 오류에는 승인 요청을 만들지 않음 | preview 이후 재조회와 DELETE 사이의 서버 변경까지 원자적으로 보호하는 계약은 아님 |
+| 배지 부여·회수 | `test_badge_assignments_require_public_impersonation_and_destructive_gates`: public/impersonation 및 destructive 정책과 고정 경로 연결 | 로컬 gate가 Help Center manager 역할이나 Gather Professional 플랜을 증명하지 않음 |
+| 목록·범위 | content/user subscriptions 및 badge 목록 테스트: scope 필터 보존, cursor/local offset 재개, 고정 endpoint | 실계정의 모든 역할·플랜·리소스 조합 검증과 구별 |
+
+PRD 7.5의 계정별 제품 부재/권한 구분은 이 표로 완료 처리하지 않는다.
+일반 HTTP 403→permission_denied 처리와 로컬 capability 비활성→unsupported는
+각각의 근거일 뿐, 제품 미구매 계정의 실제 응답을 관찰한 근거는 없다.
+
 - Post 생성·수정과 Comment 생성·수정은 `_approved_request`를 공유한다.
   preview는 승인 요청만 저장하고 apply는 gate와 일회용 승인을 확인한 뒤 요청한다.
 - Topic 생성은 별도 승인 경로이며 Topic 수정·삭제는 공통 경로다.
