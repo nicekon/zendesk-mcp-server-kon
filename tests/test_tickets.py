@@ -698,6 +698,35 @@ def test_user_resolver_rejects_ambiguity_on_later_page_for_all_queries():
         assert result["error"]["details"]["candidate_ids"] == [8, 9]
 
 
+def test_user_reference_variants_reach_all_three_ticket_consumers():
+    variants = [({"kind": "me"}, "me"), ({"kind": "none"}, "none"), ({"kind": "id", "value": 8}, "8"), ({"kind": "name", "value": "Alex"}, "8"), ({"kind": "email", "value": "alex@example.test"}, "8"), ({"kind": "phone", "value": "+821012345678"}, "8")]
+    for field in ("assignee", "requester"):
+        for reference, expected in variants:
+            for method in ("search_tickets", "count_tickets", "export_tickets"):
+                calls = []
+                class Client:
+                    def get(self, path, *, params=None):
+                        calls.append(path)
+                        if path == "/api/v2/users/search.json":
+                            assert params["query"] == reference["value"]
+                            return success({"users": [{"id": 8, "name": "Alex", "email": "alex@example.test", "phone": "+821012345678"}], "next_page": None})
+                        assert params["query"] == ("" if method == "export_tickets" else "type:ticket ") + f"{field}:{expected}"
+                        return success({"results": [], "next_page": None, "meta": {"has_more": False}, "count": {"value": 0}})
+                assert getattr(TicketTools(Client()), method)({field: reference})["ok"] is True
+                assert len(calls) == (2 if reference["kind"] in ("name", "email", "phone") else 1)
+
+
+def test_user_resolver_cannot_discard_malformed_candidates_to_claim_uniqueness():
+    for invalid_id in (None, True, 0, "9"):
+        class Client:
+            def get(self, path, *, params=None):
+                assert path == "/api/v2/users/search.json"
+                return success({"users": [{"id": 8, "name": "Alex"}, {"id": invalid_id, "name": "Alex"}], "next_page": None})
+        for method in ("search_tickets", "count_tickets", "export_tickets"):
+            result = getattr(TicketTools(Client()), method)({"assignee": {"kind": "name", "value": "Alex"}})
+            assert result["error"]["code"] == "upstream_error"
+
+
 def test_named_ticket_user_filter_returns_candidate_ids_when_ambiguous():
     client = StubClient({"/api/v2/users/search.json": success({"users": [{"id": 8, "email": "agent@example.test"}, {"id": 9, "email": "agent@example.test"}], "next_page": None})})
 
@@ -763,6 +792,31 @@ def test_named_entity_resolvers_reject_incomplete_metadata():
             result = TicketTools(client).search_tickets({field: {"kind": "name", "value": "Same"}})
             assert result["error"]["code"] == "upstream_error"
             assert len(client.paths) == 1
+
+
+def test_named_entity_resolvers_reject_malformed_ids_in_all_consumers():
+    for field, endpoint, key in (("brand", "/api/v2/brands.json", "brands"), ("group", "/api/v2/groups.json", "groups"), ("form", "/api/v2/ticket_forms.json", "ticket_forms")):
+        for method in ("search_tickets", "count_tickets", "export_tickets"):
+            client = StubClient({endpoint: success({key: [{"id": 1, "name": "Same"}, {"id": None, "name": "Same"}], "meta": {"has_more": False}})})
+            result = getattr(TicketTools(client), method)({field: {"kind": "name", "value": "Same"}})
+            assert result["error"]["code"] == "upstream_error"
+            assert len(client.paths) == 1
+
+
+def test_entity_name_and_id_references_match_across_ticket_consumers():
+    for field, endpoint, key in (("organization", "/api/v2/organizations/search.json", "organizations"), ("brand", "/api/v2/brands.json", "brands"), ("group", "/api/v2/groups.json", "groups"), ("form", "/api/v2/ticket_forms.json", "ticket_forms")):
+        for kind, value in (("id", 12), ("name", "Acme")):
+            for method in ("search_tickets", "count_tickets", "export_tickets"):
+                calls = []
+                class Client:
+                    def get(self, path, *, params=None):
+                        calls.append(path)
+                        if path == endpoint:
+                            return success({key: [{"id": 12, "name": "Acme"}], "meta": {"has_more": False}})
+                        assert params["query"] == ("" if method == "export_tickets" else "type:ticket ") + f"{field}:12"
+                        return success({"results": [], "next_page": None, "meta": {"has_more": False}, "count": {"value": 0}})
+                assert getattr(TicketTools(Client()), method)({field: {"kind": kind, "value": value}})["ok"] is True
+                assert len(calls) == (2 if kind == "name" else 1)
 
 
 def test_custom_object_projection_requires_its_capability():

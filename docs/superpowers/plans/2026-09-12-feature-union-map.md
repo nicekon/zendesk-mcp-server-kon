@@ -239,5 +239,17 @@ PRD가 승인한 범위와 추가 대조한다. 원본 입력과 다르다는 �
 승인하지 않은 외부 GitLab 조회를 추가하지 않는다. G 항목을 해결해도 색인의 resolver·
 Community 세부 계약·fresh wheel write-zero 및 실제 쓰기 미검증 항목이 자동으로 닫히지 않는다.
 
+### TicketQuery 참조 조합·잘못된 후보 ID 후속
+
+검색·건수·내보내기의 공통 resolver에서 잘못된 ID 후보를 제외해 유일한 일치로
+오판할 수 있던 user/brand/group/form 경로를 보완했다. 기존 organization 검증처럼
+반환된 후보 ID가 잘못되면 ticket 조회 전 upstream_error로 중단한다.
+사용자 참조 36조합과 entity 참조 24조합의 정상 전달, 잘못된 후보 차단 회귀를 추가했다.
+전체 691 passed. 합성 응답 기반이며 실계정 쓰기·전체 필터 조합의 완료 근거는 아니다.
+근거: tests/test_tickets.py의 test_user_reference_variants_reach_all_three_ticket_consumers,
+test_entity_name_and_id_references_match_across_ticket_consumers,
+test_user_resolver_cannot_discard_malformed_candidates_to_claim_uniqueness,
+test_named_entity_resolvers_reject_malformed_ids_in_all_consumers.
+
 다음 구현 순서는 G1 → G2/G3 → G4/G6/G7 → G5/G8이며, 작업 중 공통 경로 결함이
 확인되면 그 원인을 먼저 수정한다. 테스트 계정 재요청·운영 쓰기·병합·배포는 하지 않는다.

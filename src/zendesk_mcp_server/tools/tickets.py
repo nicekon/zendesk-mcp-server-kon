@@ -772,6 +772,8 @@ class TicketTools:
             while True:
                 result = collect_offset(client.get, "/api/v2/users/search.json", "users", 1000, cursor, filters={"query": value.strip()})
                 if not result.get("ok"): return result
+                if any(not _valid_ticket_id(user.get("id")) for user in result["items"]):
+                    return failure(ErrorCode.UPSTREAM_ERROR, "Zendesk returned an invalid user search ID")
                 users.extend(result["items"])
                 if not result["has_more"]: break
                 cursor = result["next_cursor"]
@@ -802,6 +804,7 @@ class TicketTools:
             result = collect_complete_cursor(client.get, "/api/v2/brands.json", "brands")
             if not result.get("ok"): return result
             brands = result["items"]
+            if any(not _valid_ticket_id(item.get("id")) for item in brands): return failure(ErrorCode.UPSTREAM_ERROR, "Zendesk returned an invalid brand ID")
             matches = [item for item in brands if isinstance(item, dict) and isinstance(item.get("name"), str) and item["name"].casefold() == value.casefold() and _valid_ticket_id(item.get("id"))]
             if len(matches) != 1: return failure(ErrorCode.VALIDATION_ERROR, "brand name must match exactly one brand", details={"candidate_ids": [item["id"] for item in matches]})
             resolved["brand"] = {"kind": "id", "value": matches[0]["id"]}
@@ -814,6 +817,7 @@ class TicketTools:
             result = collect_complete_cursor(client.get, "/api/v2/groups.json", "groups")
             if not result.get("ok"): return result
             groups = result["items"]
+            if any(not _valid_ticket_id(item.get("id")) for item in groups): return failure(ErrorCode.UPSTREAM_ERROR, "Zendesk returned an invalid group ID")
             matches = [item for item in groups if isinstance(item, dict) and isinstance(item.get("name"), str) and item["name"].casefold() == value.casefold() and _valid_ticket_id(item.get("id"))]
             if len(matches) != 1: return failure(ErrorCode.VALIDATION_ERROR, "group name must match exactly one group", details={"candidate_ids": [item["id"] for item in matches]})
             resolved["group"] = {"kind": "id", "value": matches[0]["id"]}
@@ -826,6 +830,7 @@ class TicketTools:
             result = collect_complete_cursor(client.get, "/api/v2/ticket_forms.json", "ticket_forms")
             if not result.get("ok"): return result
             forms = result["items"]
+            if any(not _valid_ticket_id(item.get("id")) for item in forms): return failure(ErrorCode.UPSTREAM_ERROR, "Zendesk returned an invalid form ID")
             matches = [item for item in forms if isinstance(item, dict) and isinstance(item.get("name"), str) and item["name"].casefold() == value.casefold() and _valid_ticket_id(item.get("id"))]
             if len(matches) != 1: return failure(ErrorCode.VALIDATION_ERROR, "form name must match exactly one ticket form", details={"candidate_ids": [item["id"] for item in matches]})
             resolved["form"] = {"kind": "id", "value": matches[0]["id"]}
