@@ -151,6 +151,15 @@ category/section의 sort_by·sort_order와 section의 category_id를 구현했�
 18개 다중 페이지 조합, 5개 입력 거부, MCP 전달 회귀 및 전체 641 passed가 근거다.
 다음은 G6/G7 및 G5/G8이다. 실제 계정별 결과 동등성 증거는 별도다.
 
+### G7 필터 구현 후속
+
+폼 active와 트리거 active/category_id/sort/sort_order를 MCP 입력부터 페이지 수집까지 연결했다.
+active 생략은 기존처럼 모두 조회하며 false는 문자열 false로 전송한다. cursor 정렬은
+alphabetical/created_at/updated_at/position만 허용한다. 필터 페이지 유지·입력 거부·MCP 전달을
+포함한 로컬 전체 655 passed. 공식 근거: [Ticket Forms](https://developer.zendesk.com/api-reference/ticketing/tickets/ticket_forms/),
+[Triggers](https://developer.zendesk.com/api-reference/ticketing/business-rules/triggers/).
+G7의 usage sideload 및 실제 응답 보존 검증은 남아 있다. 필터 구현만으로 G7 전체를 완료 처리하지 않는다.
+
 M10의 원본 priority/status 정렬, M06의 원본 상세 GitLab metadata, M19의 표시 포맷은
 PRD가 승인한 범위와 추가 대조한다. 원본 입력과 다르다는 이유만으로 위험한 호환 alias나
 승인하지 않은 외부 GitLab 조회를 추가하지 않는다. G 항목을 해결해도 색인의 resolver·

@@ -385,3 +385,9 @@ Pending approvals bound to an old name cannot authorize a new-name operation.
 Run preview and the local approval command again; do not edit approval records.
 The catalog still contains 101 tools, including the existing CSAT backend selector
 and badge icon uploader now explicitly listed in section 8.
+
+## Operations list filters
+
+`zendesk_list_ticket_forms` accepts optional `active`; omitting it keeps both active and inactive forms.
+`zendesk_list_triggers` also accepts `active`, string `category_id`, `sort` (`alphabetical`, `created_at`, `updated_at`, `position`), and `sort_order` (`asc`, `desc`).
+Keep these filters unchanged when resuming with a cursor. Usage-statistic sideload support is not yet included.

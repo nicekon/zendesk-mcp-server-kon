@@ -308,10 +308,12 @@ def test_metadata_mcp_calls_preserve_pagination_arguments(monkeypatch):
         ("list_brands", {}, "/api/v2/brands.json", "brands"),
         ("list_ticket_fields", {}, "/api/v2/ticket_fields.json", "ticket_fields"),
         ("list_ticket_forms", {}, "/api/v2/ticket_forms.json", "ticket_forms"),
+        ("list_ticket_forms", {"active": False}, "/api/v2/ticket_forms.json", "ticket_forms"),
         ("list_views", {}, "/api/v2/views.json", "views"),
         ("list_view_tickets", {"view_id": 4}, "/api/v2/views/4/tickets.json", "tickets"),
         ("list_macros", {}, "/api/v2/macros.json", "macros"),
         ("list_triggers", {}, "/api/v2/triggers.json", "triggers"),
+        ("list_triggers", {"active": False, "category_id": "10026", "sort": "position", "sort_order": "desc"}, "/api/v2/triggers.json", "triggers"),
         ("search_users", {"query": "agent"}, "/api/v2/users/search.json", "users"),
         ("list_custom_statuses", {}, "/api/v2/custom_statuses.json", "custom_statuses"),
     ]
@@ -325,7 +327,8 @@ def test_metadata_mcp_calls_preserve_pagination_arguments(monkeypatch):
                 if name == "list_custom_statuses":
                     assert params is None
                     return success({key: [{"id": 8}, {"id": 9}]})
-                assert params == {"page[size]": "1", "page[after]": "1"}
+                filters = {key: (str(value).lower() if isinstance(value, bool) else value) for key, value in arguments.items() if key in {"active", "category_id", "sort", "sort_order"}}
+                assert params == {**filters, "page[size]": "1", "page[after]": "1"}
                 return success({key: [{"id": 9}], "meta": {"has_more": False}})
         monkeypatch.setattr(module, "build_metadata_tools", lambda _: MetadataTools(Client()))
         server = module.create_server({"ZENDESK_CAPABILITIES": "operations"})

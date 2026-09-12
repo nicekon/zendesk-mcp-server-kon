@@ -1,5 +1,36 @@
 from zendesk_mcp_server.contracts import success
 from zendesk_mcp_server.tools.metadata import MetadataTools
+import pytest
+
+
+@pytest.mark.parametrize("active", [True, False, None])
+@pytest.mark.parametrize("name,key,options", [
+    ("list_ticket_forms", "ticket_forms", {}),
+    ("list_triggers", "triggers", {"category_id": "10026", "sort": "position", "sort_order": "desc"}),
+])
+def test_metadata_filters_survive_pagination(active, name, key, options):
+    class Client:
+        def get(self, path, *, params=None):
+            assert path == f"/api/v2/{key}.json"
+            expected = dict(options)
+            if active is not None:
+                expected["active"] = "true" if active else "false"
+            after = params.get("page[after]")
+            assert params == {**expected, "page[size]": "1" if after else "2", **({"page[after]": "next"} if after else {})}
+            return success({key: [{"id": 2 if after else 1}], "meta": {"has_more": not after, "after_cursor": "next"}})
+    result = getattr(MetadataTools(Client()), name)(limit=2, active=active, **options)
+    assert result["items"] == [{"id": 1}, {"id": 2}]
+    assert result["has_more"] is False
+
+
+@pytest.mark.parametrize("options", [{"active": 1}, {"active": "false"}, {"category_id": ""}, {"category_id": 1}, {"sort": "usage_24h"}, {"sort": []}, {"sort_order": "DESC"}])
+def test_trigger_filters_reject_invalid_values_before_request(options):
+    result = MetadataTools(None).list_triggers(**options)
+    assert result["error"]["code"] == "validation_error"
+
+
+def test_form_filter_rejects_non_boolean_before_request():
+    assert MetadataTools(None).list_ticket_forms(active=0)["error"]["code"] == "validation_error"
 
 
 class StubClient:

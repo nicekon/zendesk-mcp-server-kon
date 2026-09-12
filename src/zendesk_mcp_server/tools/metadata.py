@@ -35,8 +35,11 @@ class MetadataTools:
         return self._list_cursor("/api/v2/brands.json", "brands", limit, cursor)
     def list_ticket_fields(self, limit: int = 100, *, cursor: str | None = None) -> dict[str, object]:
         return self._list_cursor("/api/v2/ticket_fields.json", "ticket_fields", limit, cursor)
-    def list_ticket_forms(self, limit: int = 100, *, cursor: str | None = None) -> dict[str, object]:
-        return self._list_cursor("/api/v2/ticket_forms.json", "ticket_forms", limit, cursor)
+    def list_ticket_forms(self, limit: int = 100, *, cursor: str | None = None, active: bool | None = None) -> dict[str, object]:
+        if active is not None and type(active) is not bool:
+            return failure(ErrorCode.VALIDATION_ERROR, "active must be a boolean")
+        filters = {} if active is None else {"active": str(active).lower()}
+        return collect_cursor(self._get, "/api/v2/ticket_forms.json", "ticket_forms", limit, cursor, filters=filters)
     def list_custom_statuses(self, limit: int = 100, *, cursor: str | None = None) -> dict[str, object]:
         if type(limit) is not int or not 1 <= limit <= 1000 or (cursor is not None and (not isinstance(cursor, str) or not cursor.isascii() or not cursor.isdecimal() or len(cursor) > 4)):
             return failure(ErrorCode.VALIDATION_ERROR, "limit must be 1 to 1000 and cursor must be a non-negative list offset")
@@ -60,8 +63,19 @@ class MetadataTools:
         return self._list_cursor(f"/api/v2/views/{view_id}/tickets.json", "tickets", limit, cursor)
     def list_macros(self, limit: int = 100, *, cursor: str | None = None) -> dict[str, object]:
         return self._list_cursor("/api/v2/macros.json", "macros", limit, cursor)
-    def list_triggers(self, limit: int = 100, *, cursor: str | None = None) -> dict[str, object]:
-        return self._list_cursor("/api/v2/triggers.json", "triggers", limit, cursor)
+    def list_triggers(self, limit: int = 100, *, cursor: str | None = None, active: bool | None = None, category_id: str | None = None, sort: str | None = None, sort_order: str | None = None) -> dict[str, object]:
+        if active is not None and type(active) is not bool:
+            return failure(ErrorCode.VALIDATION_ERROR, "active must be a boolean")
+        if category_id is not None and (not isinstance(category_id, str) or not category_id.strip()):
+            return failure(ErrorCode.VALIDATION_ERROR, "category_id must be a non-empty string")
+        if sort is not None and sort not in ("alphabetical", "created_at", "updated_at", "position"):
+            return failure(ErrorCode.VALIDATION_ERROR, "Unsupported cursor sort")
+        if sort_order is not None and sort_order not in ("asc", "desc"):
+            return failure(ErrorCode.VALIDATION_ERROR, "sort_order must be asc or desc")
+        filters = {key: value for key, value in (("category_id", category_id), ("sort", sort), ("sort_order", sort_order)) if value is not None}
+        if active is not None:
+            filters["active"] = str(active).lower()
+        return collect_cursor(self._get, "/api/v2/triggers.json", "triggers", limit, cursor, filters=filters)
 
     def _by_id(self, template: str, value: int, name: str) -> dict[str, object]:
         if not isinstance(value, int) or isinstance(value, bool) or value < 1:
