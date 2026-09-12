@@ -4,6 +4,7 @@ from zendesk_mcp_server.config import Settings
 from zendesk_mcp_server.tools.tickets import TicketTools
 import io
 import os
+import sys
 import time
 import zipfile
 from pathlib import Path
@@ -1460,7 +1461,15 @@ def test_attachment_pdf_inspection_runs_in_a_bounded_subprocess(tmp_path):
 
     result = TicketTools(AttachmentDownloadStub(document.getvalue(), "application/pdf"), settings).inspect_attachment(7, 5)
 
-    assert result["error"]["code"] == "unsupported"
+    if sys.platform.startswith("linux") or result["ok"]:
+        assert result["ok"] is True
+        assert result["data"]["kind"] == "pdf"
+        assert result["data"]["page_count"] == 1
+        assert result["data"]["text"] == ""
+        assert result["data"]["truncated"] is False
+    else:
+        assert result["error"]["code"] == "unsupported"
+        assert result["error"]["message"] == "PDF inspection requires a bounded parser subprocess"
 
 
 def test_attachment_image_inspection_requires_a_bounded_subprocess(tmp_path):
