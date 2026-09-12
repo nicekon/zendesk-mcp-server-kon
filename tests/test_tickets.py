@@ -3,6 +3,7 @@ from zendesk_mcp_server.contracts import success
 from zendesk_mcp_server.config import Settings
 from zendesk_mcp_server.tools.tickets import TicketTools
 import io
+import pytest
 import os
 import sys
 import time
@@ -1541,13 +1542,14 @@ def test_macro_rejects_approval_after_ticket_timestamp_changes(tmp_path):
     assert client.calls == []
 
 
-def test_macro_unknown_write_outcome_includes_recovery_without_replay(tmp_path):
+@pytest.mark.parametrize("code,state", [("timeout", "unknown"), ("partial_success", "partial")])
+def test_macro_unknown_write_outcome_includes_recovery_without_replay(tmp_path, code, state):
     from zendesk_mcp_server.contracts import failure, ErrorCode
 
     class TimedOutMacro(MacroStub):
         def request(self, method, path, *, json_body=None):
             self.calls.append((method, path, json_body))
-            return failure(ErrorCode.TIMEOUT, "Zendesk request timed out", operation_state="unknown")
+            return failure(ErrorCode(code), "Macro write did not fully complete", operation_state=state)
 
     client = TimedOutMacro()
     store = ApprovalStore(tmp_path / "approvals.json")
@@ -1555,7 +1557,9 @@ def test_macro_unknown_write_outcome_includes_recovery_without_replay(tmp_path):
     preview = tools.apply_macro(9, 4)
     request_id = preview["data"]["approval_request_id"]
     result = tools.apply_macro(9, 4, execution_mode="apply", approval_request_id=request_id, approval_token=store.approve(request_id))
-    assert result["error"]["operation_state"] == "unknown"
+    assert result["ok"] is False and result["error"]["code"] == code
+    assert result["error"]["operation_state"] == state
+    assert result["error"]["retryable"] is False
     assert result["error"]["details"]["ticket_id"] == 9
     assert result["error"]["details"]["macro_id"] == 4
     assert result["error"]["details"]["recovery"] == "Inspect the ticket and its audits before creating a new approval; do not replay the macro automatically."

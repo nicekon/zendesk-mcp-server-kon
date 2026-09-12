@@ -47,7 +47,7 @@ tests/docs/.github 경로는 저장소 루트 기준이며, `auth.py` 같은 소
 | 26 | 혼합 user votes·scan resume·구독 upsert/read-back | `tests/test_community.py::test_community_user_vote_cursor_resumes_an_unconsumed_mixed_page`, `tests/test_community.py::test_user_subscription_upsert_previews_change_and_reads_back_after_approval`, `tests/test_community.py::test_subscription_write_with_unverified_readback_is_unknown_without_retry` | 회귀 근거. include_comments가 없는 실응답을 임의로 검증 성공 처리하지 않는다. |
 | 27 | CSAT backend 필터·epoch 단위 | `tests/test_guide.py::test_csat_adapters_only_send_their_official_filters`, `tests/test_guide.py::test_survey_list_and_export_use_official_suffixless_path`, `tests/test_guide.py::test_csat_auto_uses_account_features_once_per_operation`, `tests/test_guide.py::test_csat_auto_does_not_guess_or_fallback_when_detection_fails` | score 기반 추정을 Account Settings의 활성 feature 감지로 보완했다. 목록·export 다중 페이지와 불명확 정보·권한 실패 no-fallback 회귀 근거. 실제 두 계정 유형의 감지 E2E를 검증한 것은 아니다. |
 | 28 | 비밀 없는 status/locales·무설정 무네트워크 handshake | `tests/test_server.py::test_connection_status_does_not_expose_credentials`, `tests/test_handshake.py::test_unconfigured_server_completes_an_mcp_handshake_without_network_access` | mock status 및 socket 연결 금지 상태의 실제 stdio handshake 근거. |
-| 29 | Macro partial_success·복구 정보 | `tests/test_tickets.py::test_macro_unknown_write_outcome_includes_recovery_without_replay`; `TicketTools.apply_macro` | 추가 대조: 현재 테스트는 unknown 및 복구 안내를 검증한다. 구현은 partial 오류를 받으면 복구 정보를 보강하지만, 실제 transport가 partial_success를 판정하는 경로의 근거는 아직 없다. 이를 부분 성공 검증 완료로 간주하지 않는다. |
+| 29 | Macro partial_success·복구 정보 | `tests/test_tickets.py::test_macro_unknown_write_outcome_includes_recovery_without_replay`, `test_ticket_macro_preview_requires_approval_and_reuses_ticket_update` (같은 파일); `TicketTools.apply_macro` | 단일 PUT에 필드·댓글을 함께 보내며, timeout/unknown과 명시적 partial_success/partial 오류 각각을 성공으로 바꾸지 않고 복구 ID·안내와 함께 반환하는 합성 회귀를 검증했다. 실제 transport가 부분 적용을 확정하는 근거는 없으며 단일 요청 타임아웃을 partial로 추정하지 않는다. 아래 7.3 대조 참고. |
 | 30 | Macro 동적 위험 승격 | `tests/test_tickets.py::test_ticket_macro_raises_all_gates_from_its_actions`, `tests/test_tickets.py::test_macro_risks_include_effective_preview_impersonation_and_closure` | 회귀 근거. |
 | 31 | Python 3.10–3.12 test→wheel→MCP CI | `.github/workflows/ci.yml`, CI `34671700267` | 해당 구현 커밋에서 Linux 3버전 전체 순서 성공. macOS/Windows는 별도 package smoke만 성공. |
 | 32 | 로그에 token·Authorization·고객 본문 없음 | `tests/test_server.py::test_tool_call_writes_a_redacted_audit_event`, `tests/test_client.py::test_scope_denial_reports_broad_read_requirement_without_leaking_body`, `audit.py` | 허용 필드 기반 로그 및 오류 회귀 근거. 임의 입력 전체의 비밀 탐지/DLP 보장이 아니다. |
@@ -57,6 +57,15 @@ tests/docs/.github 경로는 저장소 루트 기준이며, `auth.py` 같은 소
 | 36 | 운영 계정 무승인 쓰기 E2E 금지 | 현재 작업은 MockTransport/합성 파일/로컬 승인 테스트; 실제 작업 이력은 누적 감사 | 계속 유지할 작업 경계. 운영 계정 쓰기를 검증 대체 수단으로 사용하지 않는다. |
 
 ## 다음 확인 순서
+
+29번과 PRD 7.3 대조: 7.3은 가능한 단일 update를 요구하고 여러 호출이 필요한 경우에
+단계별 partial 결과를 요구한다. [원본 michaelrice macros](https://github.com/michaelrice/zendesk-mcp/blob/8313e117094d005dcf1fc48ffb6f9197bc60a712/src/zendesk_mcp/tools/macros.py)는
+필드·댓글을 두 번 갱신하지만, 현재 구현은 단일 PUT이며 분할 쓰기 fallback이 없다.
+[공식 Macros](https://developer.zendesk.com/api-reference/ticketing/business-rules/macros/)의
+preview는 쓰기가 아니고 result.ticket.comment를 포함한다. 따라서 partial 테스트를 위해
+실제 쓰기를 인위적으로 분할하거나 타임아웃을 부분 적용으로 단정하지 않는다.
+명시적 partial 오류 처리의 로컬 회귀는 추가했지만, 체크리스트의 실계정 부분 적용 증거와는
+구분한다. 이 대조로 전체 수용 체크박스를 자동으로 닫지 않는다.
 
 Community 콘텐츠 추가 대조 결과: [콘텐츠 계약 감사](2026-09-12-community-content-audit.md).
 Post/Comment HTML 저장 후 read-back 누락은 공통 쓰기 경로와 21개 합성 회귀 사례로 보완했다.
