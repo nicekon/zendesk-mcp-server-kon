@@ -820,6 +820,23 @@ def test_entity_name_and_id_references_match_across_ticket_consumers():
                 assert len(calls) == (2 if kind == "name" else 1)
 
 
+def test_custom_object_projection_rejects_malformed_lookup_metadata():
+    settings = Settings.load({"ZENDESK_CAPABILITIES": "support,custom_objects"})
+    for method in ("search_tickets", "export_tickets"):
+        for invalid_id in (None, True, 0, "11"):
+            calls = []
+            class Client:
+                def get(self, path, *, params=None):
+                    calls.append(path)
+                    if path == "/api/v2/ticket_fields.json":
+                        return success({"ticket_fields": [{"id": 10, "relationship_target_type": "zen:custom_object:asset"}, {"id": invalid_id, "relationship_target_type": "zen:custom_object:asset"}], "meta": {"has_more": False}})
+                    assert len(calls) == 1
+                    return success({"results": [{"id": 1, "custom_fields": []}], "next_page": None, "meta": {"has_more": False}})
+            result = getattr(TicketTools(Client(), settings), method)("status:open", projection={"include_custom_objects": ["asset"]})
+            assert result["error"]["code"] == "upstream_error"
+            assert len(calls) == 2
+
+
 def test_custom_object_projection_requires_its_capability():
     settings = Settings.load({})
     result = TicketTools(StubClient({}), settings).search_tickets("status:open", projection={"include_custom_objects": ["asset"]})

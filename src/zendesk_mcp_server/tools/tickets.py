@@ -711,6 +711,8 @@ class TicketTools:
         fields_result = collect_complete_cursor(client.get, "/api/v2/ticket_fields.json", "ticket_fields")
         if not fields_result.get("ok"): return fields_result
         fields = fields_result["items"]
+        if any(not _valid_ticket_id(field.get("id")) for field in fields):
+            return failure(ErrorCode.UPSTREAM_ERROR, "Zendesk returned an invalid ticket field ID")
         lookup = {key: [field["id"] for field in fields if isinstance(field, dict) and field.get("relationship_target_type") == f"zen:custom_object:{key}" and _valid_ticket_id(field.get("id"))] for key in keys} if isinstance(fields, list) else {}
         if set(lookup) != set(keys) or not all(lookup.values()): return failure(ErrorCode.VALIDATION_ERROR, "requested custom object key has no ticket lookup field")
         projected: list[dict[str, object]] = []

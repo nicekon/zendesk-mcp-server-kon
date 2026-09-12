@@ -58,6 +58,12 @@ tests/docs/.github 경로는 저장소 루트 기준이며, `auth.py` 같은 소
 
 ## 다음 확인 순서
 
+15번 projection 후속: `_project_custom_objects`가 잘못된 ticket field ID를 조용히 제외해
+불완전한 연결 정보를 성공으로 반환할 수 있어, 공통 경로에서 upstream_error로 차단했다.
+`tests/test_tickets.py::test_custom_object_projection_rejects_malformed_lookup_metadata`는
+검색·내보내기 각각의 null/boolean/0/string ID 응답을 검증한다. 전체 734 passed.
+정상 field 선택·객체 확장·CSV 평탄화는 기존 회귀와 함께 통과했으며 실계정 증거는 아니다.
+
 29번과 PRD 7.3 대조: 7.3은 가능한 단일 update를 요구하고 여러 호출이 필요한 경우에
 단계별 partial 결과를 요구한다. [원본 michaelrice macros](https://github.com/michaelrice/zendesk-mcp/blob/8313e117094d005dcf1fc48ffb6f9197bc60a712/src/zendesk_mcp/tools/macros.py)는
 필드·댓글을 두 번 갱신하지만, 현재 구현은 단일 PUT이며 분할 쓰기 fallback이 없다.
