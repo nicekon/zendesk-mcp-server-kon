@@ -198,6 +198,14 @@ survey는 created_at_start/end와 milliseconds를 유지한다. 혼합 날짜와
 MCP 두 소비자의 세 backend와 timezone 변환·날짜 역전/혼용 거부 포함 전체 677 passed가 로컬 근거다.
 G5 메시징과 전체 수용 색인의 추가 대조는 남아 있다.
 
+### G5 Conversation Log 명시 조회 후속
+
+get_ticket_conversation의 source=conversation_log를 공식 endpoint로 연결했다.
+공통 cursor collector와 created_at 정렬을 사용하며 raw events를 보존한다. 봇/버튼/첨부/비공개metadata를
+댓글 텍스트로 축약하지 않고 data.events에 제공한다. source 기본은 comments이고 기존 첨부 소속 확인은 그대로다.
+두 페이지 이벤트 보존·외부 next 무시·권한 오류 no-fallback·MCP source/cursor 전달 포함 680 passed.
+자동 채널 선택, 기존 댓글 작성자 이름/이미지 표시 보강은 아직 남아 있어 G5 전체 완료는 아니다.
+
 M10의 원본 priority/status 정렬, M06의 원본 상세 GitLab metadata, M19의 표시 포맷은
 PRD가 승인한 범위와 추가 대조한다. 원본 입력과 다르다는 이유만으로 위험한 호환 alias나
 승인하지 않은 외부 GitLab 조회를 추가하지 않는다. G 항목을 해결해도 색인의 resolver·

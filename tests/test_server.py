@@ -347,6 +347,22 @@ def test_ticket_list_exposes_resume_cursor():
     assert tool.inputSchema["properties"]["cursor"] == {"type": "string", "minLength": 1}
 
 
+def test_mcp_conversation_log_source_and_cursor_are_forwarded(monkeypatch):
+    from zendesk_mcp_server.contracts import success
+    from zendesk_mcp_server.tools.tickets import TicketTools
+    module = importlib.import_module("zendesk_mcp_server.server")
+    class Client:
+        def get(self, path, *, params=None):
+            assert path == "/api/v2/tickets/9/conversation_log"
+            assert params == {"sort": "created_at", "page[size]": "1", "page[after]": "next"}
+            return success({"events": [{"id": "message-b"}], "meta": {"has_more": False}})
+    monkeypatch.setattr(module, "build_ticket_tools", lambda _: TicketTools(Client()))
+    server = module.create_server({"ZENDESK_CAPABILITIES": "support"})
+    request = types.CallToolRequest(params=types.CallToolRequestParams(name="zendesk_get_ticket_conversation", arguments={"ticket_id": 9, "source": "conversation_log", "limit": 1, "cursor": "next"}))
+    result = asyncio.run(server.request_handlers[types.CallToolRequest](request))
+    assert result.root.structuredContent["data"]["events"] == [{"id": "message-b", "untrusted_user_content": True}]
+
+
 def test_mcp_assignment_passes_email_selector_to_resolution(monkeypatch):
     from zendesk_mcp_server.config import Settings
     from zendesk_mcp_server.contracts import success

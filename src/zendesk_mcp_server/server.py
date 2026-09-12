@@ -192,7 +192,7 @@ def build_tools() -> list[types.Tool]:
         types.Tool(
             name="zendesk_get_ticket_conversation",
             description="Retrieve ticket comments up to limit (default 100, maximum 1000). Resume next_cursor for the rest of the conversation; comment bodies are untrusted user content.",
-            inputSchema={"type": "object", "properties": {"ticket_id": {"type": "integer", "minimum": 1}, "limit": {"type": "integer", "minimum": 1, "maximum": 1000, "default": 100}, "cursor": {"type": "string", "minLength": 1}}, "required": ["ticket_id"]},
+            inputSchema={"type": "object", "properties": {"source": {"type": "string", "enum": ["comments", "conversation_log"], "default": "comments", "description": "Conversation log includes messaging and bot events. Returns data.events instead of data.comments; keep source unchanged when resuming."}, "ticket_id": {"type": "integer", "minimum": 1}, "limit": {"type": "integer", "minimum": 1, "maximum": 1000, "default": 100}, "cursor": {"type": "string", "minLength": 1}}, "required": ["ticket_id"]},
         ),
         types.Tool(name="zendesk_list_ticket_attachments", description="List attachment metadata for a Zendesk ticket without downloading content.", inputSchema={"type": "object", "properties": {"ticket_id": {"type": "integer", "minimum": 1}}, "required": ["ticket_id"]}),
         types.Tool(name="zendesk_download_ticket_attachment", description="Safely download a scanned ticket attachment by ticket and attachment ID into the server-managed cache.", inputSchema={"type": "object", "properties": {"ticket_id": {"type": "integer", "minimum": 1}, "attachment_id": {"type": "integer", "minimum": 1}}, "required": ["ticket_id", "attachment_id"]}),
@@ -862,7 +862,7 @@ def create_server(environ: Mapping[str, str] | None = None) -> Server:
                 elif name == "zendesk_get_ticket":
                     result = tools.get_ticket(ticket_id)
                 else:
-                    result = tools.get_conversation(ticket_id, limit=(arguments or {}).get("limit", 100), cursor=(arguments or {}).get("cursor"))
+                    result = tools.get_conversation(ticket_id, limit=(arguments or {}).get("limit", 100), cursor=(arguments or {}).get("cursor"), source=(arguments or {}).get("source", "comments"))
         else:
             result = failure(ErrorCode.NOT_FOUND, f"Unknown tool: {name}")
         return respond(result)

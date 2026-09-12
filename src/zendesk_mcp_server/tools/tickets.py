@@ -82,13 +82,19 @@ class TicketTools:
             return client
         return collect_cursor(client.get, "/api/v2/tickets.json", "tickets", limit, cursor, filters={"sort": sort} if sort is not None else None)
 
-    def get_conversation(self, ticket_id: int, *, limit: int = 100, cursor: str | None = None) -> dict[str, object]:
+    def get_conversation(self, ticket_id: int, *, limit: int = 100, cursor: str | None = None, source: str = "comments") -> dict[str, object]:
+        if source not in ("comments", "conversation_log"):
+            return failure(ErrorCode.VALIDATION_ERROR, "source must be comments or conversation_log")
         if not _valid_ticket_id(ticket_id):
             return failure(ErrorCode.VALIDATION_ERROR, "ticket_id must be a positive integer")
         client = self._configured_client()
         if isinstance(client, dict):
             return client
         roles = {}
+        if source == "conversation_log":
+            result = collect_cursor(client.get, f"/api/v2/tickets/{ticket_id}/conversation_log", "events", limit, cursor, filters={"sort": "created_at"})
+            if not result.get("ok"): return result
+            return success({"source": source, "events": [{**event, "untrusted_user_content": True} for event in result["items"]], **{key: result[key] for key in ("has_more", "next_cursor", "truncated")}})
         def get_page(path, *, params=None):
             page = client.get(path, params=params)
             if page.get("ok") and isinstance(page.get("data"), dict):

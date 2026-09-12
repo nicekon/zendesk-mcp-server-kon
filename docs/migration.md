@@ -388,6 +388,13 @@ and badge icon uploader now explicitly listed in section 8.
 
 ## Operations list filters
 
+`zendesk_get_ticket_conversation` now accepts `source: "conversation_log"` to read messaging, bot and ticket events using the official conversation log endpoint.
+This mode returns `data.events` (raw event fields plus the untrusted-content marker) and `data.source`; it does not flatten buttons, author objects, attachments or private metadata into comment text.
+Events are requested in created-at order. Resume with the same source and returned cursor; never move a cursor between comments and conversation-log endpoints.
+The default remains `comments`, including for attachment ownership checks. Log permission/rate-limit errors do not fall back to comments.
+Automatic channel selection and normalized display enhancements remain pending. No live conversation-log request was performed during implementation.
+Reference: [Conversation Log](https://developer.zendesk.com/api-reference/ticketing/tickets/conversation_log/).
+
 CSAT list/export input schemas now distinguish `legacy`, `survey`, and `auto` (the default).
 Legacy rejects `ticket_id`/`responder_ids`; survey rejects `score`. Auto rejects a mixed score + survey-filter request before detecting the account backend.
 Scores are restricted to the existing supported values, and responder lists must be non-empty.

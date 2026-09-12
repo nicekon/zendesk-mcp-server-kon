@@ -86,6 +86,33 @@ class StubClient:
         return self.responses[path]
 
 
+def test_conversation_log_preserves_bot_rich_content_and_private_comments():
+    events = [
+        {"id": "event-a", "type": "Messaging::ConversationMessage", "author": {"type": "bot", "display_name": "Helper"}, "content": {"type": "text", "text": "Hello", "actions": [{"reply": {"text": "Human", "payload": "route"}}]}, "attachments": [], "metadata": {}, "reference": "zen:sunco:conversation_message:a", "created_at": "2026-09-01T00:00:00Z"},
+        {"id": "event-b", "type": "Comment", "author": {"type": "agent", "display_name": "Agent"}, "content": {"type": "html", "body": "<p>Private</p>"}, "attachments": [{"id": 3, "inline": True}], "metadata": {"public": False}, "reference": "zen:ticket_event:3", "created_at": "2026-09-01T00:01:00Z"},
+    ]
+    class Client:
+        def get(self, path, *, params=None):
+            assert path == "/api/v2/tickets/9/conversation_log"
+            assert params["sort"] == "created_at"
+            after = params.get("page[after]")
+            assert after in (None, "next")
+            return success({"events": [events[1 if after else 0]], "meta": {"has_more": not after, "after_cursor": "next"}, "links": {"next": "https://untrusted.invalid/ignored"}})
+    result = TicketTools(Client()).get_conversation(9, source="conversation_log", limit=2)
+    assert result["data"] == {"source": "conversation_log", "events": [{**event, "untrusted_user_content": True} for event in events], "has_more": False, "next_cursor": None, "truncated": False}
+
+
+def test_conversation_log_errors_do_not_fall_back_to_comments():
+    from zendesk_mcp_server.contracts import failure, ErrorCode
+    error = failure(ErrorCode.PERMISSION_DENIED, "denied")
+    class Client:
+        def get(self, path, *, params=None):
+            assert path.endswith("/conversation_log")
+            return error
+    assert TicketTools(Client()).get_conversation(9, source="conversation_log") == error
+    assert TicketTools(None).get_conversation(9, source="unknown")["error"]["code"] == "validation_error"
+
+
 class MutationStub:
     def __init__(self):
         self.calls = []
