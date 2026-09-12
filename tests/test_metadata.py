@@ -42,6 +42,47 @@ class StubClient:
         return success({"users": [{"id": 1}], "next_page": None, "groups": [{"id": 2}], "brands": [{"id": 3}], "meta": {"has_more": False}})
 
 
+def test_trigger_usage_preserves_inline_and_page_sideloads_without_zero_filling():
+    class Client:
+        def get(self, path, *, params=None):
+            assert path == "/api/v2/triggers.json"
+            assert params["include"] == "usage_1h,usage_24h,usage_7d,usage_30d"
+            assert params["active"] == "false"
+            if "page[after]" not in params:
+                return success({"triggers": [{"id": 1, "usage_24h": 0}], "usage_7d": {"1": 4}, "meta": {"has_more": True, "after_cursor": "next"}})
+            assert params["page[after]"] == "next"
+            return success({"triggers": [{"id": 2}], "usage_7d": {"2": None}, "meta": {"has_more": False}})
+    result = MetadataTools(Client()).list_triggers(limit=2, active=False, include_usage=True)
+    assert result["items"] == [{"id": 1, "usage_24h": 0}, {"id": 2}]
+    assert result["sideloads"] == [{"usage_7d": {"1": 4}}, {"usage_7d": {"2": None}}]
+    assert result["has_more"] is False
+
+
+def test_trigger_usage_missing_is_not_fabricated_and_disabled_keeps_default_query():
+    for enabled in (True, False):
+        class Client:
+            def get(self, path, *, params=None):
+                assert ("include" in params) is enabled
+                return success({"triggers": [{"id": 1}], "meta": {"has_more": False}})
+        result = MetadataTools(Client()).list_triggers(include_usage=enabled)
+        assert result == {"ok": True, "items": [{"id": 1}], "has_more": False, "next_cursor": None, "truncated": False}
+
+
+def test_trigger_usage_late_error_is_not_partial_success():
+    from zendesk_mcp_server.contracts import failure, ErrorCode
+    error = failure(ErrorCode.UPSTREAM_ERROR, "unavailable")
+    class Client:
+        def get(self, path, *, params=None):
+            if "page[after]" in params: return error
+            return success({"triggers": [{"id": 1}], "usage_7d": {"1": 4}, "meta": {"has_more": True, "after_cursor": "next"}})
+    assert MetadataTools(Client()).list_triggers(include_usage=True) == error
+
+
+@pytest.mark.parametrize("value", [None, 1, "true", []])
+def test_trigger_usage_rejects_non_boolean(value):
+    assert MetadataTools(None).list_triggers(include_usage=value)["error"]["code"] == "validation_error"
+
+
 def test_user_search_resumes_inside_page_and_crosses_page_boundary():
     class Client:
         def get(self, path, *, params=None):

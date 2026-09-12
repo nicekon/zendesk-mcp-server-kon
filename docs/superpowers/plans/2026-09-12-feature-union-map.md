@@ -160,6 +160,15 @@ alphabetical/created_at/updated_at/position만 허용한다. 필터 페이지 �
 [Triggers](https://developer.zendesk.com/api-reference/ticketing/business-rules/triggers/).
 G7의 usage sideload 및 실제 응답 보존 검증은 남아 있다. 필터 구현만으로 G7 전체를 완료 처리하지 않는다.
 
+### G7 usage 구현 후속
+
+`include_usage` 옵션은 공식 네 기간을 include 쿼리에 전달한다. 기본값 false 유지.
+항목 내부 필드는 그대로, 페이지 최상위 비-pagination 필드는 `sideloads` 배열에 순서대로 보존한다.
+0/null/누락 구분, 다중 페이지 전달, 마지막 페이지 오류, 잘못된 입력 및 MCP 전달 검증 후 전체 662 passed.
+공식 문서에 usage 응답 예제가 없어 테스트는 합성 응답의 무손실 보존 증거이며 실제 JSON 형태 확정 증거가 아니다.
+G7의 필터·정렬·통계 요청 구현은 반영했으나 계정별 통계 가용성·실제 응답 동등성은 미검증이다.
+테스트 계정 요청 또는 운영 변경 없이 G6 및 G5/G8 구현을 이어간다.
+
 M10의 원본 priority/status 정렬, M06의 원본 상세 GitLab metadata, M19의 표시 포맷은
 PRD가 승인한 범위와 추가 대조한다. 원본 입력과 다르다는 이유만으로 위험한 호환 alias나
 승인하지 않은 외부 GitLab 조회를 추가하지 않는다. G 항목을 해결해도 색인의 resolver·

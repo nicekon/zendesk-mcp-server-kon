@@ -63,7 +63,9 @@ class MetadataTools:
         return self._list_cursor(f"/api/v2/views/{view_id}/tickets.json", "tickets", limit, cursor)
     def list_macros(self, limit: int = 100, *, cursor: str | None = None) -> dict[str, object]:
         return self._list_cursor("/api/v2/macros.json", "macros", limit, cursor)
-    def list_triggers(self, limit: int = 100, *, cursor: str | None = None, active: bool | None = None, category_id: str | None = None, sort: str | None = None, sort_order: str | None = None) -> dict[str, object]:
+    def list_triggers(self, limit: int = 100, *, cursor: str | None = None, active: bool | None = None, category_id: str | None = None, sort: str | None = None, sort_order: str | None = None, include_usage: bool = False) -> dict[str, object]:
+        if type(include_usage) is not bool:
+            return failure(ErrorCode.VALIDATION_ERROR, "include_usage must be a boolean")
         if active is not None and type(active) is not bool:
             return failure(ErrorCode.VALIDATION_ERROR, "active must be a boolean")
         if category_id is not None and (not isinstance(category_id, str) or not category_id.strip()):
@@ -75,7 +77,19 @@ class MetadataTools:
         filters = {key: value for key, value in (("category_id", category_id), ("sort", sort), ("sort_order", sort_order)) if value is not None}
         if active is not None:
             filters["active"] = str(active).lower()
-        return collect_cursor(self._get, "/api/v2/triggers.json", "triggers", limit, cursor, filters=filters)
+        if not include_usage:
+            return collect_cursor(self._get, "/api/v2/triggers.json", "triggers", limit, cursor, filters=filters)
+        filters["include"] = "usage_1h,usage_24h,usage_7d,usage_30d"
+        sideloads = []
+        def get_page(path, *, params=None):
+            response = self._get(path, params=params)
+            data = response.get("data")
+            if response.get("ok") and isinstance(data, dict):
+                extra = {key: value for key, value in data.items() if key not in ("triggers", "meta", "links", "count", "next_page", "previous_page")}
+                if extra: sideloads.append(extra)
+            return response
+        result = collect_cursor(get_page, "/api/v2/triggers.json", "triggers", limit, cursor, filters=filters)
+        return {**result, "sideloads": sideloads} if result.get("ok") and sideloads else result
 
     def _by_id(self, template: str, value: int, name: str) -> dict[str, object]:
         if not isinstance(value, int) or isinstance(value, bool) or value < 1:

@@ -314,6 +314,7 @@ def test_metadata_mcp_calls_preserve_pagination_arguments(monkeypatch):
         ("list_macros", {}, "/api/v2/macros.json", "macros"),
         ("list_triggers", {}, "/api/v2/triggers.json", "triggers"),
         ("list_triggers", {"active": False, "category_id": "10026", "sort": "position", "sort_order": "desc"}, "/api/v2/triggers.json", "triggers"),
+        ("list_triggers", {"include_usage": True}, "/api/v2/triggers.json", "triggers"),
         ("search_users", {"query": "agent"}, "/api/v2/users/search.json", "users"),
         ("list_custom_statuses", {}, "/api/v2/custom_statuses.json", "custom_statuses"),
     ]
@@ -328,6 +329,8 @@ def test_metadata_mcp_calls_preserve_pagination_arguments(monkeypatch):
                     assert params is None
                     return success({key: [{"id": 8}, {"id": 9}]})
                 filters = {key: (str(value).lower() if isinstance(value, bool) else value) for key, value in arguments.items() if key in {"active", "category_id", "sort", "sort_order"}}
+                if arguments.get("include_usage"):
+                    filters["include"] = "usage_1h,usage_24h,usage_7d,usage_30d"
                 assert params == {**filters, "page[size]": "1", "page[after]": "1"}
                 return success({key: [{"id": 9}], "meta": {"has_more": False}})
         monkeypatch.setattr(module, "build_metadata_tools", lambda _: MetadataTools(Client()))

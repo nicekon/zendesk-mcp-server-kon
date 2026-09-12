@@ -390,4 +390,10 @@ and badge icon uploader now explicitly listed in section 8.
 
 `zendesk_list_ticket_forms` accepts optional `active`; omitting it keeps both active and inactive forms.
 `zendesk_list_triggers` also accepts `active`, string `category_id`, `sort` (`alphabetical`, `created_at`, `updated_at`, `position`), and `sort_order` (`asc`, `desc`).
-Keep these filters unchanged when resuming with a cursor. Usage-statistic sideload support is not yet included.
+Keep these filters unchanged when resuming with a cursor.
+Optional `include_usage: true` requests the 1-hour, 24-hour, 7-day and 30-day usage sideloads.
+The default remains false. Zendesk requires Support Professional or Suite Growth or above for these statistics.
+Inline statistics stay in `items`; any additional non-pagination response fields are retained, unchanged and in page order, in optional `sideloads`.
+Missing values are not filled with zero and null values stay null. Errors are returned without retrying a less informative request.
+The official reference does not give a usage response example: local tests prove lossless handling of simulated inline and root-level fields, not the exact live response shape.
+See [Triggers](https://developer.zendesk.com/api-reference/ticketing/business-rules/triggers/) and [side-loading](https://developer.zendesk.com/documentation/api-basics/working-with-data/side_loading/).
