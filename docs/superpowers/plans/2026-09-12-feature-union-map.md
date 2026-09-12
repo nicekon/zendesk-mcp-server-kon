@@ -270,3 +270,15 @@ GitHub commit/GitLab markup 회귀가 링크 추출 계약의 근거다.
 
 G1–G8의 구현 기록은 위 후속 절을 기준으로 읽는다. 남은 수용 근거 대조 중 공통 경로
 결함이 확인되면 먼저 수정한다. 테스트 계정 재요청·운영 쓰기·병합·배포는 하지 않는다.
+
+### M10 offset 정렬 연결
+
+고정 원본 `tools/list_tickets.py`를 직접 확인했다. page/per_page 및
+created_at/updated_at/priority/status 정렬을 선언하지만, 현재 공식 List Tickets
+정렬 표에는 priority가 없다. 원본의 잘못된 허용 값을 그대로 복제하지 않는다.
+`list_tickets`에 공식 sort_by 10종과 sort_order asc/desc를 연결했고, 이 입력을
+지정한 경우 기존 collect_offset을 재사용한다. 기본 cursor sort는 변경하지 않는다.
+27개 도메인 사례는 양방향 정렬 20조합, 잘못된/혼합 입력 6종, 10,000건 상한을
+검증한다. 실제 MCP dispatch도 offset 100과 생성일 내림차순 전달을 검증한다.
+원본 page/per_page 응답 형식은 canonical limit/next_cursor로 이전하며
+`docs/migration.md`에 차이를 명시했다. 실제 데이터 정렬 순서는 실계정 검증이 아니다.

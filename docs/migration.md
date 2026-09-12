@@ -1,5 +1,17 @@
 # Migration and rollback
 
+## Ticket list sorting
+
+`zendesk_list_tickets` keeps cursor pagination by default, including `sort` values
+`id`, `updated_at`, `status`, and their `-` descending forms. For offset-only
+ordering such as creation date, pass `sort_by="created_at"` and optionally
+`sort_order="desc"` (default `asc`). Do not combine these with `sort`.
+Resume with the returned `next_cursor` and unchanged sorting arguments; offset
+and upstream cursor tokens are not interchangeable. `limit` remains the requested
+result count, not a legacy `per_page` parameter. Offset traversal stops at 10,000
+results with `truncated=true`, `has_more=true`, and no continuation beyond that
+boundary. `priority` is not a documented List Tickets sort and is rejected.
+
 ## Knowledge base resource output
 
 The opt-in `zendesk://knowledge-base` resource now returns a JSON manifest,

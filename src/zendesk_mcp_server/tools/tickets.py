@@ -88,7 +88,11 @@ class TicketTools:
             return client
         return client.get(f"/api/v2/tickets/{ticket_id}.json")
 
-    def list_tickets(self, limit: int = 100, *, cursor: str | None = None, sort: str | None = None) -> dict[str, object]:
+    def list_tickets(self, limit: int = 100, *, cursor: str | None = None, sort: str | None = None, sort_by: str | None = None, sort_order: str | None = None) -> dict[str, object]:
+        if sort_by is not None and (not isinstance(sort_by, str) or sort_by not in ("assignee", "assignee.name", "created_at", "group", "id", "requester", "requester.name", "status", "subject", "updated_at")):
+            return failure(ErrorCode.VALIDATION_ERROR, "sort_by must be a supported ticket offset sort field")
+        if (sort_by is not None and sort is not None) or (sort_order is not None and (sort_by is None or sort_order not in ("asc", "desc"))):
+            return failure(ErrorCode.VALIDATION_ERROR, "sort_by and sort_order (asc or desc) cannot be combined with cursor sort")
         if sort is not None and (not isinstance(sort, str) or sort not in ("id", "-id", "updated_at", "-updated_at", "status", "-status")):
             return failure(ErrorCode.VALIDATION_ERROR, "sort must be id, -id, updated_at, -updated_at, status, or -status")
         if cursor is not None and (not isinstance(cursor, str) or not cursor):
@@ -98,6 +102,8 @@ class TicketTools:
         client = self._configured_client()
         if isinstance(client, dict):
             return client
+        if sort_by is not None:
+            return collect_offset(client.get, "/api/v2/tickets.json", "tickets", limit, cursor, filters={"sort_by": sort_by, "sort_order": sort_order or "asc"})
         return collect_cursor(client.get, "/api/v2/tickets.json", "tickets", limit, cursor, filters={"sort": sort} if sort is not None else None)
 
     def get_conversation(self, ticket_id: int, *, limit: int = 100, cursor: str | None = None, source: str = "comments") -> dict[str, object]:

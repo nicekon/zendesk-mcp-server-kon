@@ -378,6 +378,32 @@ def test_ticket_list_keeps_sort_across_cursor_pages(sort):
     assert TicketTools(Client()).list_tickets(2, sort="created_at")["error"]["code"] == "validation_error"
 
 
+@pytest.mark.parametrize("sort_by", ["assignee", "assignee.name", "created_at", "group", "id", "requester", "requester.name", "status", "subject", "updated_at"])
+@pytest.mark.parametrize("sort_order", ["asc", "desc"])
+def test_ticket_offset_sort_preserves_filters_on_resume(sort_by, sort_order):
+    client = StubClient({"/api/v2/tickets.json": success({"tickets": [{"id": 2}, {"id": 1}], "next_page": None})})
+    tools = TicketTools(client)
+    first = tools.list_tickets(1, sort_by=sort_by, sort_order=sort_order)
+    assert first["items"] == [{"id": 2}]
+    second = tools.list_tickets(1, sort_by=sort_by, sort_order=sort_order, cursor=first["next_cursor"])
+    assert second["items"] == [{"id": 1}] and second["has_more"] is False
+    assert client.paths == [("/api/v2/tickets.json", {"sort_by": sort_by, "sort_order": sort_order, "per_page": "100", "page": "1"})] * 2
+
+
+@pytest.mark.parametrize("options", [{"sort_by": "priority"}, {"sort_by": []}, {"sort_by": "created_at", "sort_order": "up"}, {"sort_order": "desc"}, {"sort": "id", "sort_by": "created_at"}, {"sort_by": "created_at", "cursor": "10000"}])
+def test_ticket_offset_sort_rejects_invalid_or_mixed_contracts(options):
+    client = StubClient({})
+    assert TicketTools(client).list_tickets(**options)["error"]["code"] == "validation_error"
+    assert client.paths == []
+
+
+def test_ticket_offset_sort_stops_at_ten_thousand_without_claiming_completion():
+    client = StubClient({"/api/v2/tickets.json": success({"tickets": [{"id": i} for i in range(100)], "next_page": "https://untrusted.invalid/ignored"})})
+    result = TicketTools(client).list_tickets(100, sort_by="created_at", cursor="9900")
+    assert result["has_more"] is True and result["truncated"] is True and result["next_cursor"] is None
+    assert client.paths == [("/api/v2/tickets.json", {"sort_by": "created_at", "sort_order": "asc", "per_page": "100", "page": "100"})]
+
+
 def test_time_tracking_app_reads_fields_and_updates_with_conflict_guard():
     class Client(MutationStub):
         def get(self, path, *, params=None):

@@ -962,11 +962,12 @@ def test_mcp_dispatch_forwards_ticket_pagination_inputs(monkeypatch):
             calls.append((path, params))
             if path == "/api/v2/search.json":
                 return {"ok": True, "data": {"results": [], "next_page": None}}
-            return {"ok": True, "data": {"tickets": [], "meta": {"has_more": False}}}
+            return {"ok": True, "data": {"tickets": [], "meta": {"has_more": False}, "next_page": None}}
     monkeypatch.setattr(module, "build_ticket_tools", lambda _: TicketTools(Client()))
     server = module.create_server({"ZENDESK_SUBDOMAIN": "acme"})
     for name, arguments in (
         ("zendesk_list_tickets", {"limit": 2, "cursor": "next", "sort": "-updated_at"}),
+        ("zendesk_list_tickets", {"limit": 2, "cursor": "100", "sort_by": "created_at", "sort_order": "desc"}),
         ("zendesk_search_tickets", {"query": "status:open", "limit": 2, "page": 3}),
     ):
         request = types.CallToolRequest(params=types.CallToolRequestParams(name=name, arguments=arguments))
@@ -974,6 +975,7 @@ def test_mcp_dispatch_forwards_ticket_pagination_inputs(monkeypatch):
         assert result.root.structuredContent["ok"] is True
     assert calls == [
         ("/api/v2/tickets.json", {"page[size]": "2", "page[after]": "next", "sort": "-updated_at"}),
+        ("/api/v2/tickets.json", {"sort_by": "created_at", "sort_order": "desc", "per_page": "100", "page": "2"}),
         ("/api/v2/search.json", {"query": "type:ticket status:open", "per_page": "2", "page": "3"}),
     ]
 
