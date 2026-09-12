@@ -32,6 +32,18 @@ hc:write가 포함됐다. 이것만으로 모든 endpoint의 권한이 증명되
   생성 중 어느 Zendesk POST가 거부됐는지 구별할 수 없으므로 중간 업로드가
   전혀 없었다고 주장하지 않는다. presigned PUT 오류는 별도 메시지를 사용한다.
 
+후속 진단 구현 `4d002ae`는 실패 응답의 error.details.upload_stage에
+prepare_upload / upload_binary / create_image_path를 추가한다. 원래 오류 코드,
+요청 ID와 요청 단위 operation_state는 보존한다. 세 단계 회귀는 변경 전에
+실패했고 전체 855개 테스트 및 CI 34688291018의 다섯 작업이 통과했다.
+이는 403 해결이 아니라 실패 단계 식별 기능이다.
+
+사용자가 한 번의 재시도를 별도로 허용하고 새 로컬 승인 토큰을 제공했다.
+그 시도는 prepare_upload 단계에서 HTTP 403 / permission_denied / not_applied를
+반환했다. 따라서 두 번째 시도에서는 presigned PUT 및 이미지 경로 생성에 도달하지
+않았다. 이 증거를 첫 번째 시도의 중간 전송 여부까지 소급해 적용하지 않는다.
+추가 업로드, 재로그인, broad write 확대 또는 익명 인증 우회는 하지 않았다.
+
 공식 User Images 문서와 endpoint·payload는 일치하며 익명 사용자도 Allowed for에
 명시돼 있다. 따라서 관리자 권한 부족이나 OAuth scope 부족으로 원인을 단정하지
 않는다. 재시도 시 단계별 진단이 필요하며 승인 토큰을 재사용하지 않는다.
