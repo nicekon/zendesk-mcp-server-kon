@@ -573,6 +573,32 @@ def test_community_post_author_or_created_at_requires_impersonation_gate(tmp_pat
     assert client.paths == [("/api/v2/community/topics/4.json", None)]
 
 
+@pytest.mark.parametrize("method,args", [("create_post", (4, "Title", "Body")), ("create_comment", (2, "Body"))])
+@pytest.mark.parametrize("delegation", [{"author_id": 9}, {"created_at": "2026-09-01T00:00:00Z"}])
+@pytest.mark.parametrize("role", ["admin", "agent", "end-user", None])
+def test_community_content_impersonation_checks_current_admin_before_write(tmp_path, method, args, delegation, role):
+    class Client(StubClient):
+        def get(self, path, *, params=None):
+            if path == "/api/v2/users/me.json":
+                self.paths.append((path, params))
+                return success({"user": {"id": 1, "role": role}})
+            return super().get(path, params=params)
+    client = Client(); store = ApprovalStore(tmp_path / "approvals.json")
+    tools = CommunityTools(client, Settings.load({"ZENDESK_WRITE_MODE": "standard", "ZENDESK_ENABLE_PUBLIC_WRITES": "true", "ZENDESK_ENABLE_IMPERSONATION": "true"}), store)
+    call = getattr(tools, method)
+    preview = call(*args, **delegation)
+    assert client.paths == []
+    token = store.approve(preview["data"]["approval_request_id"])
+    result = call(*args, **delegation, execution_mode="apply", approval_request_id=preview["data"]["approval_request_id"], approval_token=token)
+    assert client.paths[0] == ("/api/v2/users/me.json", None)
+    if role == "admin":
+        assert result["ok"] is True
+        assert sum(path[0] == "POST" for path in client.paths) == 1
+    else:
+        assert result["error"]["code"] == "permission_denied"
+        assert len(client.paths) == 1
+
+
 @pytest.mark.parametrize("followers", [7, 0, None, True, -1, "7"])
 def test_community_notification_previews_report_api_follower_counts(tmp_path, followers):
     class NotificationClient:

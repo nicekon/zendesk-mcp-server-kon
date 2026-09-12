@@ -507,6 +507,12 @@ class CommunityTools:
             if (blocked := check_write_permission(self._settings, item)) is not None: return blocked
         if self._approvals is None or not isinstance(approval_request_id, str) or not isinstance(approval_token, str) or not self._approvals.consume(approval_request_id, tool, approval_payload, approval_token): return failure(ErrorCode.APPROVAL_REQUIRED, "a matching local approval is required")
         if self._client is None: return failure(ErrorCode.NOT_CONFIGURED, "Zendesk write client is not configured")
+        if WriteRisk.IMPERSONATION in risks and tool in ("zendesk_create_community_post", "zendesk_create_community_comment"):
+            identity = self._get("/api/v2/users/me.json")
+            if not identity.get("ok"): return identity
+            user = self._nested_data(identity, "user")
+            if user is None or not self._valid_id(user.get("id"), "user_id") or user.get("role") != "admin":
+                return failure(ErrorCode.PERMISSION_DENIED, "Community author and creation-time impersonation requires an administrator")
         written = self._client.request(method, path, json_body=json_body)
         if not written.get("ok") or method not in {"POST", "PUT"}: return written
         for key, field in (("post", "details"), ("comment", "body")):

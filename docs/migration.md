@@ -1,5 +1,19 @@
 # Migration and rollback
 
+## Community author and creation-time impersonation
+
+Creating a post/comment with `author_id` or `created_at` now checks the current
+user through `/api/v2/users/me.json` after the write gates and single-use approval
+are validated, before sending the POST. The PRD's local policy requires an admin;
+Zendesk's Help Center manager permissions still apply independently. Badge and
+subscription permissions are not reinterpreted as administrator-only.
+Community OAuth configurations with impersonation enabled now request
+`users:read` as well. Existing tokens may need reauthorization; a failed role
+lookup never falls back to API-token authentication or proceeds with the write.
+The approval has already been consumed if this lookup fails: inspect the error
+and create a fresh preview/approval before retrying. Default read-only and
+non-impersonating Community operations do not add this role lookup.
+
 ## Ticket list sorting
 
 `zendesk_list_tickets` keeps cursor pagination by default, including `sort` values

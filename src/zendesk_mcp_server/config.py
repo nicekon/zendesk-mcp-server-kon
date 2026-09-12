@@ -276,6 +276,7 @@ def _oauth_scopes(capabilities: frozenset[str], write_mode: str, public: bool, d
     if write_mode == "standard" and capabilities & {"support", "operations", "time_tracking"}: scopes.add("tickets:write")
     if (public or destructive or external_upload) and capabilities & {"guide", "community", "badges"}: scopes.add("hc:write")
     if impersonation: scopes.add("impersonate")
+    if impersonation and "community" in capabilities: scopes.add("users:read")
     return tuple(sorted(scopes))
 
 

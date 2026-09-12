@@ -192,6 +192,7 @@ def test_windows_without_acl_support_refuses_oauth_reads_and_writes(tmp_path, mo
 
 @pytest.mark.parametrize("capability,extra,expected", [
     ("custom_objects", {}, {"custom_objects:read", "account_settings:read"}),
+    ("community", {"ZENDESK_ENABLE_IMPERSONATION": "true"}, {"hc:read", "users:read", "impersonate"}),
     ("csat", {}, {"satisfaction_ratings:read", "account_settings:read"}),
     ("git_zen", {}, {"tickets:read"}),
     ("time_tracking", {}, {"tickets:read"}),

@@ -5,6 +5,19 @@
 
 ## 확인한 경로
 
+### 작성자·시각 대행의 관리자 정책 보완
+
+PRD 7.5는 author_id/created_at 대행에 관리자 권한도 요구하지만, 기존 공통
+쓰기 경로는 impersonation 설정과 승인만 검사했다. Post/Comment 생성의
+대행에 한해 gate·승인 확인 뒤 현재 사용자 GET으로 양의 ID와 admin 역할을
+검증한다. 조회 실패·비관리자·누락 역할에는 POST하지 않는다. 16개 합성 사례와
+조건부 OAuth scope 회귀를 포함해 전체 797 passed.
+[Posts](https://developer.zendesk.com/api-reference/help_center/help-center-api/posts/)와
+[Post Comments](https://developer.zendesk.com/api-reference/help_center/help-center-api/post_comments/)의
+공식 대행 권한은 Help Center manager다. admin 검사는 PRD의 별도 로컬 제한이며
+manager 권한을 증명하거나 Zendesk 권한 검사를 대체하지 않는다. Community 대행
+활성 시 users:read scope가 추가되며 재인증·승인 재생성 절차는 migration 문서에 명시했다.
+
 ### 배지·구독 검증 근거 갱신 (b4b8c06 기준)
 
 `uv run pytest -q tests/test_community.py -k 'subscription or badge'`를 실행해
