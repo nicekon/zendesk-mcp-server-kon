@@ -77,7 +77,7 @@ oauth_relogin_required를 반환하고 credential 파일의 바이트를 그대�
 - `_post_payload`의 details 및 `_comment_payload`의 body는 `_valid_html`을 사용한다.
   Topic description은 공식 문서에서 단순 문자열이며 HTML 지원으로 추정하지 않는다.
 
-## 확인된 구현 누락
+## 최초 확인한 구현 누락 (아래 후속 절에서 보완)
 
 1. **정규화된 HTML 재조회:** `_approved_request`는 성공한 POST/PUT 응답을 바로 반환한다.
    Post/Comment 생성·수정 어디에도 후속 단건 GET이 없다. PRD의 저장 후 read-back 요구를
@@ -88,7 +88,7 @@ oauth_relogin_required를 반환하고 credential 파일의 바이트를 그대�
    raw items를 반환한다. Community 코드에는 `untrusted_user_content` 표시나 HTML/plain text
    분리 처리가 없다. Ticket/Guide에 같은 이름의 표시가 있다는 사실은 Community 근거가 아니다.
 
-## 다음 보완의 검증 기준
+## 당시 보완의 검증 기준
 
 - Post/Comment 생성 및 HTML 수정의 실제 공통 경로에서 승인 전 outbound write 0을 유지한다.
 - 성공한 쓰기에 한해 검증된 리소스 ID와 기존 고정 endpoint로 GET한다. 응답의 임의 URL을
