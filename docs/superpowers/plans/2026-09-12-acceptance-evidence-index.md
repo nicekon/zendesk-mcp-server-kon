@@ -11,7 +11,20 @@
 
 ## 조건별 근거
 
-### 최신 설치 검증: 3f6590981f0eb5a26d9a1cb55e702b4615df8cee
+### 최신 설치 검증: 039497045287bd3f5e6bbd12b413d7c672ac60c9
+
+- `/tmp/zendesk-install-audit.cox3A4`에 sdist 및 wheel을 새로 빌드하고 별도
+  Python 3.12.5 환경에 정확한 wheel 파일과 pytest를 설치했다.
+- `python -I`로 import가 해당 환경의 `site-packages`에서 이루어짐을 확인했다.
+  `-I -m pytest --import-mode=importlib -q`로 전체 823개가 7.15초에 통과했다.
+  기본 read-only의 43개 mutation 도구 차단 회귀와 최근 인증 검증도 포함한다.
+- 설치된 `zendesk` 실행 파일로 initialize, 101개 도구 목록, 무설정 연결 상태의
+  `configured=false`를 확인했다. 사용자 credential 대신 가짜 subdomain을 전달했다.
+- wheel SHA-256: `552e60310d4d39e96b747f88ccd17a37c327ecbb3901599681e75faee7ea9e90`.
+  같은 소스 커밋의 CI `34678490969`는 completed/success다.
+- 실제 Zendesk 쓰기·실제 사람 승인 E2E·제품별 실계정 권한·출시/배포 증거는 아니다.
+
+### 이전 설치 검증: 3f6590981f0eb5a26d9a1cb55e702b4615df8cee
 
 - 새 임시 디렉터리에 sdist와 wheel을 빌드하고 별도 Python 3.12.5 venv에
   정확한 wheel 파일과 pytest를 설치했다. 개발 환경 `.venv`는 변경하지 않았다.
