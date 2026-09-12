@@ -13,6 +13,16 @@
 
 ### 사용자 범위 조정 및 읽기 전용 실계정 확인
 
+후속으로 사용자가 CSAT·Custom Objects 읽기 권한 재로그인에 동의했다.
+기존 Public client의 CLI loopback 로그인·사용자 검증·연결 저장이 완료됐다.
+쓰기 gate를 모두 끄고 read_only로 실행했으며 이미지 업로드 권한은 추가하지
+않았다. 새 연결의 identity probe가 성공했고 active_write_gates는 빈 배열이다.
+실제 Account Settings에서 CSAT backend는 survey로 감지됐으며 auto 목록 조회는
+성공한 빈 마지막 페이지를 반환했다. Custom Objects는 이 계정에서 비활성으로
+확인돼 구조화된 unsupported를 반환했다. 이는 인증 실패가 아니며 별도 활성화나
+설정 변경을 수행하지 않았다. 비활성 경로를 증명하지만 활성 계정의 projection
+실증이나 legacy CSAT 데이터 검증을 대신하지 않는다.
+
 사용자가 이미지 권한 문제를 제외하고 진행하도록 명시했다. 이미지 업로드 403은
 해결된 것으로 표시하지 않되, 현재 작업의 완료 차단 조건에서 제외한다. 나머지
 승인 경계와 기능 범위는 유지한다.
