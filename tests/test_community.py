@@ -1186,6 +1186,31 @@ def test_image_upload_failure_identifies_stage_without_replay(tmp_path, stage, c
     assert "upload_stage" not in denied["error"].get("details", {})
 
 
+@pytest.mark.parametrize("case,stage,count", [("missing_upload", "prepare_upload", 1), ("invalid_headers", "prepare_upload", 1), ("framing", "prepare_upload", 1), ("invalid_path", "create_image_path", 3)])
+def test_malformed_image_upload_response_identifies_stage(tmp_path, case, stage, count):
+    (tmp_path / "image.png").write_bytes(b"image")
+    class Client(StubClient):
+        def request(self, method, path, *, json_body=None):
+            result = super().request(method, path, json_body=json_body)
+            if path.endswith("/uploads"):
+                if case == "missing_upload": result = success({})
+                elif case == "invalid_headers": result["data"]["upload"]["headers"] = None
+                elif case == "framing": result["data"]["upload"]["headers"]["Content-Length"] = "999"
+            elif case == "invalid_path": result["data"]["user_image"]["path"] = "/invalid/path"
+            result["request_id"] = "request-2"
+            return result
+    client = Client(); store = ApprovalStore(tmp_path / "approvals.json")
+    tools = CommunityTools(client, Settings.load({"ZENDESK_WRITE_MODE": "standard", "ZENDESK_ENABLE_EXTERNAL_UPLOADS": "true", "ZENDESK_UPLOAD_ROOT": str(tmp_path)}), store)
+    preview = tools.upload_user_image("image.png", "image/png", 4)
+    request_id = preview["data"]["approval_request_id"]
+    result = tools.upload_user_image("image.png", "image/png", 4, execution_mode="apply", approval_request_id=request_id, approval_token=store.approve(request_id))
+    assert result["error"]["details"]["upload_stage"] == stage
+    assert result["error"]["code"] == "upstream_error"
+    assert result["error"]["operation_state"] == "unknown"
+    assert result["error"]["request_id"] == "request-2"
+    assert len(client.paths) == count
+
+
 def test_user_image_upload_rejects_paths_outside_the_configured_root(tmp_path):
     root = tmp_path / "uploads"; root.mkdir(); outside = tmp_path / "image.png"; outside.write_bytes(b"image")
     tools = CommunityTools(StubClient(), Settings.load({"ZENDESK_WRITE_MODE": "standard", "ZENDESK_UPLOAD_ROOT": str(root)}), ApprovalStore(tmp_path / "approvals.json"))

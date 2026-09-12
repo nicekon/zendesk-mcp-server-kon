@@ -350,12 +350,12 @@ class CommunityTools:
             prepared = self._client.request("POST", "/api/v2/gather/badges/icon_uploads" if badge else "/api/v2/guide/user_images/uploads", json_body={"content_type": payload["content_type"], "file_size": payload["file_size"]})
             if not prepared.get("ok"): return self._upload_failure(prepared, "prepare_upload")
             upload = self._nested_data(prepared, "badge_icon_upload" if badge else "upload")
-            if upload is None: return failure(ErrorCode.UPSTREAM_ERROR, "Zendesk returned an invalid image upload response", operation_state="unknown")
+            if upload is None: return self._upload_failure(failure(ErrorCode.UPSTREAM_ERROR, "Zendesk returned an invalid image upload response", operation_state="unknown", request_id=prepared.get("request_id")), "prepare_upload")
             url, headers, identifier = upload.get("url"), upload.get("headers"), upload.get("id" if badge else "token")
-            if not isinstance(url, str) or not isinstance(headers, dict) or not (self._valid_tag_id(identifier) if badge else isinstance(identifier, str) and bool(identifier.strip())) or any(not isinstance(name, str) or not isinstance(value, str) for name, value in headers.items()): return failure(ErrorCode.UPSTREAM_ERROR, "Zendesk returned an invalid image upload response", operation_state="unknown")
+            if not isinstance(url, str) or not isinstance(headers, dict) or not (self._valid_tag_id(identifier) if badge else isinstance(identifier, str) and bool(identifier.strip())) or any(not isinstance(name, str) or not isinstance(value, str) for name, value in headers.items()): return self._upload_failure(failure(ErrorCode.UPSTREAM_ERROR, "Zendesk returned an invalid image upload response", operation_state="unknown", request_id=prepared.get("request_id")), "prepare_upload")
             size = str(payload["file_size"])
             if any(name.lower() == "transfer-encoding" or (name.lower() == "content-length" and value != size) for name, value in headers.items()):
-                return failure(ErrorCode.UPSTREAM_ERROR, "Zendesk returned conflicting upload framing", operation_state="unknown")
+                return self._upload_failure(failure(ErrorCode.UPSTREAM_ERROR, "Zendesk returned conflicting upload framing", operation_state="unknown", request_id=prepared.get("request_id")), "prepare_upload")
             headers = {name: value for name, value in headers.items() if name.lower() != "content-length"}
             headers["Content-Length"] = size
             uploaded = self._client.upload_presigned(url, headers, iter(lambda: content.read(65536), b""))
@@ -366,7 +366,7 @@ class CommunityTools:
             image = self._nested_data(created, "user_image")
             path = image.get("path") if image is not None else None
             if not valid_user_image_path(path):
-                return failure(ErrorCode.UPSTREAM_ERROR, "Zendesk returned an invalid user image path", operation_state="unknown")
+                return self._upload_failure(failure(ErrorCode.UPSTREAM_ERROR, "Zendesk returned an invalid user image path", operation_state="unknown", request_id=created.get("request_id")), "create_image_path")
             return created
     @staticmethod
     def _upload_failure(result: dict[str, object], stage: str) -> dict[str, object]:
