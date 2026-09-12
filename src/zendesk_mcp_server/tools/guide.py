@@ -35,10 +35,20 @@ class GuideTools:
     def __init__(self, client: GuideClient | None, settings: Settings | None = None, approvals: ApprovalStore | None = None, brand_subdomain: str | None = None) -> None: self._client, self._settings, self._approvals, self._brand_subdomain = client, settings, approvals, brand_subdomain
     def list_locales(self, *, brand_id: int | None = None) -> dict[str, object]:
         scoped = self._for_brand(brand_id); return scoped if isinstance(scoped, dict) else scoped._get("/api/v2/help_center/locales.json")
-    def list_categories(self, *, brand_id: int | None = None, limit: int = 100, cursor: str | None = None) -> dict[str, object]:
-        scoped = self._for_brand(brand_id); return scoped if isinstance(scoped, dict) else collect_cursor(scoped._get, "/api/v2/help_center/categories.json", "categories", limit, cursor)
-    def list_sections(self, *, brand_id: int | None = None, limit: int = 100, cursor: str | None = None) -> dict[str, object]:
-        scoped = self._for_brand(brand_id); return scoped if isinstance(scoped, dict) else collect_cursor(scoped._get, "/api/v2/help_center/sections.json", "sections", limit, cursor)
+    def list_categories(self, *, brand_id: int | None = None, locale: str | None = None, limit: int = 100, cursor: str | None = None) -> dict[str, object]:
+        return self._list_navigation("categories", brand_id, locale, limit, cursor)
+    def list_sections(self, *, brand_id: int | None = None, locale: str | None = None, limit: int = 100, cursor: str | None = None) -> dict[str, object]:
+        return self._list_navigation("sections", brand_id, locale, limit, cursor)
+    def _list_navigation(self, key: str, brand_id: int | None, locale: str | None, limit: int, cursor: str | None) -> dict[str, object]:
+        if locale is not None and (not isinstance(locale, str) or not _LOCALE.fullmatch(locale)):
+            return failure(ErrorCode.VALIDATION_ERROR, "locale must be a valid Help Center locale")
+        scoped = self._for_brand(brand_id)
+        if isinstance(scoped, dict): return scoped
+        if locale is not None:
+            invalid = scoped._validate_active_locale(locale)
+            if invalid is not None: return invalid
+        prefix = f"{locale}/" if locale is not None else ""
+        return collect_cursor(scoped._get, f"/api/v2/help_center/{prefix}{key}.json", key, limit, cursor)
     def get_satisfaction_ratings(self, limit: int = 100, *, cursor: str | None = None) -> dict[str, object]:
         return self.list_csat("legacy", limit=limit, cursor=cursor)
     def list_csat(self, backend: str = "auto", *, score: str | None = None, ticket_id: int | None = None, responder_ids: list[int] | None = None, created_at_start: str | None = None, created_at_end: str | None = None, limit: int = 100, cursor: str | None = None) -> dict[str, object]:

@@ -90,6 +90,45 @@ def test_guide_category_and_section_lists_resume():
         assert getattr(GuideTools(Client()), f"list_{key}")(limit=1, cursor="next") == {"ok": True, "items": [{"id": 9}], "has_more": False, "next_cursor": None, "truncated": False}
 
 
+@pytest.mark.parametrize("key", ["categories", "sections"])
+@pytest.mark.parametrize("brand_id", [None, 7])
+def test_navigation_locale_uses_selected_brand_and_preserves_cursor(key, brand_id):
+    calls = []
+    class Client:
+        def get(self, path, *, params=None):
+            if path == "/api/v2/brands/7.json":
+                return success({"brand": {"id": 7, "subdomain": "brand-one", "has_help_center": True}})
+            assert brand_id is None
+            return self.get_for_subdomain(None, path, params=params)
+        def get_for_subdomain(self, subdomain, path, *, params=None):
+            calls.append((subdomain, path, params))
+            if path == "/api/v2/help_center/locales.json":
+                return success({"locales": ["ko"]})
+            return success({key: [{"id": "guide-1", "locale": "ko"}], "meta": {"has_more": False}})
+    result = getattr(GuideTools(Client()), f"list_{key}")(brand_id=brand_id, locale="ko", limit=1, cursor="next")
+    assert result["items"] == [{"id": "guide-1", "locale": "ko"}]
+    host = "brand-one" if brand_id else None
+    assert calls == [(host, "/api/v2/help_center/locales.json", None),
+                     (host, f"/api/v2/help_center/ko/{key}.json", {"page[size]": "1", "page[after]": "next"})]
+
+
+@pytest.mark.parametrize("key", ["categories", "sections"])
+@pytest.mark.parametrize("locale", ["", "../en-us", "en-us?x=1", 3, False])
+def test_navigation_rejects_malformed_locale_before_requests(key, locale):
+    client = StubClient()
+    result = getattr(GuideTools(client), f"list_{key}")(brand_id=7, locale=locale)
+    assert result["error"]["code"] == "validation_error"
+    assert client.paths == []
+
+
+@pytest.mark.parametrize("key", ["categories", "sections"])
+def test_navigation_rejects_disabled_locale_before_listing(key):
+    client = StubClient()
+    result = getattr(GuideTools(client), f"list_{key}")(locale="ko")
+    assert result["error"]["code"] == "validation_error"
+    assert client.paths == [("/api/v2/help_center/locales.json", None)]
+
+
 def test_guide_and_csat_reads_use_fixed_endpoints():
     client = StubClient()
     tools = GuideTools(client)

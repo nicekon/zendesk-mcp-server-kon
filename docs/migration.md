@@ -289,6 +289,11 @@ Publish verifies the requested locale's `draft=false` after the write; failed or
 mismatched read-back returns non-retryable `outcome_unknown`, preserving the write
 request ID when available. Inspect that translation before retrying.
 
+Category and section list tools now accept an optional `locale` (for example,
+`ko` or `en-us`). It must be enabled in the selected brand's Help Center.
+Omitting it preserves the existing unlocalized list request. Resume a cursor
+with the same brand and locale; refresh the MCP tool list to discover this input.
+
 The pre-release implementation used six names that differed from PRD section 8.
 Clients must now use the canonical names below; the old names are not aliases.
 Refresh the MCP tool list after updating. HTTP endpoints and write gates are unchanged.

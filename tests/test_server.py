@@ -200,6 +200,8 @@ def test_guide_mcp_calls_preserve_pagination_arguments(monkeypatch):
     cases = [
         ("list_help_center_categories", {}, "/api/v2/help_center/categories.json", "categories", {}),
         ("list_help_center_sections", {}, "/api/v2/help_center/sections.json", "sections", {}),
+        ("list_help_center_categories", {"locale": "ko"}, "/api/v2/help_center/ko/categories.json", "categories", {}),
+        ("list_help_center_sections", {"locale": "ko"}, "/api/v2/help_center/ko/sections.json", "sections", {}),
         ("list_user_segments", {"built_in": False, "applicable": True}, "/api/v2/help_center/user_segments/applicable.json", "user_segments", {"built_in": "false"}),
         ("get_satisfaction_ratings", {}, "/api/v2/satisfaction_ratings.json", "satisfaction_ratings", {}),
         ("list_csat", {"backend": "legacy", "score": "good"}, "/api/v2/satisfaction_ratings.json", "satisfaction_ratings", {"score": "good"}),
@@ -210,6 +212,8 @@ def test_guide_mcp_calls_preserve_pagination_arguments(monkeypatch):
     for name, arguments, endpoint, key, filters in cases:
         class Client:
             def get(self, path, *, params=None):
+                if path == "/api/v2/help_center/locales.json":
+                    return success({"locales": ["ko"]})
                 assert path == endpoint
                 if filters is None:
                     expected = {"per_page": "100", "page": "1"}
