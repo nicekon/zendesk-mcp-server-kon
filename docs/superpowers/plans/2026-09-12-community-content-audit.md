@@ -33,8 +33,20 @@ manager 권한을 증명하거나 Zendesk 권한 검사를 대체하지 않는�
 | 목록·범위 | content/user subscriptions 및 badge 목록 테스트: scope 필터 보존, cursor/local offset 재개, 고정 endpoint | 실계정의 모든 역할·플랜·리소스 조합 검증과 구별 |
 
 PRD 7.5의 계정별 제품 부재/권한 구분은 이 표로 완료 처리하지 않는다.
-일반 HTTP 403→permission_denied 처리와 로컬 capability 비활성→unsupported는
+일반 HTTP 403→permission_denied 처리와 로컬 capability 비활성→not_configured는
 각각의 근거일 뿐, 제품 미구매 계정의 실제 응답을 관찰한 근거는 없다.
+
+조건부 기능 오류 추가 대조: `_capability_error`는 client 생성 전에 비활성 설정을
+not_configured로 반환하며, client의 404는 not_found다. 공식 Badges 문서는 Gather
+Professional·Help Center manager 조건을 명시하지만 미구매 계정의 고유 오류 코드는
+정의하지 않는다. 따라서 일반 403/404를 제품 미지원으로 재분류하지 않는다.
+PRD의 계정 제품별 구분은 아직 충분히 입증되지 않았으며, 공식 판별 계약이나
+비밀값을 제거한 실제 응답 증거 없이 추정 구현하지 않는다. 테스트 계정을 재요청하지 않는다.
+
+Community 대행 scope 이전의 로컬 근거는 별도로 추가했다.
+`tests/test_config.py::test_old_grant_requires_relogin_without_rewriting_tokens`의
+community/users:read 사례는 이전 grant를 저장한 뒤 대행 설정으로 불러오면
+oauth_relogin_required를 반환하고 credential 파일의 바이트를 그대로 유지함을 검증한다.
 
 - Post 생성·수정과 Comment 생성·수정은 `_approved_request`를 공유한다.
   preview는 승인 요청만 저장하고 apply는 gate와 일회용 승인을 확인한 뒤 요청한다.

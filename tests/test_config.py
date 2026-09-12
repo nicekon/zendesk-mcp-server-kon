@@ -210,18 +210,19 @@ def test_operations_oauth_covers_its_endpoints_without_support_capability():
     assert set(settings.oauth.scopes) == {"account_settings:read", "users:read", "groups:read", "organizations:read", "brands:read", "tickets:read", "ticket_views:read", "macros:read", "triggers:read"}
 
 
-@pytest.mark.parametrize("capability,removed_scope", [("operations", "account_settings:read"), ("support", "read"), ("csat", "account_settings:read")])
+@pytest.mark.parametrize("capability,removed_scope", [("operations", "account_settings:read"), ("support", "read"), ("csat", "account_settings:read"), ("community", "users:read")])
 def test_old_grant_requires_relogin_without_rewriting_tokens(tmp_path, monkeypatch, capability, removed_scope):
     from dataclasses import replace
     from zendesk_mcp_server.auth import OAuthTokens, save_connection
     monkeypatch.setattr(Path, "home", lambda: tmp_path)
     path = tmp_path / ".config" / "zendesk-mcp-server" / "connection.json"
-    settings = Settings.load({"ZENDESK_SUBDOMAIN": "acme", "ZENDESK_AUTH_MODE": "oauth", "ZENDESK_OAUTH_CLIENT_KIND": "public", "ZENDESK_OAUTH_CLIENT_ID": "client", "ZENDESK_OAUTH_TOKEN_STORE": str(path), "ZENDESK_CAPABILITIES": capability})
+    gates = {"ZENDESK_ENABLE_IMPERSONATION": "true"} if capability == "community" else {}
+    settings = Settings.load({"ZENDESK_SUBDOMAIN": "acme", "ZENDESK_AUTH_MODE": "oauth", "ZENDESK_OAUTH_CLIENT_KIND": "public", "ZENDESK_OAUTH_CLIENT_ID": "client", "ZENDESK_OAUTH_TOKEN_STORE": str(path), "ZENDESK_CAPABILITIES": capability, **gates})
     old = replace(settings, oauth=replace(settings.oauth, scopes=tuple(scope for scope in settings.oauth.scopes if scope != removed_scope)))
     save_connection(old, OAuthTokens("access", "refresh", 999))
     before = path.read_bytes()
     with pytest.raises(ConfigurationError) as error:
-        Settings.load({"ZENDESK_CAPABILITIES": capability})
+        Settings.load({"ZENDESK_CAPABILITIES": capability, **gates})
     assert error.value.code == "oauth_relogin_required"
     assert path.read_bytes() == before
 
