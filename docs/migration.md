@@ -112,6 +112,14 @@ This is the user's current role, not a historical role at comment creation.
 Public/private visibility never determines the side; original comment fields
 are preserved. Deleted or unavailable users do not trigger extra user lookups.
 
+### New ticket descriptions are internal notes
+
+Ticket creation now explicitly sends `comment.public=false`. The description is
+an internal note, not a public reply; this matches the standard-write safety
+contract instead of relying on Zendesk defaults. Public replies still require
+the dedicated public-reply tool, its write gate and local approval. Account
+triggers may still send notifications for an internal note or field change.
+
 ### Approved Support search scope exception
 
 When Support is enabled, OAuth now also requests broad `read` because Search and

@@ -1004,7 +1004,7 @@ def _create_ticket_payload(
     payload: dict[str, object] = {
         "requester_id": requester_id,
         "subject": subject.strip(),
-        "comment": {"body": description.strip()},
+        "comment": {"body": description.strip(), "public": False},
     }
     if tags is not None:
         if not isinstance(tags, list) or any(not _valid_tag(tag) for tag in tags):

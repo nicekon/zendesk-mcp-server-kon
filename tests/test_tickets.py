@@ -1083,7 +1083,7 @@ def test_create_ticket_uses_a_validated_standard_write_payload():
                 "ticket": {
                     "requester_id": 7,
                     "subject": "Need help",
-                    "comment": {"body": "Details"},
+                    "comment": {"body": "Details", "public": False},
                     "tags": ["billing", "priority"],
                     "priority": "high",
                 }
@@ -1098,7 +1098,7 @@ def test_create_ticket_accepts_assignment_and_custom_fields():
 
     tools.create_ticket(requester_id=7, subject="Need help", description="Details", assignee_id=3, group_id=4, organization_id=5, custom_fields=[{"id": 12, "value": "gold"}])
 
-    assert client.calls == [("POST", "/api/v2/tickets.json", {"ticket": {"requester_id": 7, "subject": "Need help", "comment": {"body": "Details"}, "assignee_id": 3, "group_id": 4, "organization_id": 5, "custom_fields": [{"id": 12, "value": "gold"}]}})]
+    assert client.calls == [("POST", "/api/v2/tickets.json", {"ticket": {"requester_id": 7, "subject": "Need help", "comment": {"body": "Details", "public": False}, "assignee_id": 3, "group_id": 4, "organization_id": 5, "custom_fields": [{"id": 12, "value": "gold"}]}})]
 
 
 def test_update_ticket_reuses_the_standard_write_guard_and_endpoint():
