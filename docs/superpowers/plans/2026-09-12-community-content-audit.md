@@ -5,6 +5,18 @@
 
 ## 확인한 경로
 
+### 이미지 경로 이탈·멘션 자식 태그 차단
+
+추가 독립 검토에서 `_safe_image`의 prefix 검사가 `/hc/user_images/../../articles/123`
+및 canonical-host absolute 변형을 허용함을 재현했다. 기존 업로드 결과 경로 검증을
+공통 `_valid_user_image_path`로 옮겨 HTML에도 적용하고, 인코딩된 경로 구분자·dot
+우회를 막도록 percent-encoded 경로를 거부한다. 경로는 `/hc/user_images/` 아래
+비어 있지 않은 단일 segment이며 dot/dotdot, query/fragment, 역슬래시는 허용하지 않는다.
+또한 `<x-zendesk-user>` 안의 자식 태그를 거부해 직접 숫자 텍스트만 검증한다.
+9개 악성 HTML 입력을 Post/Comment create/update 및 preview/apply에서 검증하며,
+정상 상대·canonical absolute 이미지와 단순 숫자 멘션은 유지한다. 업로드 응답의
+인코딩 경로도 같은 검사로 실패함을 검증한다. HTML 실행이나 실제 업로드는 없다.
+
 ### 작성자·시각 대행의 관리자 정책 보완
 
 PRD 7.5는 author_id/created_at 대행에 관리자 권한도 요구하지만, 기존 공통

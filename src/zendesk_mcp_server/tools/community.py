@@ -29,6 +29,10 @@ _LOCALE = re.compile(r"[a-z]{2,3}(?:-[a-z0-9]+)*$")
 _SECURE_UPLOAD_OPEN = os.open in os.supports_dir_fd and all(hasattr(os, name) for name in ("O_NOFOLLOW", "O_DIRECTORY", "O_NONBLOCK"))
 
 
+def _valid_user_image_path(value: object) -> bool:
+    return isinstance(value, str) and re.fullmatch(r"/hc/user_images/[^/%?#\\\s]+", value) is not None and value.rsplit("/", 1)[-1] not in {".", ".."}
+
+
 class _CommunityHTMLValidator(HTMLParser):
     def __init__(self, subdomain: str | None) -> None:
         super().__init__(convert_charrefs=True); self.subdomain, self.valid, self.stack, self._mention = subdomain, True, [], []
@@ -37,6 +41,7 @@ class _CommunityHTMLValidator(HTMLParser):
     def handle_startendtag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         self._start(tag, attrs, True)
     def _start(self, tag: str, attrs: list[tuple[str, str | None]], self_closing: bool) -> None:
+        if self._mention: self.valid = False; return
         if tag not in _HTML_TAGS or (self_closing and tag not in _VOID_HTML_TAGS) or len({name for name, _ in attrs}) != len(attrs): self.valid = False; return
         values = dict(attrs)
         if set(values) - _HTML_ATTRIBUTES.get(tag, set()) or any(value is None for value in values.values()): self.valid = False; return
@@ -56,9 +61,9 @@ class _CommunityHTMLValidator(HTMLParser):
     def unknown_decl(self, data: str) -> None: self.valid = False
     def _safe_link(self, value: str) -> bool: return urlsplit(value).scheme in {"http", "https", "mailto"}
     def _safe_image(self, value: str) -> bool:
-        if value.startswith("/hc/user_images/"): return True
+        if _valid_user_image_path(value): return True
         parsed = urlsplit(value)
-        return self.subdomain is not None and parsed.scheme == "https" and parsed.netloc == f"{self.subdomain}.zendesk.com" and parsed.path.startswith("/hc/user_images/")
+        return self.subdomain is not None and parsed.scheme == "https" and parsed.netloc == f"{self.subdomain}.zendesk.com" and not parsed.query and not parsed.fragment and not any(character.isspace() or ord(character) < 32 for character in value) and _valid_user_image_path(parsed.path)
 
 def _content_display(record):
     if not isinstance(record, dict): return record
@@ -363,7 +368,7 @@ class CommunityTools:
             if not created.get("ok"): return created
             image = self._nested_data(created, "user_image")
             path = image.get("path") if image is not None else None
-            if not isinstance(path, str) or not re.fullmatch(r"/hc/user_images/[^/?#\\\s]+", path) or path.rsplit("/", 1)[-1] in {".", ".."}:
+            if not _valid_user_image_path(path):
                 return failure(ErrorCode.UPSTREAM_ERROR, "Zendesk returned an invalid user image path", operation_state="unknown")
             return created
     def search_content_tags(self, prefix: str, *, cursor: str | None = None, limit: int = 100) -> dict[str, object]:

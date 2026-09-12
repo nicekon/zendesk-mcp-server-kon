@@ -714,12 +714,40 @@ def test_community_html_writes_reject_unknown_declarations_before_approval(metho
         assert getattr(tools, method)(*args, execution_mode=mode)["error"]["code"] == "validation_error"
 
 
+@pytest.mark.parametrize("html", [
+    '<img src="/hc/user_images/../../articles/123">',
+    '<img src="https://acme.zendesk.com/hc/user_images/../../articles/123">',
+    '<img src="/hc/user_images/%2e%2e%2farticles">',
+    '<img src="/hc/user_images/%252e%252e%252farticles">',
+    '<img src="/hc/user_images/..">',
+    '<img src="/hc/user_images/">',
+    '<x-zendesk-user>1<b>extra</b></x-zendesk-user>',
+    '<x-zendesk-user>1<br></x-zendesk-user>',
+    '<x-zendesk-user>1<x-zendesk-user>2</x-zendesk-user></x-zendesk-user>',
+])
+def test_community_html_rejects_image_path_escape_and_nested_mentions_before_io(html):
+    class Client:
+        def get(self, *args, **kwargs): raise AssertionError("Invalid HTML must not read")
+        def request(self, *args, **kwargs): raise AssertionError("Invalid HTML must not write")
+    tools = CommunityTools(Client(), Settings.load({"ZENDESK_SUBDOMAIN": "acme"}))
+    for mode in ("preview", "apply"):
+        for call in (
+            lambda: tools.create_post(4, "Title", html, execution_mode=mode),
+            lambda: tools.create_comment(2, html, execution_mode=mode),
+            lambda: tools.update_post(2, {"details": html}, execution_mode=mode),
+            lambda: tools.update_comment(2, 3, {"body": html}, execution_mode=mode),
+        ):
+            assert call()["error"]["code"] == "validation_error"
+
+
 def test_community_html_writes_reject_unsafe_tags_and_image_sources(tmp_path):
     tools = CommunityTools(StubClient(), Settings.load({"ZENDESK_SUBDOMAIN": "acme", "ZENDESK_EMAIL": "agent@example.test", "ZENDESK_API_TOKEN": "token"}), ApprovalStore(tmp_path / "approvals.json"))
 
     assert tools.create_post(4, "Title", "<script>alert(1)</script>")["error"]["code"] == "validation_error"
     assert tools.update_comment(2, 3, {"body": '<img src="https://evil.example/image.png">'})["error"]["code"] == "validation_error"
     assert tools.create_comment(2, '<p><a href="https://example.test">safe</a></p>')["ok"] is True
+    for body in ('<img src="/hc/user_images/image.png">', '<img src="https://acme.zendesk.com/hc/user_images/image.png">', '<x-zendesk-user>123</x-zendesk-user>'):
+        assert tools.create_comment(2, body)["ok"] is True
 
 
 def test_community_topic_create_requires_local_public_approval(tmp_path):
@@ -1280,7 +1308,7 @@ def test_image_upload_rejects_success_response_missing_upload_details(tmp_path, 
         assert len(client.paths) == 1
 
 
-@pytest.mark.parametrize("image", [None, {}, {"path": ""}, {"path": "https://external.example/image.png"}, {"path": "/hc/user_images/"}])
+@pytest.mark.parametrize("image", [None, {}, {"path": ""}, {"path": "https://external.example/image.png"}, {"path": "/hc/user_images/"}, {"path": "/hc/user_images/%2e%2e%2farticles"}])
 def test_user_image_creation_requires_a_usable_image_path(tmp_path, image):
     (tmp_path / "image.png").write_bytes(b"image")
     class Client(StubClient):
