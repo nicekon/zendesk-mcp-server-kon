@@ -6,9 +6,11 @@ release commit with the appropriate PyPI, GitHub, and MCP Registry accounts.
 ## Python package
 
 ```bash
-uv run --python 3.10 pytest -q
-uv run --python 3.11 pytest -q
-uv run --python 3.12 pytest -q
+verification_root="$(mktemp -d)"
+for python_version in 3.10 3.11 3.12; do
+  UV_PROJECT_ENVIRONMENT="$verification_root/python-$python_version" \
+    uv run --python "$python_version" pytest -q || exit 1
+done
 uv build
 ```
 
@@ -24,11 +26,15 @@ version.
 
 ```bash
 wheelhouse="$(mktemp -d)"
-uv build --out-dir "$wheelhouse"
-uv venv .wheel-venv
-uv pip install --python .wheel-venv/bin/python "$wheelhouse"/zendesk_mcp_server-*.whl
-.wheel-venv/bin/zendesk --help
+uv build --out-dir "$wheelhouse/dist"
+uv venv "$wheelhouse/venv"
+uv pip install --python "$wheelhouse/venv/bin/python" "$wheelhouse"/dist/zendesk_mcp_server-*.whl
+"$wheelhouse/venv/bin/zendesk" --help
 ```
+
+Keep each Python version in its own temporary environment; do not rotate
+interpreters through the development `.venv`. The wheel smoke environment is
+also temporary, so an existing checkout environment is not reused or replaced.
 
 Before announcing an OAuth-capable release, use a Zendesk Public client in a
 test tenant to verify `zendesk login`, `zendesk check --probe`, token refresh,

@@ -80,6 +80,12 @@ Support (enabled by default) also requests broad `read` for Search/Search Export
 as an approved policy exception. This permits all GET resources available to the
 user's role, not only search. It does not enable writes; server write gates remain
 independent. Existing grants without `read` require login again.
+When Community impersonation is enabled, OAuth also requests `users:read` for
+the current-user role check. Creating a post/comment with another author or an
+overridden creation time requires an admin under the local policy, the
+impersonation gate, and interactive approval. Zendesk's Help Center manager
+permissions still apply independently. See [migration notes](docs/migration.md)
+for existing grants that need reauthorization.
 The administrator distributes the client identifier, not a client secret.
 Each user then runs:
 

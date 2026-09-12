@@ -75,6 +75,11 @@ client identifier만 사용자에게 전달하며 client secret은 배포하지 
 요청합니다. 이는 검색만이 아니라 사용자 역할에 허용된 모든 GET 접근 권한입니다.
 쓰기 권한을 활성화하지 않으며 서버 쓰기 gate는 별도로 유지됩니다.
 `read`가 없는 기존 grant는 다시 로그인해야 합니다.
+Community 대행을 활성화하면 현재 사용자 역할 확인을 위해 `users:read`도 요청합니다.
+게시글·댓글의 작성자나 생성 시각을 대신 지정하려면 로컬 정책상 관리자 역할,
+대행 gate, 대화형 사람 승인이 모두 필요합니다. Zendesk의 Help Center manager
+권한은 별도로 적용됩니다. 기존 grant의 재인증 조건은
+[이전 안내](docs/migration.md)를 참고하세요.
 사용자는 다음 명령을 실행합니다.
 
 ```bash
