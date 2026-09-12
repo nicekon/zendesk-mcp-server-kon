@@ -28,6 +28,10 @@ class _DownloadSizeExceeded(Exception):
     pass
 
 
+def valid_user_image_path(value: object) -> bool:
+    return isinstance(value, str) and re.fullmatch(r"/hc/user_images/[^/%?#\\\s\x00-\x1f\x7f]+", value) is not None and value.rsplit("/", 1)[-1] not in {".", ".."}
+
+
 class ZendeskClient:
     def __init__(
         self,
@@ -330,7 +334,7 @@ class ZendeskClient:
         try: parsed = urlsplit(value); port = parsed.port
         except ValueError: return False
         host = f"{subdomain}.zendesk.com" if isinstance(subdomain, str) and _SUBDOMAIN.fullmatch(subdomain) else urlsplit(self._base_url).hostname
-        return parsed.scheme == "https" and parsed.hostname == host and port in {None, 443} and not parsed.username and not parsed.password and parsed.path.startswith("/hc/user_images/")
+        return parsed.scheme == "https" and parsed.hostname == host and port in {None, 443} and not parsed.username and not parsed.password and not parsed.query and not parsed.fragment and not any(character.isspace() or ord(character) < 32 for character in value) and valid_user_image_path(parsed.path)
 
     @staticmethod
     def _retry_delay(attempt: int) -> float:

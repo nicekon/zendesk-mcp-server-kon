@@ -15,6 +15,7 @@ from tempfile import TemporaryFile
 from urllib.parse import urlsplit
 from ..approvals import ApprovalStore
 from ..config import Settings
+from ..client import valid_user_image_path
 from ..html_text import HTMLText
 from ..pagination import collect_array, collect_cursor, collect_offset
 from ..contracts import ErrorCode, failure
@@ -27,10 +28,6 @@ _VOID_HTML_TAGS = {"br", "hr", "img", "col"}
 _HTML_ATTRIBUTES = {"a": {"href", "title", "rel"}, "img": {"src", "alt", "title", "width", "height"}, "th": {"colspan", "rowspan", "scope"}, "td": {"colspan", "rowspan", "scope"}}
 _LOCALE = re.compile(r"[a-z]{2,3}(?:-[a-z0-9]+)*$")
 _SECURE_UPLOAD_OPEN = os.open in os.supports_dir_fd and all(hasattr(os, name) for name in ("O_NOFOLLOW", "O_DIRECTORY", "O_NONBLOCK"))
-
-
-def _valid_user_image_path(value: object) -> bool:
-    return isinstance(value, str) and re.fullmatch(r"/hc/user_images/[^/%?#\\\s]+", value) is not None and value.rsplit("/", 1)[-1] not in {".", ".."}
 
 
 class _CommunityHTMLValidator(HTMLParser):
@@ -61,9 +58,9 @@ class _CommunityHTMLValidator(HTMLParser):
     def unknown_decl(self, data: str) -> None: self.valid = False
     def _safe_link(self, value: str) -> bool: return urlsplit(value).scheme in {"http", "https", "mailto"}
     def _safe_image(self, value: str) -> bool:
-        if _valid_user_image_path(value): return True
+        if valid_user_image_path(value): return True
         parsed = urlsplit(value)
-        return self.subdomain is not None and parsed.scheme == "https" and parsed.netloc == f"{self.subdomain}.zendesk.com" and not parsed.query and not parsed.fragment and not any(character.isspace() or ord(character) < 32 for character in value) and _valid_user_image_path(parsed.path)
+        return self.subdomain is not None and parsed.scheme == "https" and parsed.netloc == f"{self.subdomain}.zendesk.com" and not parsed.query and not parsed.fragment and not any(character.isspace() or ord(character) < 32 for character in value) and valid_user_image_path(parsed.path)
 
 def _content_display(record):
     if not isinstance(record, dict): return record
@@ -368,7 +365,7 @@ class CommunityTools:
             if not created.get("ok"): return created
             image = self._nested_data(created, "user_image")
             path = image.get("path") if image is not None else None
-            if not _valid_user_image_path(path):
+            if not valid_user_image_path(path):
                 return failure(ErrorCode.UPSTREAM_ERROR, "Zendesk returned an invalid user image path", operation_state="unknown")
             return created
     def search_content_tags(self, prefix: str, *, cursor: str | None = None, limit: int = 100) -> dict[str, object]:

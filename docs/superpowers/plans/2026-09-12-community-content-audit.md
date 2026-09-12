@@ -17,6 +17,14 @@
 정상 상대·canonical absolute 이미지와 단순 숫자 멘션은 유지한다. 업로드 응답의
 인코딩 경로도 같은 검사로 실패함을 검증한다. HTML 실행이나 실제 업로드는 없다.
 
+이미지 다운로드 경로 추가 대조: client의 이미지 URL 검사도 같은 prefix 오류가 있었다.
+모의 HTTP 전송기에서 `/hc/user_images/../../articles/123`이 `/articles/123`으로
+정규화되어 전달되는 것을 재현했다. 경로 검증기를 client의 `valid_user_image_path`로
+옮겨 Community HTML·업로드 응답·이미지 다운로드에서 공유한다. query/fragment,
+제어 문자 및 인코딩된 경로 우회도 거부한다. 7개 다운로드 회귀는 전송기 호출 전에
+validation_error를 요구하며, 기존 정상 이미지·브랜드 host·redirect 제한은 유지한다.
+실제 이미지 다운로드는 검증 수단으로 사용하지 않았다.
+
 ### 작성자·시각 대행의 관리자 정책 보완
 
 PRD 7.5는 author_id/created_at 대행에 관리자 권한도 요구하지만, 기존 공통

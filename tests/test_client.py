@@ -695,6 +695,15 @@ def test_binary_transfer_rejects_malformed_urls_before_network(settings, authori
         assert result["error"]["code"] == "validation_error"
 
 
+@pytest.mark.parametrize("path", ["../../articles/123", "%2e%2e%2farticles", "%252e%252e%252farticles", "..", "", "image.png?redirect=elsewhere", "image.png#fragment"])
+def test_help_center_image_rejects_path_escape_before_transport(settings, authorization, path):
+    def handler(request):
+        raise AssertionError("Invalid image path must not reach transport")
+    client = ZendeskClient(settings, authorization, transport=httpx.MockTransport(handler))
+    result = client.download_help_center_image("https://acme.zendesk.com/hc/user_images/" + path, max_bytes=10)
+    assert result["error"]["code"] == "validation_error"
+
+
 def test_help_center_image_download_allows_only_tenant_user_images(settings, authorization):
     def handler(request: httpx.Request) -> httpx.Response:
         assert request.headers["Authorization"].startswith("Basic ")
