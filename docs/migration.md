@@ -1,5 +1,46 @@
 # Migration and rollback
 
+## Local OAuth file conversion
+
+Stop both old and new servers before conversion: the old server does not share
+the new server's refresh lock. Use explicit source and new destination paths:
+
+```sh
+zendesk migrate-oauth /absolute/path/legacy.json /absolute/path/current.json
+zendesk rollback-oauth /absolute/path/current.json /absolute/path/restored.json
+```
+
+These offline commands support the `oauth_token` config shape from michaelrice
+commit `8313e117094d005dcf1fc48ffb6f9197bc60a712`. They preserve client metadata,
+refresh token and expiry, require private regular source files, and never overwrite
+an existing destination. Missing/expired/unknown expiry, missing refresh tokens,
+and conflicting schemas require reauthorization. Non-expiring legacy tokens are
+not assigned a fabricated expiry. Commands print status only, not credentials.
+
+The converted file is an **explicit OAuth token store**, not the browser login's
+managed connection file. Configure `ZENDESK_AUTH_MODE=oauth`,
+`ZENDESK_OAUTH_TOKEN_STORE` with the destination, and the same subdomain/client ID
+and client kind as before. Confidential clients still need their client secret
+through the existing private configuration mechanism. Identity and scopes are
+not automatically inferred from the converted file; no scope is added and no
+client is silently converted to Public. Existing `zendesk login` is unchanged.
+
+Migration creates a private `<destination>.migration-backup.json` before publishing
+the destination. An interrupted publication can resume using an identical source
+and matching, unexpired backup. Existing destinations are refused, including on
+repeat runs: use the already-created file rather than rerun conversion. Original
+source files remain untouched; after switching successfully, retire their stale
+credentials using your normal credential-file handling procedure.
+
+Rollback converts the **current** token store into the legacy schema, including
+any rotated credentials. It never restores tokens from backup. On success the
+associated migration backup is removed. `backup_cleanup_pending=true` means the
+conversion succeeded but cleanup did not; inspect the named backup rather than
+repeat rollback. Expired backups are removed on the next use of the converted
+token store at or after seven days; no background cleanup runs while the server
+is stopped. Foreign, malformed, or symlinked backup files are not removed.
+Real-user migration has not been performed by these local tests.
+
 ## Login scope expansion
 
 Previously `zendesk login` discarded capability/write-gate environment settings,
@@ -337,10 +378,10 @@ For a new local installation, create a Public OAuth client with
 --client-id ...`. The saved connection is shared by later stdio MCP processes.
 No client secret or manual authorization-code copy is used.
 
-Keep an existing OAuth token file as a user-only backup. Configure a new,
-separate `ZENDESK_OAUTH_TOKEN_STORE`, complete `zendesk oauth-start` and
-`zendesk oauth-finish`, then verify the connection. Never copy an access or
-refresh token into chat, command arguments, or repository files.
+For a supported michaelrice config, use the local conversion commands above.
+Otherwise configure a new, separate `ZENDESK_OAUTH_TOKEN_STORE`, complete
+`zendesk oauth-start` and `zendesk oauth-finish`, then verify the connection.
+Never copy an access or refresh token into chat, command arguments, or repository files.
 
 After the new store has refreshed successfully, do not restore an old token
 file: refresh-token rotation can make it stale. If the new store is unusable,

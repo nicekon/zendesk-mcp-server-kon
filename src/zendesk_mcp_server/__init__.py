@@ -5,6 +5,7 @@ import json
 import os
 import sys
 import time
+from pathlib import Path
 
 
 def main():
@@ -29,7 +30,24 @@ def main():
     login_parser.add_argument("--subdomain", required=True)
     login_parser.add_argument("--client-id", required=True)
     login_parser.add_argument("--port", type=int, default=3000)
+    for name in ("migrate-oauth", "rollback-oauth"):
+        conversion = commands.add_parser(name, help="convert a local OAuth file without contacting Zendesk")
+        conversion.add_argument("source", type=Path)
+        conversion.add_argument("destination", type=Path)
     args = parser.parse_args()
+
+    if args.command in {"migrate-oauth", "rollback-oauth"}:
+        from .config import ConfigurationError
+        from .migration import migrate_oauth, rollback_oauth
+
+        operation = migrate_oauth if args.command == "migrate-oauth" else rollback_oauth
+        try:
+            result = operation(args.source, args.destination, now=int(time.time()))
+        except ConfigurationError as error:
+            print(json.dumps({"ok": False, "error": {"code": error.code, "message": str(error)}}))
+            raise SystemExit(1) from None
+        print(json.dumps(result))
+        return
 
     if args.command == "check":
         from .server import build_connection_status

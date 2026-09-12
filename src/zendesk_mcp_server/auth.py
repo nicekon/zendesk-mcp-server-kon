@@ -9,6 +9,7 @@ import json
 import os
 import re
 import secrets
+import stat
 import tempfile
 import time
 from dataclasses import dataclass, field
@@ -175,6 +176,10 @@ class OAuthTokenStore:
                 or value["expires_at"] < 0
             ):
                 raise ValueError("invalid OAuth token record")
+            if "_zendesk_migration" in value:
+                from .migration import cleanup_expired_backup
+
+                cleanup_expired_backup(self.path, now=int(time.time()))
             return OAuthTokens(
                 access_token=value["access_token"],
                 refresh_token=value["refresh_token"],
@@ -225,9 +230,16 @@ class OAuthTokenStore:
 
     @contextmanager
     def refresh_lock(self):
+        require_private_file_support()
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        descriptor = os.open(self.path.with_name(f".{self.path.name}.lock"), os.O_RDWR | os.O_CREAT, 0o600)
         try:
+            descriptor = os.open(self.path.with_name(f".{self.path.name}.lock"), os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW | os.O_NONBLOCK, 0o600)
+        except OSError:
+            raise ConfigurationError("invalid_oauth_configuration", "Cannot safely open OAuth refresh lock") from None
+        try:
+            info = os.fstat(descriptor)
+            if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1:
+                raise ConfigurationError("invalid_oauth_configuration", "OAuth refresh lock must be a regular file with a single link")
             os.chmod(descriptor, 0o600)
             with exclusive_lock(descriptor): yield
         finally:
