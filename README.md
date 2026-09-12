@@ -1,154 +1,226 @@
 # Zendesk MCP Server KON
 
-[한국어](README.ko.md)
+<!-- mcp-name: io.github.nicekon/zendesk-mcp-server-kon -->
 
-This project is a fork of [reminia/zendesk-mcp-server](https://github.com/reminia/zendesk-mcp-server) with modifications to support additional features and improvements.
+[한국어](README.ko.md)
 
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 
-A Model Context Protocol server for Zendesk.
+A Zendesk Model Context Protocol server implementing the evolving
+[unified Zendesk MCP PRD](docs/superpowers/specs/2026-09-04-unified-zendesk-mcp-design.md).
+The [capability manifest](docs/capability-manifest.md) records the official
+Zendesk contracts behind Community tools.
+See the [release procedure](docs/releasing.md) for wheel, MCPB, and MCP Registry
+publication.
+See [migration and rollback](docs/migration.md) before replacing an existing
+KON or OAuth installation.
 
-This server provides a comprehensive integration with Zendesk. It offers:
+## Current status
 
-- Tools for retrieving and managing Zendesk tickets and comments
-- Tools for managing community posts, comments, and topics
-- Specialized prompts for ticket analysis and response drafting
-- Full access to the Zendesk Help Center articles as knowledge base
+The current pre-release provides the following guarded domains:
 
-## Setup
+- `zendesk_get_connection_status` reports configuration without secrets and,
+  when credentials are configured, verifies the authenticated Zendesk user.
+- Support: ticket reads, search/count/export, guarded mutations, comments,
+  macro preview/apply, metadata, and safe attachment download/inspection.
+- Guide and CSAT: locales, categories, sections, article search/export,
+  permission metadata, ratings, draft article and translation workflows.
+- Community: posts, comments, topics, votes, subscriptions, content tags,
+  badges, and secure user-image/badge-icon upload flows.
+- Conditional Support tools: ticket audit time tracking and Git-Zen link
+  extraction from an explicitly configured custom field.
 
-1. Install the package:
+The server starts in `read_only` mode. Standard writes require
+`ZENDESK_WRITE_MODE=standard`; public, destructive, impersonation, and external
+upload operations require their separate `ZENDESK_ENABLE_*` gates. Any
+preview/apply operation also requires a matching one-time local approval:
+
 ```bash
-uv venv && uv pip install -e .
+zendesk approve <approval_request_id>
 ```
 
-2. Configure in Claude desktop:
+This command requires an interactive terminal, displays the exact stored
+preview, and issues the single-use token only after `yes` confirmation.
+Run it with the same `ZENDESK_SUBDOMAIN` as the MCP server; approvals are bound
+to that tenant and cannot be reused elsewhere.
+
+Attachment downloads accept only the attachment identified by its ticket and
+attachment ID, require Zendesk's safe malware result, and use a managed cache.
+Set `ZENDESK_ATTACHMENT_CACHE_ROOT` to relocate it. Secure local image uploads
+require `ZENDESK_UPLOAD_ROOT`.
+
+## Installation and setup
+
+This repository has not published an immutable end-user release yet. After the
+release commit is pushed, a source installation works as follows:
+
+```bash
+git clone https://github.com/nicekon/zendesk-mcp-server-kon.git
+cd zendesk-mcp-server-kon
+uv tool install .
+zendesk --help
+```
+
+If uv reports that its executable directory is not on `PATH`, run
+`uv tool update-shell` and open a new terminal. `uv tool install` creates the
+`zendesk` command in an isolated environment; `uv sync` below is for repository
+development only.
+
+### Browser OAuth login
+
+A Zendesk administrator first creates a **Public** OAuth client for the tenant
+and registers this exact redirect URI:
+
+```text
+http://127.0.0.1:3000/oauth/callback
+```
+
+The client must allow the read scopes requested by the enabled capabilities.
+Support (enabled by default) also requests broad `read` for Search/Search Export,
+as an approved policy exception. This permits all GET resources available to the
+user's role, not only search. It does not enable writes; server write gates remain
+independent. Existing grants without `read` require login again.
+When Community impersonation is enabled, OAuth also requests `users:read` for
+the current-user role check. Creating a post/comment with another author or an
+overridden creation time requires an admin under the local policy, the
+impersonation gate, and interactive approval. Zendesk's Help Center manager
+permissions still apply independently. See [migration notes](docs/migration.md)
+for existing grants that need reauthorization.
+The administrator distributes the client identifier, not a client secret.
+Each user then runs:
+
+```bash
+zendesk login --subdomain your-zendesk-subdomain --client-id your-client-identifier
+zendesk check --probe
+```
+
+`zendesk login` temporarily listens on `127.0.0.1:3000`, opens the system
+browser, verifies the callback state and PKCE code, verifies the Zendesk user,
+stores the connection under `~/.config/zendesk-mcp-server/connection.json`, and
+closes the listener. The user does not copy an authorization code. Use `--port`
+only when the same alternate redirect URI is registered in Zendesk.
+
+Login requests scopes for the current `ZENDESK_CAPABILITIES` and write-gate
+environment settings; without them it remains read-only. To reauthorize ordinary
+ticket writes, for example:
+
+```bash
+ZENDESK_WRITE_MODE=standard zendesk login --subdomain your-zendesk-subdomain --client-id your-client-identifier
+```
+
+This one-command setting does not permanently enable the MCP write gate. The
+MCP runtime must separately enable its gate to write; public/destructive and
+other approval policies still apply independently of the granted OAuth scopes.
+
+OAuth currently returns `unsupported` on Windows because user-only token storage
+ACLs are not implemented. Windows package installation and MCP startup checks do
+not imply OAuth login support. Use API-token configuration on Windows.
+
+Find the installed executable with `command -v zendesk` on macOS/Linux or
+`where zendesk` on Windows. For Codex, register that absolute path and verify
+the entry:
+
+```bash
+codex mcp add zendesk -- /absolute/path/to/zendesk
+codex mcp list
+```
+
+Other MCP clients commonly use the equivalent JSON configuration:
+
+```json
+{
+  "mcpServers": {
+    "zendesk": {
+      "command": "/absolute/path/to/zendesk"
+    }
+  }
+}
+```
+
+The MCP process reads the saved connection without relying on terminal
+environment variables. It never opens a browser while running over stdio.
+Uninstalling the package does not revoke Zendesk access. Revoke the OAuth grant
+in Zendesk and remove the exact local connection file when the connection is no
+longer needed.
+
+### API-token configuration
+
+API-token authentication remains available. Provide all three variables to the
+MCP process:
+
 ```json
 {
   "mcpServers": {
     "zendesk": {
       "command": "uv",
-      "args": [
-        "--directory",
-        "/path/to/zendesk-mcp-server-kon",
-        "run",
-        "zendesk"
-      ],
+      "args": ["--directory", "/path/to/zendesk-mcp-server-kon", "run", "zendesk"],
       "env": {
         "ZENDESK_SUBDOMAIN": "your-zendesk-subdomain",
         "ZENDESK_EMAIL": "your-zendesk-email",
-        "ZENDESK_API_KEY": "your-zendesk-api-key"
+        "ZENDESK_API_TOKEN": "your-zendesk-api-token"
       }
     }
   }
 }
 ```
 
-Replace the environment variables with your Zendesk credentials:
-- `ZENDESK_SUBDOMAIN`: Your Zendesk subdomain (e.g., if your Zendesk URL is `company.zendesk.com`, use `company`)
-- `ZENDESK_EMAIL`: Your Zendesk admin email address
-- `ZENDESK_API_KEY`: Your Zendesk API token
+`ZENDESK_API_KEY` is no longer accepted. Migrate it to
+`ZENDESK_API_TOKEN`; the server rejects the deprecated name instead of silently
+using it.
 
-### Quick Install (No Clone Required)
+`ZENDESK_AUTH_MODE` defaults to `auto`. It selects complete OAuth settings when
+present, otherwise a complete API-token configuration. A partial OAuth
+configuration is an error and never falls back to API token credentials.
 
-If you have `uv` installed, you can skip step 1 and run this repository directly via `uvx`:
+Validate configuration without a network request using `zendesk check`; add
+`--probe` to verify the current Zendesk user without printing secrets.
+The command prints JSON and exits with status 1 when `ok` is false, or 0 when
+`ok` is true. An unconfigured status without `--probe` is a successful inspection;
+check `data.configured` before treating it as a ready connection.
 
-```json
-{
-  "mcpServers": {
-    "zendesk": {
-      "command": "uvx",
-      "args": [
-        "--from",
-        "git+https://github.com/nicekon/zendesk-mcp-server-kon.git@4717ee6299539c653655ba1d579cdcde42a0757c",
-        "zendesk"
-      ],
-      "env": {
-        "ZENDESK_SUBDOMAIN": "your-zendesk-subdomain",
-        "ZENDESK_EMAIL": "your-zendesk-email",
-        "ZENDESK_API_KEY": "your-zendesk-api-key"
-      }
-    }
-  }
-}
+```bash
+zendesk check
 ```
 
-Since `uvx` fetches and runs the package directly from GitHub, there's no need to manage a local clone or a `--directory` path.
+The legacy confidential OAuth flow remains available for server-side setups.
+Configure `ZENDESK_SUBDOMAIN`, `ZENDESK_AUTH_MODE=oauth`,
+`ZENDESK_OAUTH_CLIENT_ID`, `ZENDESK_OAUTH_CLIENT_SECRET`, and a user-only
+`ZENDESK_OAUTH_TOKEN_STORE` path. Then use the redirect URI registered in
+Zendesk exactly in both commands:
 
-The URL above is pinned to a specific commit hash rather than a branch name. Because `uv` caches Git dependencies keyed by the fully resolved commit hash, pinning a commit makes this behave fully offline after the first install, just like the local clone method above. Pointing to a branch instead (e.g., `...git@main`) makes every run issue a network request to check that branch's `HEAD` on GitHub — it won't reinstall if the commit hasn't changed, but it needs internet access every time, and in exchange automatically picks up new commits. To keep this install method tracking the latest version, you'll need to manually update the pinned commit hash.
+```bash
+zendesk oauth-start https://your-app.example/callback
+zendesk oauth-finish https://your-app.example/callback <state>
+```
 
-## Resources
+`oauth-start` prints the authorization URL and saves its one-time state. After
+Zendesk redirects back, pass the returned `state` to `oauth-finish`; it prompts
+for the authorization code without echoing it and stores refreshed tokens with
+user-only permissions.
 
-- zendesk://knowledge-base, get access to the whole help center articles.
+Enable optional domains with `ZENDESK_CAPABILITIES`; disabled tools remain
+listed but return `not_configured` before making a Zendesk request. Set
+`ZENDESK_GIT_ZEN_FIELD_ID` only when `git_zen` is enabled. Time tracking defaults
+to ticket audit metadata. To use Time Tracking app fields instead, configure both
+`ZENDESK_TIME_TRACKING_TOTAL_FIELD_ID` and `ZENDESK_TIME_TRACKING_LAST_FIELD_ID`
+with distinct positive field IDs. The app backend updates total and last-update
+time in seconds. Both backends include an internal note; they are not written
+simultaneously.
 
 ## Prompts
 
-### analyze-ticket
+- `analyze-ticket(ticket_id)`
+- `draft-ticket-response(ticket_id)`
 
-Analyze a Zendesk ticket and provide a detailed analysis of the ticket.
+Prompts only generate guidance. They do not perform Zendesk writes.
 
-### draft-ticket-response
+## Development
 
-Draft a response to a Zendesk ticket.
+```bash
+uv sync --group dev
+uv run pytest -v
+uv build
+```
 
-## Tools
-
-### Ticket Management
-
-#### get_ticket
-Retrieve a Zendesk ticket by its ID
-- Input:
-  - `ticket_id` (integer): The ID of the ticket to retrieve
-
-#### get_ticket_comments
-Retrieve all comments for a Zendesk ticket by its ID
-- Input:
-  - `ticket_id` (integer): The ID of the ticket to get comments for
-
-#### create_ticket_comment
-Create a new comment on an existing Zendesk ticket
-- Input:
-  - `ticket_id` (integer): The ID of the ticket to comment on
-  - `comment` (string): The comment text/content to add
-  - `public` (boolean, optional): Whether the comment should be public (defaults to true)
-
-### Community Management
-
-#### get_community_posts
-Retrieve community posts with optional filtering and sorting
-- Input:
-  - `filter_by` (string, optional): Filter posts by status (planned, not_planned, completed, answered, none)
-  - `sort_by` (string, optional): Sort posts by criteria (created_at, edited_at, updated_at, recent_activity, votes, comments)
-
-#### get_community_post_comments
-Retrieve a community post and all its comments
-- Input:
-  - `post_id` (integer): The ID of the post to retrieve comments for
-
-#### create_community_post_comment
-Create a new comment on a community post
-- Input:
-  - `post_id` (integer): ID of the post to comment on
-  - `body` (string): Comment content
-  - `author_id` (integer, optional): Comment author ID (only available for Help Center administrators)
-  - `notify_subscribers` (boolean, optional): Whether to notify subscribers (defaults to true)
-
-#### update_community_post_comment
-Update a comment on a community post
-- Input:
-  - `post_id` (integer): ID of the post containing the comment
-  - `comment_id` (integer): ID of the comment to update
-  - `body` (string): Updated comment content
-
-#### update_community_post
-Update a community post
-- Input:
-  - `post_id` (integer): ID of the post to update
-  - `title` (string, optional): Post title
-  - `details` (string, optional): Post content (supports p, br, strong tags)
-  - `topic_id` (integer, optional): ID of the topic this post belongs to
-  - `status` (string, optional): Post status (planned, not_planned, answered, completed)
-
-#### get_community_topics
-Retrieve all community topics
-- Returns a list of topics with their details including name, description, follower count, etc.
+See the [foundation implementation plan](docs/superpowers/plans/2026-09-04-unified-zendesk-mcp-foundation.md)
+for the active scope and the PRD for the phased feature roadmap.

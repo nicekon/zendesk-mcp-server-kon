@@ -1,0 +1,139 @@
+"""Local, single-use approvals for high-risk Zendesk writes."""
+
+from __future__ import annotations
+
+import hashlib
+import json
+import os
+import secrets
+import tempfile
+import time
+import uuid
+from collections.abc import Callable, Iterator
+from collections.abc import Mapping
+from contextlib import contextmanager
+from pathlib import Path
+
+from .locking import exclusive_lock
+from .config import Settings
+
+
+class ApprovalStore:
+    def __init__(self, path: Path, *, account: str | None = None, now: Callable[[], float] = time.time) -> None:
+        self.path = path
+        self._account = account.strip().lower() if isinstance(account, str) and account.strip() else None
+        self._now = now
+
+    @classmethod
+    def from_environment(cls, environ: Mapping[str, str]) -> "ApprovalStore":
+        configured = environ.get("ZENDESK_APPROVAL_STORE")
+        path = Path(configured).expanduser() if configured else Path.home() / ".config" / "zendesk-mcp" / "approvals.json"
+        return cls(path, account=Settings.load(environ).subdomain)
+
+    def create(self, tool: str, payload: dict[str, object]) -> str:
+        with self._locked():
+            records = self._load()
+            self._prune(records)
+            request_id = str(uuid.uuid4())
+            records[request_id] = {
+                "account": self._account,
+                "tool": tool,
+                "payload": payload,
+                "payload_hash": _payload_hash(payload),
+                "expires_at": self._now() + 300,
+                "approved": False,
+                "consumed": False,
+            }
+            self._save(records)
+        return request_id
+
+    def preview(self, request_id: str) -> dict[str, object]:
+        with self._locked():
+            records = self._load()
+            self._prune(records)
+            record = records.get(request_id)
+            self._save(records)
+        if not isinstance(record, dict) or record.get("account") != self._account or not isinstance(record.get("tool"), str) or not isinstance(record.get("payload"), dict):
+            raise ValueError("approval request is missing or expired")
+        return {"account": record.get("account"), "tool": record["tool"], "payload": record["payload"]}
+
+    def approve(self, request_id: str) -> str:
+        with self._locked():
+            records = self._load()
+            self._prune(records)
+            record = records.get(request_id)
+            if not isinstance(record, dict) or record.get("account") != self._account or not isinstance(record.get("payload"), dict):
+                raise ValueError("approval request is missing or expired")
+            token = secrets.token_urlsafe(32)
+            record["token_hash"] = _token_hash(token)
+            record["approved"] = True
+            self._save(records)
+        return token
+
+    def consume(self, request_id: str, tool: str, payload: dict[str, object], token: str) -> bool:
+        with self._locked():
+            records = self._load()
+            self._prune(records)
+            record = records.get(request_id)
+            if not isinstance(record, dict):
+                self._save(records)
+                return False
+            valid = (
+                record.get("account") == self._account
+                and record.get("tool") == tool
+                and record.get("payload_hash") == _payload_hash(payload)
+                and record.get("approved") is True
+                and record.get("consumed") is False
+                and isinstance(record.get("token_hash"), str)
+                and secrets.compare_digest(record["token_hash"], _token_hash(token))
+            )
+            if valid:
+                record["consumed"] = True
+                self._save(records)
+            return valid
+
+    def _load(self) -> dict[str, object]:
+        if not self.path.exists():
+            return {}
+        if self.path.stat().st_mode & 0o077:
+            raise ValueError("approval store permissions must be user-only")
+        try:
+            value = json.loads(self.path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError as error:
+            raise ValueError("approval store is invalid") from error
+        return value if isinstance(value, dict) else {}
+
+    def _save(self, records: dict[str, object]) -> None:
+        self.path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+        with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", dir=self.path.parent, delete=False) as temporary:
+            temporary_path = Path(temporary.name)
+            os.chmod(temporary_path, 0o600)
+            json.dump(records, temporary, separators=(",", ":"), sort_keys=True)
+            temporary.flush()
+            os.fsync(temporary.fileno())
+        temporary_path.replace(self.path)
+
+    def _prune(self, records: dict[str, object]) -> None:
+        now = self._now()
+        for request_id, record in list(records.items()):
+            if not isinstance(record, dict) or record.get("expires_at", 0) <= now:
+                records.pop(request_id)
+
+    @contextmanager
+    def _locked(self) -> Iterator[None]:
+        self.path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+        lock_path = self.path.with_suffix(f"{self.path.suffix}.lock")
+        descriptor = os.open(lock_path, os.O_RDWR | os.O_CREAT, 0o600)
+        try:
+            with exclusive_lock(descriptor): yield
+        finally:
+            os.close(descriptor)
+
+
+def _payload_hash(payload: dict[str, object]) -> str:
+    encoded = json.dumps(payload, separators=(",", ":"), sort_keys=True).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
+
+
+def _token_hash(token: str) -> str:
+    return hashlib.sha256(token.encode("utf-8")).hexdigest()

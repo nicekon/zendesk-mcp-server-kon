@@ -7,8 +7,12 @@ on:
     branches: [ main ]
 
 jobs:
-  build:
+  test:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.10", "3.11", "3.12"]
 
     steps:
       - uses: actions/checkout@v4
@@ -20,7 +24,112 @@ jobs:
           cache-dependency-glob: "uv.lock"
 
       - name: Set up Python
-        run: uv python install
+        run: uv python install ${{ matrix.python }}
+
+      - name: Test
+        run: uv run --python ${{ matrix.python }} pytest -q
 
       - name: Build the project
         run: uv build
+
+      - name: Verify installed wheel read-only write gates
+        shell: bash
+        run: |
+          uv venv --python ${{ matrix.python }} .readonly-wheel-venv
+          wheels=(dist/*.whl)
+          test "${#wheels[@]}" -eq 1
+          uv pip install --python .readonly-wheel-venv/bin/python "${wheels[0]}" pytest
+          .readonly-wheel-venv/bin/python -I -c 'import zendesk_mcp_server; assert ".readonly-wheel-venv" in zendesk_mcp_server.__file__'
+          .readonly-wheel-venv/bin/python -I -m pytest --import-mode=importlib -q tests/test_readonly_catalog.py
+
+      - name: Install and handshake the wheel
+        shell: bash
+        run: |
+          uv venv --python ${{ matrix.python }} .wheel-venv
+          uv pip install --python .wheel-venv/bin/python dist/*.whl
+          .wheel-venv/bin/zendesk --help
+          .wheel-venv/bin/python - <<'PY'
+          import asyncio
+          import sys
+          from pathlib import Path
+          from mcp.client.session import ClientSession
+          from mcp.client.stdio import StdioServerParameters, stdio_client
+
+          async def main():
+              params = StdioServerParameters(
+                  command=str(Path(sys.executable).with_name("zendesk")),
+                  env={"ZENDESK_SUBDOMAIN": "package-smoke"},
+              )
+              async with stdio_client(params) as (read, write):
+                  async with ClientSession(read, write) as session:
+                      assert (await session.initialize()).serverInfo.name == "Zendesk"
+                      assert len((await session.list_tools()).tools) == 101
+
+          asyncio.run(main())
+          PY
+
+  package-smoke:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest]
+        python: ["3.12"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v4
+      - run: uv python install ${{ matrix.python }}
+      - run: uv build
+      - name: Install and handshake the wheel
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          uv venv --python ${{ matrix.python }} .wheel-venv
+          uv pip install --python .wheel-venv/bin/python dist/*.whl
+          .wheel-venv/bin/zendesk --help
+          .wheel-venv/bin/python - <<'PY'
+          import asyncio
+          import sys
+          from pathlib import Path
+          from mcp.client.session import ClientSession
+          from mcp.client.stdio import StdioServerParameters, stdio_client
+
+          async def main():
+              params = StdioServerParameters(
+                  command=str(Path(sys.executable).with_name("zendesk")),
+                  env={"ZENDESK_SUBDOMAIN": "package-smoke"},
+              )
+              async with stdio_client(params) as (read, write):
+                  async with ClientSession(read, write) as session:
+                      assert (await session.initialize()).serverInfo.name == "Zendesk"
+                      assert len((await session.list_tools()).tools) == 101
+
+          asyncio.run(main())
+          PY
+      - name: Install and handshake the wheel
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          uv venv --python ${{ matrix.python }} .wheel-venv
+          $wheel = (Get-ChildItem dist -Filter *.whl | Select-Object -First 1).FullName
+          uv pip install --python .wheel-venv\Scripts\python.exe $wheel
+          & .wheel-venv\Scripts\zendesk.exe --help
+          @'
+          import asyncio
+          import sys
+          from pathlib import Path
+          from mcp.client.session import ClientSession
+          from mcp.client.stdio import StdioServerParameters, stdio_client
+
+          async def main():
+              params = StdioServerParameters(
+                  command=str(Path(sys.executable).with_name("zendesk.exe")),
+                  env={"ZENDESK_SUBDOMAIN": "package-smoke"},
+              )
+              async with stdio_client(params) as (read, write):
+                  async with ClientSession(read, write) as session:
+                      assert (await session.initialize()).serverInfo.name == "Zendesk"
+                      assert len((await session.list_tools()).tools) == 101
+
+          asyncio.run(main())
+          '@ | & .wheel-venv\Scripts\python.exe
