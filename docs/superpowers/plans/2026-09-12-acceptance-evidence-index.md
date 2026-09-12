@@ -162,3 +162,13 @@ CSAT 활성 설정의 identity probe가 성공하면 동일 client로 Account Se
 검증했으며 전체 로컬 824개 테스트가 통과했다. `capabilities`는 계속 설정값이고,
 감지 결과에 없는 badges 등의 제품을 사용 가능·불가능으로 추정하지 않는다.
 실제 제품별 계정 검증 및 나머지 조건부 제품 탐지 완료 증거는 아니다.
+
+### Custom object projection 오류 전파 대조
+
+`test_custom_object_projection_preserves_permission_and_missing_resource_errors`
+(tests/test_tickets.py)는 검색·내보내기 각각에서 metadata/record 권한 거부,
+record not_found, 연결 lookup 부재를 대조한다. 권한 및 단건 미발견 오류는 request_id를
+포함해 보존하고, lookup 부재는 validation_error로 반환하며 부분 결과를 성공으로
+노출하지 않는 8개 회귀 사례가 통과했다. 전체 로컬 832개 테스트 통과. 기존 공통 경로가
+처리하므로 production 코드는 변경하지 않았다. 단건 404로 제품 미지원을 추정하거나,
+이 테스트를 실제 계정의 제품 부재 감지 증거로 해석하지 않는다.

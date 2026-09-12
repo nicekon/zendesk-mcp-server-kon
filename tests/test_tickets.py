@@ -911,6 +911,33 @@ def test_custom_object_projection_rejects_malformed_lookup_metadata():
             assert len(calls) == 2
 
 
+@pytest.mark.parametrize("method", ["search_tickets", "export_tickets"])
+@pytest.mark.parametrize("stage,code", [("fields", "permission_denied"), ("record", "permission_denied"), ("record", "not_found"), ("missing_lookup", "validation_error")])
+def test_custom_object_projection_preserves_permission_and_missing_resource_errors(method, stage, code):
+    from zendesk_mcp_server.contracts import ErrorCode, failure
+
+    calls = []
+    upstream = failure(ErrorCode(code), "lookup failed", request_id="trace-7")
+    class Client:
+        def get(self, path, *, params=None):
+            calls.append(path)
+            if path in ("/api/v2/search.json", "/api/v2/search/export.json"):
+                return success({"results": [{"id": 1, "custom_fields": [{"id": 10, "value": "99"}]}], "next_page": None, "meta": {"has_more": False}})
+            if path == "/api/v2/ticket_fields.json":
+                if stage == "fields": return upstream
+                fields = [] if stage == "missing_lookup" else [{"id": 10, "relationship_target_type": "zen:custom_object:asset"}]
+                return success({"ticket_fields": fields, "meta": {"has_more": False}})
+            assert stage == "record" and path == "/api/v2/custom_objects/asset/records/99.json"
+            return upstream
+    settings = Settings.load({"ZENDESK_CAPABILITIES": "support,custom_objects"})
+    result = getattr(TicketTools(Client(), settings), method)("status:open", projection={"include_custom_objects": ["asset"]})
+    assert result["ok"] is False
+    assert result["error"]["code"] == code
+    if stage != "missing_lookup": assert result == upstream
+    assert len(calls) == (3 if stage == "record" else 2)
+    assert "items" not in result and "data" not in result
+
+
 def test_custom_object_projection_requires_its_capability():
     settings = Settings.load({})
     result = TicketTools(StubClient({}), settings).search_tickets("status:open", projection={"include_custom_objects": ["asset"]})
