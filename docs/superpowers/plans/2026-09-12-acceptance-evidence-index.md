@@ -172,3 +172,14 @@ record not_found, 연결 lookup 부재를 대조한다. 권한 및 단건 미발
 노출하지 않는 8개 회귀 사례가 통과했다. 전체 로컬 832개 테스트 통과. 기존 공통 경로가
 처리하므로 production 코드는 변경하지 않았다. 단건 404로 제품 미지원을 추정하거나,
 이 테스트를 실제 계정의 제품 부재 감지 증거로 해석하지 않는다.
+
+### Custom Objects 계정 활성 감지 구현
+
+공식 [Account Settings Active Features](https://developer.zendesk.com/api-reference/ticketing/account-configuration/account_settings/#active-features)의
+`custom_objects_activated` boolean으로 제품 비활성과 lookup 부재를 구분한다.
+`TicketTools.detect_custom_objects`를 projection 및 연결 상태에서 재사용하며 false는
+unsupported, 누락/형식 오류는 upstream_error, HTTP 오류는 원본으로 반환한다.
+기존 정상 projection 회귀에 명시적인 활성 계정 응답을 추가했다. 검색·페이지 export·
+JSON 파일 export의 비활성/불명확 응답, 파일 미생성, account/field/record 권한 오류와
+404 보존, 연결 상태의 활성/오류 표시를 포함해 전체 로컬 849개 테스트가 통과했다.
+계정 정보는 모의 응답이며 운영 Zendesk 요청이나 제품 활성화 변경은 수행하지 않았다.

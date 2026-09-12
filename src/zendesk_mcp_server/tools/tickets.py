@@ -711,7 +711,21 @@ class TicketTools:
             return failure(ErrorCode.NOT_CONFIGURED, "Zendesk is not configured")
         return self._client
 
+    def detect_custom_objects(self) -> dict[str, object]:
+        client = self._configured_client()
+        if isinstance(client, dict): return client
+        result = client.get("/api/v2/account/settings.json")
+        if not result.get("ok"): return result
+        data = result.get("data"); settings = data.get("settings") if isinstance(data, dict) else None
+        features = settings.get("active_features") if isinstance(settings, dict) else None
+        active = features.get("custom_objects_activated") if isinstance(features, dict) else None
+        if type(active) is not bool: return failure(ErrorCode.UPSTREAM_ERROR, "Account settings did not identify custom object activation")
+        if not active: return failure(ErrorCode.UNSUPPORTED, "Custom objects are not activated for this account")
+        return success({"active": True})
+
     def _project_custom_objects(self, items: list[object], keys: list[object]) -> list[dict[str, object]] | dict[str, object]:
+        activation = self.detect_custom_objects()
+        if not activation.get("ok"): return activation
         client = self._configured_client()
         if isinstance(client, dict): return client
         fields_result = collect_complete_cursor(client.get, "/api/v2/ticket_fields.json", "ticket_fields")

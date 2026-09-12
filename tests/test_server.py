@@ -115,6 +115,7 @@ def test_custom_object_mcp_search_and_csv_artifact_use_real_factories(monkeypatc
     class Client:
         def __init__(self, *args, **kwargs): pass
         def get(self, path, *, params=None):
+            if path == "/api/v2/account/settings.json": return {"ok": True, "data": {"settings": {"active_features": {"custom_objects_activated": True}}}}
             if path == "/api/v2/search.json": return {"ok": True, "data": {"results": [ticket], "next_page": None}}
             if path == "/api/v2/search/export.json": return {"ok": True, "data": {"results": [ticket], "meta": {"has_more": False}}}
             if path == "/api/v2/ticket_fields.json": return {"ok": True, "data": {"ticket_fields": [{"id": 10, "relationship_target_type": "zen:custom_object:asset"}], "meta": {"has_more": False}}}
@@ -1008,6 +1009,34 @@ def test_connection_status_detects_enabled_csat_without_inferring_other_products
             assert detection["csat"]["error"]["code"] == expected["error"]
         else:
             assert detection["csat"] == expected
+        assert calls == ["/api/v2/users/me.json", "/api/v2/account/settings.json"]
+
+
+def test_connection_status_reports_custom_object_activation_and_preserves_denials(monkeypatch):
+    import zendesk_mcp_server.server as module
+    from zendesk_mcp_server.contracts import ErrorCode, failure, success
+
+    for upstream, expected in (
+        (success({"settings": {"active_features": {"custom_objects_activated": True}}}), "active"),
+        (success({"settings": {"active_features": {"custom_objects_activated": False}}}), "unsupported"),
+        (success({"settings": {"active_features": {}}}), "upstream_error"),
+        (failure(ErrorCode.PERMISSION_DENIED, "denied", request_id="trace-7"), "permission_denied"),
+    ):
+        calls = []
+        class Client:
+            def __init__(self, *_): pass
+            def get(self, path, **kwargs):
+                calls.append(path)
+                if path == "/api/v2/users/me.json": return success({"user": {"id": 7, "role": "admin"}})
+                assert path == "/api/v2/account/settings.json"
+                return upstream
+        monkeypatch.setattr(module, "ZendeskClient", Client)
+        result = module.build_connection_status({"ZENDESK_SUBDOMAIN": "acme", "ZENDESK_EMAIL": "test@example.test", "ZENDESK_API_TOKEN": "token", "ZENDESK_CAPABILITIES": "custom_objects"}, probe=True)
+        assert result["ok"] is True
+        check = result["data"]["capability_detection"]["custom_objects"]
+        if expected == "active": assert check == {"ok": True, "data": {"active": True}}
+        else: assert check["ok"] is False and check["error"]["code"] == expected
+        if expected == "permission_denied": assert check == upstream
         assert calls == ["/api/v2/users/me.json", "/api/v2/account/settings.json"]
 
 

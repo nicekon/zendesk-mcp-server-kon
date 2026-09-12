@@ -360,6 +360,8 @@ def build_connection_status(environ: Mapping[str, str], *, probe: bool = False) 
         if settings.has_capability("csat"):
             backend = GuideTools(client, settings)._resolve_csat_backend("auto")
             status["capability_detection"] = {"csat": backend if isinstance(backend, dict) else success({"backend": backend})}
+        if settings.has_capability("custom_objects"):
+            status.setdefault("capability_detection", {})["custom_objects"] = TicketTools(client, settings).detect_custom_objects()
         return success({**status, "verified_user": {key: user.get(key) for key in ("id", "role")}})
     except ConfigurationError as error:
         return _configuration_failure(error)

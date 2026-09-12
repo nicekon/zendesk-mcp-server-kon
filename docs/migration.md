@@ -1,5 +1,22 @@
 # Migration and rollback
 
+## Custom Objects activation
+
+Custom-object projection in search and export now checks the official Account
+Settings `active_features.custom_objects_activated` flag before reading lookup
+metadata or records. Only JSON boolean `true` permits projection. `false` returns
+`unsupported`; missing or malformed activation data returns `upstream_error`.
+HTTP errors, including permission denials and generic 404s, are preserved rather
+than guessed to mean product absence. Failed file exports publish no partial file.
+The existing Custom Objects OAuth scope set already includes `account_settings:read`;
+the account role must also permit that endpoint.
+
+When Custom Objects is enabled, probed connection status includes
+`capability_detection.custom_objects` using the same detector. Its success proves
+activation, not access to every object or record. Each projection page rechecks
+activation; it is not cached across operations. CSAT and Custom Objects status
+checks are independent and may each read Account Settings.
+
 ## Connection status conditional capability detection
 
 `capabilities` remains the locally enabled configuration, not proof that each

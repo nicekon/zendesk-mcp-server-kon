@@ -902,17 +902,18 @@ def test_custom_object_projection_rejects_malformed_lookup_metadata():
             class Client:
                 def get(self, path, *, params=None):
                     calls.append(path)
+                    if path == "/api/v2/account/settings.json": return success({"settings": {"active_features": {"custom_objects_activated": True}}})
                     if path == "/api/v2/ticket_fields.json":
                         return success({"ticket_fields": [{"id": 10, "relationship_target_type": "zen:custom_object:asset"}, {"id": invalid_id, "relationship_target_type": "zen:custom_object:asset"}], "meta": {"has_more": False}})
                     assert len(calls) == 1
                     return success({"results": [{"id": 1, "custom_fields": []}], "next_page": None, "meta": {"has_more": False}})
             result = getattr(TicketTools(Client(), settings), method)("status:open", projection={"include_custom_objects": ["asset"]})
             assert result["error"]["code"] == "upstream_error"
-            assert len(calls) == 2
+            assert len(calls) == 3
 
 
 @pytest.mark.parametrize("method", ["search_tickets", "export_tickets"])
-@pytest.mark.parametrize("stage,code", [("fields", "permission_denied"), ("record", "permission_denied"), ("record", "not_found"), ("missing_lookup", "validation_error")])
+@pytest.mark.parametrize("stage,code", [("activation", "permission_denied"), ("activation", "not_found"), ("fields", "permission_denied"), ("record", "permission_denied"), ("record", "not_found"), ("missing_lookup", "validation_error")])
 def test_custom_object_projection_preserves_permission_and_missing_resource_errors(method, stage, code):
     from zendesk_mcp_server.contracts import ErrorCode, failure
 
@@ -921,6 +922,7 @@ def test_custom_object_projection_preserves_permission_and_missing_resource_erro
     class Client:
         def get(self, path, *, params=None):
             calls.append(path)
+            if path == "/api/v2/account/settings.json": return upstream if stage == "activation" else success({"settings": {"active_features": {"custom_objects_activated": True}}})
             if path in ("/api/v2/search.json", "/api/v2/search/export.json"):
                 return success({"results": [{"id": 1, "custom_fields": [{"id": 10, "value": "99"}]}], "next_page": None, "meta": {"has_more": False}})
             if path == "/api/v2/ticket_fields.json":
@@ -934,8 +936,27 @@ def test_custom_object_projection_preserves_permission_and_missing_resource_erro
     assert result["ok"] is False
     assert result["error"]["code"] == code
     if stage != "missing_lookup": assert result == upstream
-    assert len(calls) == (3 if stage == "record" else 2)
+    assert len(calls) == (2 if stage == "activation" else 4 if stage == "record" else 3)
     assert "items" not in result and "data" not in result
+
+
+@pytest.mark.parametrize("method,output", [("search_tickets", None), ("export_tickets", None), ("export_tickets", "json")])
+@pytest.mark.parametrize("flag,code", [(False, "unsupported"), (None, "upstream_error"), ("true", "upstream_error"), (1, "upstream_error")])
+def test_custom_object_projection_requires_verified_account_activation(tmp_path, method, output, flag, code):
+    calls = []
+    class Client:
+        def get(self, path, *, params=None):
+            calls.append(path)
+            if path == "/api/v2/account/settings.json":
+                return success({"settings": {"active_features": {"custom_objects_activated": flag}}})
+            assert path in ("/api/v2/search.json", "/api/v2/search/export.json")
+            return success({"results": [], "next_page": None, "meta": {"has_more": False}})
+    settings = Settings.load({"ZENDESK_CAPABILITIES": "support,custom_objects", "ZENDESK_ATTACHMENT_CACHE_ROOT": str(tmp_path / "attachments")})
+    result = getattr(TicketTools(Client(), settings), method)("status:open", projection={"include_custom_objects": ["asset"]}, **({"output_format": output} if output else {}))
+    assert result["ok"] is False and result["error"]["code"] == code
+    assert calls[-1] == "/api/v2/account/settings.json"
+    assert len(calls) == 2
+    assert not list(tmp_path.rglob("*.json"))
 
 
 def test_custom_object_projection_requires_its_capability():
@@ -956,12 +977,13 @@ def test_custom_object_projection_rejects_unsafe_record_paths():
     settings = Settings.load({"ZENDESK_CAPABILITIES": "support,custom_objects"})
     for record_id in ("../../users/me", "99?x", "99#x", "%2f", "a\\b", [], {}, True):
         client = StubClient({
+            "/api/v2/account/settings.json": success({"settings": {"active_features": {"custom_objects_activated": True}}}),
             "/api/v2/search.json": success({"results": [{"id": 1, "custom_fields": [{"id": 10, "value": record_id}]}], "next_page": None}),
             "/api/v2/ticket_fields.json": success({"ticket_fields": [{"id": 10, "relationship_target_type": "zen:custom_object:asset"}], "meta": {"has_more": False}}),
         })
         result = TicketTools(client, settings).search_tickets("status:open", projection={"include_custom_objects": ["asset"]})
         assert result["error"]["code"] == "upstream_error"
-        assert len(client.paths) == 2
+        assert len(client.paths) == 3
 
 
 def test_ticket_projection_selects_requested_ticket_fields():
@@ -1127,6 +1149,7 @@ def test_custom_object_projection_rejects_wrong_record_identity(record):
     settings = Settings.load({"ZENDESK_CAPABILITIES": "support,custom_objects"})
     for method in ("search_tickets", "export_tickets"):
         client = StubClient({
+            "/api/v2/account/settings.json": success({"settings": {"active_features": {"custom_objects_activated": True}}}),
             "/api/v2/search.json": success({"results": [{"id": 1, "custom_fields": [{"id": 10, "value": "99"}]}], "next_page": None}),
             "/api/v2/search/export.json": success({"results": [{"id": 1, "custom_fields": [{"id": 10, "value": "99"}]}], "meta": {"has_more": False}}),
             "/api/v2/ticket_fields.json": success({"ticket_fields": [{"id": 10, "relationship_target_type": "zen:custom_object:asset"}], "meta": {"has_more": False}}),
@@ -1134,13 +1157,14 @@ def test_custom_object_projection_rejects_wrong_record_identity(record):
         })
         result = getattr(TicketTools(client, settings), method)("status:open", projection={"include_custom_objects": ["asset"]})
         assert result["error"]["code"] == "upstream_error"
-        assert len(client.paths) == 3
+        assert len(client.paths) == 4
 
 
 @pytest.mark.parametrize("reference", ["99", 99])
 def test_custom_object_projection_nests_ticket_lookup_records(reference):
     settings = Settings.load({"ZENDESK_CAPABILITIES": "support,custom_objects"})
     client = StubClient({
+        "/api/v2/account/settings.json": success({"settings": {"active_features": {"custom_objects_activated": True}}}),
         "/api/v2/search.json": success({"results": [{"id": 1, "custom_fields": [{"id": 10, "value": reference}]}], "next_page": None}),
         "/api/v2/ticket_fields.json": success({"ticket_fields": [{"id": 10, "relationship_target_type": "zen:custom_object:asset"}], "meta": {"has_more": False}}),
         "/api/v2/custom_objects/asset/records/99.json": success({"custom_object_record": {"id": "99", "custom_object_key": "asset"}}),
@@ -1157,6 +1181,7 @@ def test_custom_object_projection_keeps_all_lookup_records_and_csv_values():
     settings = Settings.load({"ZENDESK_CAPABILITIES": "support,custom_objects"})
     ticket = {"id": 1, "custom_fields": [{"id": 10, "value": "99"}, {"id": 11, "value": "100"}, {"id": 12, "value": "99"}, {"id": 13, "value": None}]}
     client = StubClient({
+        "/api/v2/account/settings.json": success({"settings": {"active_features": {"custom_objects_activated": True}}}),
         "/api/v2/search.json": success({"results": [ticket], "next_page": None}),
         "/api/v2/search/export.json": success({"results": [ticket], "meta": {"has_more": False}}),
         "/api/v2/ticket_fields.json": success({"ticket_fields": [{"id": i, "relationship_target_type": "zen:custom_object:asset"} for i in range(10, 14)], "meta": {"has_more": False}}),
@@ -1179,6 +1204,7 @@ def test_custom_object_malformed_ticket_fields_do_not_fetch_records():
     for fields in (None, {}, [None], [{"id": [], "value": "99"}], [{"id": True, "value": "99"}], [{"id": 10}], [{"id": 10, "value": "99"}, {"id": 10, "value": "100"}]):
         ticket = {"id": 1, "custom_fields": fields}
         client = StubClient({
+            "/api/v2/account/settings.json": success({"settings": {"active_features": {"custom_objects_activated": True}}}),
             "/api/v2/search.json": success({"results": [ticket], "next_page": None}),
             "/api/v2/search/export.json": success({"results": [ticket], "meta": {"has_more": False}}),
             "/api/v2/ticket_fields.json": success({"ticket_fields": [{"id": 10, "relationship_target_type": "zen:custom_object:asset"}], "meta": {"has_more": False}}),
@@ -1187,12 +1213,13 @@ def test_custom_object_malformed_ticket_fields_do_not_fetch_records():
         for method in (tools.search_tickets, tools.export_tickets):
             result = method("status:open", projection={"include_custom_objects": ["asset"]})
             assert result["error"]["code"] == "upstream_error"
-        assert len(client.paths) == 4
+        assert len(client.paths) == 6
 
 
 def test_custom_object_lookup_fields_follow_metadata_pages():
     class Client:
         def get(self, path, *, params=None):
+            if path == "/api/v2/account/settings.json": return success({"settings": {"active_features": {"custom_objects_activated": True}}})
             if path == "/api/v2/search.json":
                 return success({"results": [{"id": 1, "custom_fields": [{"id": 10, "value": "99"}]}], "next_page": None})
             if path == "/api/v2/ticket_fields.json":
