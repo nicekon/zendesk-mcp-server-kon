@@ -573,13 +573,14 @@ def test_community_post_author_or_created_at_requires_impersonation_gate(tmp_pat
     assert client.paths == [("/api/v2/community/topics/4.json", None)]
 
 
-def test_community_notification_previews_report_api_follower_counts(tmp_path):
+@pytest.mark.parametrize("followers", [7, 0, None, True, -1, "7"])
+def test_community_notification_previews_report_api_follower_counts(tmp_path, followers):
     class NotificationClient:
         def __init__(self): self.paths = []
         def get(self, path, *, params=None):
             self.paths.append((path, params))
             key = "topic" if "/topics/" in path else "post"
-            return success({key: {"follower_count": 7 if key == "topic" else 3}})
+            return success({key: {"follower_count": followers}})
 
     client = NotificationClient()
     tools = CommunityTools(client, Settings.load({"ZENDESK_WRITE_MODE": "standard"}), ApprovalStore(tmp_path / "approvals.json"))
@@ -587,10 +588,16 @@ def test_community_notification_previews_report_api_follower_counts(tmp_path):
     post_preview = tools.create_post(4, "Title", "Body", notify_subscribers=True)
     comment_preview = tools.create_comment(2, "Body", notify_subscribers=True)
 
-    assert post_preview["data"]["follower_count"] == 7
-    assert "recipient_count_unknown" not in post_preview["data"]
-    assert comment_preview["data"]["follower_count"] == 3
-    assert "recipient_count_unknown" not in comment_preview["data"]
+    assert post_preview["data"]["topic_id"] == 4
+    assert comment_preview["data"]["post_id"] == 2
+    for preview in (post_preview, comment_preview):
+        assert preview["data"]["outbound_write"] is False
+        if type(followers) is int and followers >= 0:
+            assert preview["data"]["follower_count"] == followers
+            assert "recipient_count_unknown" not in preview["data"]
+        else:
+            assert preview["data"]["recipient_count_unknown"] is True
+            assert "follower_count" not in preview["data"]
     assert client.paths == [
         ("/api/v2/community/topics/4.json", None),
         ("/api/v2/community/posts/2.json", None),

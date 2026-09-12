@@ -54,6 +54,16 @@ title/name/description은 원래 일반 텍스트로 보존한다. HTML 실행·
 7개 읽기 경로·잘못된 HTML·저장 후 조회·실제 MCP 전달 회귀 포함 전체 723 passed.
 이 증거는 두 콘텐츠 누락의 로컬 보완 근거이며 Community의 나머지 조건을 대체하지 않는다.
 
+## 알림 미리보기 대상 표시 후속
+
+PRD 7.5의 알림 미리보기는 대상 topic/post ID와 follower_count 또는
+recipient_count_unknown을 요구한다. ID는 승인 payload에 있었지만 MCP preview
+응답에는 없었으므로, Post 생성은 topic_id, Comment 생성은 post_id를 표시하도록
+보완했다. 기본 notify_subscribers=false, 승인 payload 결합과 apply 경로는 유지한다.
+`test_community_notification_previews_report_api_follower_counts`에서 양수·0은
+알려진 수로, null/boolean/음수/문자열은 unknown으로 표시하며 두 대상 ID와
+outbound_write=false를 검증한다. 이 검증은 모의 GET 응답이며 실제 알림 발송은 없다.
+
 ## User Subscription 대상 검증 후속
 
 [공식 User Subscriptions](https://developer.zendesk.com/api-reference/help_center/help-center-api/user_subscriptions/)

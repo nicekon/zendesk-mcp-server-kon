@@ -104,7 +104,7 @@ class CommunityTools:
         if created_at is not None: post["created_at"] = created_at
         payload = {"post": post, "notify_subscribers": notify_subscribers}; risks = (WriteRisk.PUBLIC, WriteRisk.IMPERSONATION) if author_id is not None or created_at is not None else WriteRisk.PUBLIC
         result = self._approved_request("zendesk_create_community_post", payload, "POST", "/api/v2/community/posts.json", payload, risks, execution_mode, approval_request_id, approval_token)
-        if execution_mode == "preview" and result.get("ok") and notify_subscribers: result["data"].update(self._notification_metadata(f"/api/v2/community/topics/{topic_id}.json", "topic"))
+        if execution_mode == "preview" and result.get("ok") and notify_subscribers: result["data"].update({"topic_id": topic_id, **self._notification_metadata(f"/api/v2/community/topics/{topic_id}.json", "topic")})
         return result
     def create_comment(self, post_id: int, body: str, *, author_id: int | None = None, created_at: str | None = None, notify_subscribers: bool = False, execution_mode: str = "preview", approval_request_id: str | None = None, approval_token: str | None = None) -> dict[str, object]:
         if not self._valid_id(post_id, "post_id") or not isinstance(body, str) or not body.strip() or not self._valid_html(body) or not isinstance(notify_subscribers, bool) or (author_id is not None and not self._valid_id(author_id, "author_id")) or not _valid_timestamp(created_at): return failure(ErrorCode.VALIDATION_ERROR, "valid comment fields, notify_subscribers, author_id, and created_at are required")
@@ -113,7 +113,7 @@ class CommunityTools:
         if created_at is not None: comment["created_at"] = created_at
         payload = {"post_id": post_id, "comment": comment, "notify_subscribers": notify_subscribers}; body_payload = {"comment": comment, "notify_subscribers": notify_subscribers}; risks = (WriteRisk.PUBLIC, WriteRisk.IMPERSONATION) if author_id is not None or created_at is not None else WriteRisk.PUBLIC
         result = self._approved_request("zendesk_create_community_comment", payload, "POST", f"/api/v2/community/posts/{post_id}/comments.json", body_payload, risks, execution_mode, approval_request_id, approval_token)
-        if execution_mode == "preview" and result.get("ok") and notify_subscribers: result["data"].update(self._notification_metadata(f"/api/v2/community/posts/{post_id}.json", "post"))
+        if execution_mode == "preview" and result.get("ok") and notify_subscribers: result["data"].update({"post_id": post_id, **self._notification_metadata(f"/api/v2/community/posts/{post_id}.json", "post")})
         return result
     def create_topic(self, name: str, description: str, *, execution_mode: str = "preview", approval_request_id: str | None = None, approval_token: str | None = None) -> dict[str, object]:
         if not isinstance(name, str) or not name.strip() or not isinstance(description, str): return failure(ErrorCode.VALIDATION_ERROR, "name and description are required")
