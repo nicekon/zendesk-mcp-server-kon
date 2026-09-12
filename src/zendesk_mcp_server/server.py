@@ -177,7 +177,7 @@ def build_tools() -> list[types.Tool]:
         types.Tool(
             name="zendesk_assign_ticket",
             description="Assign a Zendesk ticket to an agent or group. Requires standard write mode and may trigger account automations.",
-            inputSchema={"type": "object", "properties": {"ticket_id": {"type": "integer", "minimum": 1}, "assignee_id": {"type": "integer", "minimum": 1}, "group_id": {"type": "integer", "minimum": 1}}, "required": ["ticket_id"]},
+            inputSchema={"type": "object", "properties": {"assignee_email": {"type": "string", "minLength": 1, "description": "Primary email address or me; mutually exclusive with assignee_id. Resolves one non-suspended agent/admin before updating."}, "ticket_id": {"type": "integer", "minimum": 1}, "assignee_id": {"type": "integer", "minimum": 1}, "group_id": {"type": "integer", "minimum": 1}}, "required": ["ticket_id"]},
         ),
         types.Tool(
             name="zendesk_add_ticket_tag",
@@ -806,6 +806,7 @@ def create_server(environ: Mapping[str, str] | None = None) -> Server:
                     values.get("ticket_id"),
                     assignee_id=values.get("assignee_id"),
                     group_id=values.get("group_id"),
+                    assignee_email=values.get("assignee_email"),
                 )
             elif name == "zendesk_add_ticket_tag":
                 values = arguments or {}

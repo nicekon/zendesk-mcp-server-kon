@@ -178,6 +178,15 @@ limit는 검사 candidate 수이며 비어 있는 결과에도 다음 페이지�
 동명이인·관리자·고객 제외·페이지 재개·입력 거부·MCP 전달 포함 로컬 667 passed.
 G6의 assignee_email/me 해석과 안전한 배정 연결은 아직 남아 있다.
 
+### G6 이메일/me 배정 후속
+
+assignee_email(primary email 또는 me)을 입력 스키마부터 기존 update_ticket 경로까지 연결했다.
+ID와 이메일 동시 지정·잘못된 ID/이메일·읽기 전용은 조회 전에 거부한다. 검색 결과의 primary email
+정확 비교와 모든 제공 페이지 완료를 요구하며 동명이인/중복·미발견·정지·비상담원·검색 상한·오류에는 쓰지 않는다.
+me는 인증 사용자를 읽어 agent/admin과 suspended=false를 확인한다. 이메일 보조 identity는 해석하지 않는다.
+MCP 전달·두 번째 검색 묶음에서 일치 사용자 발견·정상 모의 배정·실패시 write-zero 포함 전체 673 passed. 실제 운영 배정은 수행하지 않았다.
+G6 기능 보완은 로컬 구현되었으며 계정별 권한/검색 인덱싱/자동화 효과 검증은 별도다. 다음 G5/G8.
+
 M10의 원본 priority/status 정렬, M06의 원본 상세 GitLab metadata, M19의 표시 포맷은
 PRD가 승인한 범위와 추가 대조한다. 원본 입력과 다르다는 이유만으로 위험한 호환 alias나
 승인하지 않은 외부 GitLab 조회를 추가하지 않는다. G 항목을 해결해도 색인의 resolver·

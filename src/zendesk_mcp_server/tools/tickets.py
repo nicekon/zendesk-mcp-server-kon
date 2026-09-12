@@ -555,10 +555,45 @@ class TicketTools:
         *,
         assignee_id: int | None = None,
         group_id: int | None = None,
+        assignee_email: str | None = None,
     ) -> dict[str, object]:
+        if assignee_email is not None:
+            if assignee_id is not None or not isinstance(assignee_email, str) or (assignee_email != "me" and not re.fullmatch(r'[^\s@"\\:]+@[^\s@"\\:]+', assignee_email)):
+                return failure(ErrorCode.VALIDATION_ERROR, "Use either assignee_id or an assignee_email address (or me)")
+            if not _valid_ticket_id(ticket_id) or (group_id is not None and not _valid_ticket_id(group_id)):
+                return failure(ErrorCode.VALIDATION_ERROR, "ticket_id and group_id must be positive integers")
+            if (blocked := self._write_permitted(WriteRisk.STANDARD)) is not None: return blocked
+            resolved = self._resolve_assignee(assignee_email)
+            if not resolved.get("ok"): return resolved
+            assignee_id = resolved["data"]["assignee_id"]
         if assignee_id is None and group_id is None:
             return failure(ErrorCode.VALIDATION_ERROR, "assignee_id or group_id is required")
         return self.update_ticket(ticket_id, assignee_id=assignee_id, group_id=group_id)
+
+    def _resolve_assignee(self, selector: str) -> dict[str, object]:
+        client = self._configured_client()
+        if isinstance(client, dict): return client
+        if selector == "me":
+            response = client.get("/api/v2/users/me.json")
+            if not response.get("ok"): return response
+            data = response.get("data")
+            candidates = [data.get("user")] if isinstance(data, dict) else []
+        else:
+            candidates = []; cursor = None
+            while True:
+                response = collect_offset(client.get, "/api/v2/users/search.json", "users", 1000, cursor, filters={"query": selector})
+                if not response.get("ok"): return response
+                candidates.extend(user for user in response["items"] if isinstance(user.get("email"), str) and user["email"].casefold() == selector.casefold())
+                if not response["has_more"]: break
+                cursor = response["next_cursor"]
+                if cursor is None:
+                    return failure(ErrorCode.UPSTREAM_ERROR, "Assignee search is incomplete; use an explicit assignee_id")
+        if len(candidates) != 1:
+            return failure(ErrorCode.VALIDATION_ERROR, "Assignee must resolve to exactly one user; use an explicit assignee_id")
+        user = candidates[0]
+        if not isinstance(user, dict) or not _valid_ticket_id(user.get("id")) or user.get("role") not in ("agent", "admin") or user.get("suspended") is not False:
+            return failure(ErrorCode.VALIDATION_ERROR, "Assignee must be a non-suspended agent or administrator")
+        return success({"assignee_id": user["id"]})
 
     def add_ticket_tag(self, ticket_id: int, tag: str) -> dict[str, object]:
         return self._change_ticket_tag(ticket_id, tag, add=True)

@@ -347,6 +347,27 @@ def test_ticket_list_exposes_resume_cursor():
     assert tool.inputSchema["properties"]["cursor"] == {"type": "string", "minLength": 1}
 
 
+def test_mcp_assignment_passes_email_selector_to_resolution(monkeypatch):
+    from zendesk_mcp_server.config import Settings
+    from zendesk_mcp_server.contracts import success
+    from zendesk_mcp_server.tools.tickets import TicketTools
+    module = importlib.import_module("zendesk_mcp_server.server")
+    writes = []
+    class Client:
+        def get(self, path, *, params=None):
+            assert path == "/api/v2/users/me.json"
+            return success({"user": {"id": 7, "role": "admin", "suspended": False}})
+        def request(self, method, path, *, json_body=None):
+            writes.append((method, path, json_body))
+            return success({"ticket": {"id": 9}})
+    monkeypatch.setattr(module, "build_ticket_tools", lambda _: TicketTools(Client(), Settings.load({"ZENDESK_WRITE_MODE": "standard"})))
+    server = module.create_server({"ZENDESK_CAPABILITIES": "support", "ZENDESK_WRITE_MODE": "standard"})
+    request = types.CallToolRequest(params=types.CallToolRequestParams(name="zendesk_assign_ticket", arguments={"ticket_id": 9, "assignee_email": "me"}))
+    result = asyncio.run(server.request_handlers[types.CallToolRequest](request))
+    assert result.root.structuredContent["ok"] is True
+    assert writes == [("PUT", "/api/v2/tickets/9.json", {"ticket": {"assignee_id": 7}})]
+
+
 def test_attachment_download_result_includes_a_resource_link():
     from zendesk_mcp_server.server import attachment_download_content
 

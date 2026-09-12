@@ -1159,6 +1159,74 @@ def test_ticket_shortcuts_reuse_update_ticket():
     ]
 
 
+def test_assignment_resolves_email_or_me_before_shared_update():
+    for selector in ("me", "Agent@example.com"):
+        class Client(MutationStub):
+            def get(self, path, *, params=None):
+                user = {"id": 7, "email": "agent@example.com", "role": "agent", "suspended": False}
+                if selector == "me":
+                    assert path == "/api/v2/users/me.json"
+                    return success({"user": user})
+                assert path == "/api/v2/users/search.json"
+                assert params["query"] == "Agent@example.com"
+                return success({"users": [user, {"id": 8, "email": "other@example.com", "role": "agent"}], "next_page": None})
+        client = Client()
+        result = TicketTools(client, Settings.load({"ZENDESK_WRITE_MODE": "standard"})).assign_ticket(9, assignee_email=selector, group_id=4)
+        assert result["ok"] is True
+        assert client.calls == [("PUT", "/api/v2/tickets/9.json", {"ticket": {"assignee_id": 7, "group_id": 4}})]
+
+
+def test_assignment_resolution_rejects_ambiguous_ineligible_and_missing_users():
+    for users in ([], [{"id": 7, "role": "end-user", "email": "a@example.com", "suspended": False}], [{"id": 7, "role": "agent", "email": "a@example.com", "suspended": True}], [{"id": i, "role": "agent", "email": "a@example.com", "suspended": False} for i in (7, 8)]):
+        class Client(MutationStub):
+            def get(self, path, *, params=None): return success({"users": users, "next_page": None})
+        client = Client()
+        result = TicketTools(client, Settings.load({"ZENDESK_WRITE_MODE": "standard"})).assign_ticket(9, assignee_email="a@example.com")
+        assert result["ok"] is False
+        assert client.calls == []
+
+
+def test_assignment_selectors_validate_and_gate_before_lookup():
+    class Client(MutationStub):
+        def get(self, path, *, params=None): raise AssertionError("No lookup allowed")
+    client = Client()
+    tools = TicketTools(client, Settings.load({"ZENDESK_WRITE_MODE": "standard"}))
+    for options in ({"assignee_email": "me", "assignee_id": 7}, {"assignee_email": "bad"}, {"assignee_email": "x@example.com role:admin"}, {"assignee_email": "me", "group_id": 0}):
+        assert tools.assign_ticket(9, **options)["error"]["code"] == "validation_error"
+    assert tools.assign_ticket(0, assignee_email="me")["error"]["code"] == "validation_error"
+    assert TicketTools(client, Settings.load({})).assign_ticket(9, assignee_email="me")["error"]["code"] == "write_disabled"
+    assert client.calls == []
+
+
+def test_assignment_search_ceiling_and_late_failure_never_write():
+    from zendesk_mcp_server.contracts import failure, ErrorCode
+    for fail_late in (False, True):
+        class Client(MutationStub):
+            def get(self, path, *, params=None):
+                page = int(params["page"])
+                if fail_late and page == 2: return failure(ErrorCode.UPSTREAM_ERROR, "unavailable")
+                assert page <= 100
+                return success({"users": [{"id": 7, "email": "a@example.com", "role": "agent", "suspended": False}] if page == 1 else [], "next_page": "https://untrusted.invalid/ignored"})
+        client = Client()
+        result = TicketTools(client, Settings.load({"ZENDESK_WRITE_MODE": "standard"})).assign_ticket(9, assignee_email="a@example.com")
+        assert result["error"]["code"] == "upstream_error"
+        assert client.calls == []
+
+
+def test_assignment_finds_exact_user_after_first_search_batch():
+    class Client(MutationStub):
+        def get(self, path, *, params=None):
+            page = int(params["page"])
+            assert 1 <= page <= 11
+            if page == 11:
+                return success({"users": [{"id": 7, "email": "a@example.com", "role": "admin", "suspended": False}], "next_page": None})
+            return success({"users": [{"id": page * 100 + i, "email": "other@example.com"} for i in range(100)], "next_page": "https://untrusted.invalid/ignored"})
+    client = Client()
+    result = TicketTools(client, Settings.load({"ZENDESK_WRITE_MODE": "standard"})).assign_ticket(9, assignee_email="a@example.com")
+    assert result["ok"] is True
+    assert client.calls == [("PUT", "/api/v2/tickets/9.json", {"ticket": {"assignee_id": 7}})]
+
+
 def test_ticket_tag_shortcuts_preserve_concurrent_changes():
     from zendesk_mcp_server.contracts import ErrorCode, failure
     class Client:

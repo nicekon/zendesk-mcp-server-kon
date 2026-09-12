@@ -388,6 +388,15 @@ and badge icon uploader now explicitly listed in section 8.
 
 ## Operations list filters
 
+`zendesk_assign_ticket` additionally accepts `assignee_email`, containing a primary email address or literal `me`.
+Do not combine it with `assignee_id`; `group_id` may still accompany either selector.
+Email resolution checks all available search pages, compares the returned primary email case-insensitively, and requires one non-suspended agent/admin with a valid ID.
+Secondary email identities are not resolved; use the primary address or explicit ID.
+`me` resolves the authenticated user through `/api/v2/users/me.json`.
+Read-only mode blocks before lookup. Ambiguous/missing/ineligible users, search failures, and the 10,000-candidate ceiling prevent mutation.
+Resolved assignments use the existing standard-write update path and can still trigger Zendesk automations when actually enabled.
+Local tests use simulated responses only; no production assignment was performed.
+
 `zendesk_search_users` accepts `agents_only` and `exact_name` (both default false).
 The first keeps users whose role is agent or admin; the second compares returned full names with the query using case-insensitive matching and trimming outer whitespace.
 These are local filters on Zendesk search candidates, not new API search parameters. `limit` counts candidates inspected, not matches.
