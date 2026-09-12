@@ -188,6 +188,72 @@ def test_article_read_embeds_only_tenant_help_center_images_with_a_total_limit()
     assert client.downloads == [("https://acme.zendesk.com/hc/user_images/one.png", 20 * 1024 * 1024, None)]
 
 
+@pytest.mark.parametrize("brand_ids", [None, [7, 8]])
+@pytest.mark.parametrize("query", [None, "billing"])
+def test_unified_article_search_preserves_all_filters_and_cursor(brand_ids, query):
+    searches = []
+    class Client:
+        def get(self, path, *, params=None):
+            if path == "/api/v2/brands.json":
+                return success({"brands": [{"id": 7, "has_help_center": True}, {"id": 8, "has_help_center": True}], "meta": {"has_more": False}})
+            if path.startswith("/api/v2/brands/"):
+                return success({"brand": {"subdomain": "one" if path.endswith("7.json") else "two", "has_help_center": True}})
+            assert path == "/api/v2/guide/search"
+            searches.append(params)
+            more = params["page[after]"] == "start"
+            return success({"results": [{"id": "article-A", "type": "ARTICLE"}], "meta": {"has_more": more, "after_cursor": "next"}})
+        def get_for_subdomain(self, subdomain, path, *, params=None):
+            assert path == "/api/v2/help_center/locales.json"
+            return success({"locales": ["en-us"] if subdomain == "one" else ["ko"]})
+    result = GuideTools(Client()).search_articles(query, locales=["en-us", "ko"], brand_ids=brand_ids, category_ids=[9, "cat-A"], section_ids=["sec-B"], limit=51, cursor="start")
+    assert result["ok"] is True and len(result["items"]) == 2
+    expected = {"filter[locales]": "en-us,ko", "filter[content_types]": "ARTICLE", "filter[category_ids]": "9,cat-A", "filter[section_ids]": "sec-B"}
+    if brand_ids is not None: expected["filter[brand_ids]"] = "7,8"
+    if query is not None: expected["query"] = query
+    assert searches == [{**expected, "page[size]": "50", "page[after]": "start"}, {**expected, "page[size]": "50", "page[after]": "next"}]
+
+
+@pytest.mark.parametrize("args", [
+    {"locales": []}, {"locales": ["../ko"]}, {"locales": [False]},
+    {"locales": ["ko"], "brand_ids": [False]},
+    {"locales": ["ko"], "category_ids": ["1,2"]},
+    {"locales": ["ko"], "section_ids": []},
+    {"locales": ["ko"], "locale": "ko"},
+    {"locales": ["ko"], "brand_id": 7},
+    {"locales": ["ko"], "query": "x" * 501},
+    {"brand_ids": [7]},
+])
+def test_unified_search_rejects_invalid_or_mixed_inputs_before_network(args):
+    client = StubClient()
+    result = GuideTools(client).search_articles(**args)
+    assert result["error"]["code"] == "validation_error"
+    assert client.paths == []
+
+
+def test_unified_search_rejects_locale_disabled_in_selected_brands():
+    class Client:
+        def get(self, path, *, params=None):
+            assert path == "/api/v2/brands/7.json"
+            return success({"brand": {"subdomain": "one", "has_help_center": True}})
+        def get_for_subdomain(self, subdomain, path, *, params=None):
+            assert path == "/api/v2/help_center/locales.json"
+            return success({"locales": ["en-us"]})
+    assert GuideTools(Client()).search_articles(locales=["ko"], brand_ids=[7])["error"]["code"] == "validation_error"
+
+
+def test_unified_search_checks_every_explicit_brand_even_after_locale_match():
+    denied = failure(ErrorCode.PERMISSION_DENIED, "denied", request_id="brand-access")
+    class Client:
+        def get(self, path, *, params=None):
+            if path == "/api/v2/brands/8.json": return denied
+            assert path == "/api/v2/brands/7.json"
+            return success({"brand": {"subdomain": "one", "has_help_center": True}})
+        def get_for_subdomain(self, subdomain, path, *, params=None):
+            return success({"locales": ["ko"]})
+    for brands in ([7, 8], [8, 7]):
+        assert GuideTools(Client()).search_articles(locales=["ko"], brand_ids=brands) == denied
+
+
 def test_guide_search_uses_official_brand_and_locale_filters():
     class SearchClient:
         def __init__(self): self.paths = []

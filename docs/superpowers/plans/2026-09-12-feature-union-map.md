@@ -117,6 +117,16 @@ PRD 2.1·7·8과 승인된 안전성 변경이 기준이다. 도구 수 합산�
 | G7 | forms active, triggers active/category/sort 필터 없음. trigger 목록은 `/api/v2/triggers.json`만 요청 | 공식 필터·정렬·usage 포함 방식 확인 후 구현; 반환되지 않은 usage를 0으로 조작하지 않음 |
 | G8 | CSAT runtime은 backend별 필터를 거부하지만 현재 MCP 입력 schema는 공통 properties만 나열 | PRD 7.4의 discriminated schema를 추가하고 schema/실행의 조건부 거부를 함께 검증 |
 
+### 후속 구현: G1
+
+위 표의 기준 revision 이후 `locales` 배열 기반 Unified Search를 구현했다.
+query 선택, plural brand/category/section 필터, ARTICLE 제한, 50건 페이지·opaque
+cursor를 지원한다. 선택 브랜드의 활성 locale 합집합으로 검증하고, 브랜드 미지정 시
+브랜드 목록을 완전히 수집한다. 기존 singular 입력 검색은 유지하며 두 경로 혼용은
+거부한다. 16개 신규 도메인 회귀 및 실제 MCP 호출 회귀, 전체 586 passed가 근거다.
+기존 offset cursor를 Unified Search에 재사용하면 안 된다. 실제 다중 브랜드 계정의
+검색 결과 동등성은 아직 검증하지 않았다. 다음 구현은 G2/G3이다.
+
 M10의 원본 priority/status 정렬, M06의 원본 상세 GitLab metadata, M19의 표시 포맷은
 PRD가 승인한 범위와 추가 대조한다. 원본 입력과 다르다는 이유만으로 위험한 호환 alias나
 승인하지 않은 외부 GitLab 조회를 추가하지 않는다. G 항목을 해결해도 색인의 resolver·

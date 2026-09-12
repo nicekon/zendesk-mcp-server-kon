@@ -294,6 +294,24 @@ Category and section list tools now accept an optional `locale` (for example,
 Omitting it preserves the existing unlocalized list request. Resume a cursor
 with the same brand and locale; refresh the MCP tool list to discover this input.
 
+Article search now also supports Unified Search through a non-empty `locales`
+array, with optional `query`, `brand_ids`, `category_ids` and `section_ids` arrays.
+For example, `{"locales":["ko","en-us"],"brand_ids":[7,8],"limit":100}` searches
+articles without text, using the API's internal ordering. Text queries are limited
+to 500 characters. Category and section IDs retain their numeric/string identity;
+commas inside a single ID are rejected rather than becoming additional filters.
+The server verifies languages are enabled in at least one selected Help Center;
+with no brand filter it discovers account brands first. Metadata lookup failures
+are returned, not interpreted as permission to skip language validation.
+
+Unified Search uses opaque cursors and at most 50 results per upstream page;
+`limit` remains 1–1000 per tool call, and `next_cursor` resumes subsequent results.
+The existing `query` + singular `locale`/`brand_id` path retains Article Search's
+offset cursor and 1000-result ceiling. Do not combine singular and plural inputs,
+move cursors between the two paths, or change filters while resuming.
+Refresh the MCP catalog after updating. See the official
+[Help Center Search API](https://developer.zendesk.com/api-reference/help_center/help-center-api/help_center_search/).
+
 CSAT `backend=auto` now reads the account's `active_features` using
 `GET /api/v2/account/settings.json` instead of guessing from the supplied filters.
 Exactly one of `customer_satisfaction` and `customer_satisfaction_survey` must be

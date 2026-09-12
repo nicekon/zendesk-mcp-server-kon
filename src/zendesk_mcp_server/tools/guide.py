@@ -13,7 +13,7 @@ from urllib.parse import quote, urlsplit
 from ..approvals import ApprovalStore
 from ..config import Settings
 from ..contracts import ErrorCode, failure, success
-from ..pagination import collect_cursor, collect_offset
+from ..pagination import collect_complete_cursor, collect_cursor, collect_offset
 from ..write_policy import WriteRisk, check_write_permission
 from .tickets import _cache_ticket_export, _clean_export_cache, _stream_ticket_export
 
@@ -130,7 +130,10 @@ class GuideTools:
     def list_user_segments(self, *, built_in: bool | None = None, applicable: bool = False, limit: int = 100, cursor: str | None = None) -> dict[str, object]:
         if not isinstance(applicable, bool) or (built_in is not None and not isinstance(built_in, bool)): return failure(ErrorCode.VALIDATION_ERROR, "built_in and applicable must be booleans")
         return collect_cursor(self._get, "/api/v2/help_center/user_segments/applicable.json" if applicable else "/api/v2/help_center/user_segments.json", "user_segments", limit, cursor, filters={"built_in": str(built_in).lower()} if built_in is not None else None)
-    def search_articles(self, query: str, *, brand_id: int | None = None, locale: str | None = None, limit: int = 100, cursor: str | None = None) -> dict[str, object]:
+    def search_articles(self, query: str | None = None, *, brand_id: int | None = None, locale: str | None = None, locales: list[str] | None = None, brand_ids: list[int] | None = None, category_ids: list[object] | None = None, section_ids: list[object] | None = None, limit: int = 100, cursor: str | None = None) -> dict[str, object]:
+        if any(value is not None for value in (locales, brand_ids, category_ids, section_ids)):
+            if locale is not None or brand_id is not None: return failure(ErrorCode.VALIDATION_ERROR, "Use plural locale and brand inputs together, not singular inputs")
+            return self._search_unified_articles(query, locales, brand_ids, category_ids, section_ids, limit, cursor)
         if not isinstance(query, str) or not query.strip() or (brand_id is not None and not self._valid_id(brand_id)) or (locale is not None and (not isinstance(locale, str) or not _LOCALE.fullmatch(locale))): return failure(ErrorCode.VALIDATION_ERROR, "query, brand_id, and locale must be valid")
         if locale is not None:
             scoped = self._for_brand(brand_id)
@@ -138,6 +141,40 @@ class GuideTools:
             locale_check = scoped._validate_active_locale(locale)
             if locale_check is not None: return locale_check
         return collect_offset(self._get, "/api/v2/help_center/articles/search.json", "results", limit, cursor, max_results=1000, filters={key: value for key, value in {"query": query.strip(), "brand_id": str(brand_id) if brand_id is not None else None, "locale": locale}.items() if value is not None})
+    def _search_unified_articles(self, query: str | None, locales: list[str] | None, brand_ids: list[int] | None, category_ids: list[object] | None, section_ids: list[object] | None, limit: int, cursor: str | None) -> dict[str, object]:
+        if (query is not None and (not isinstance(query, str) or not query.strip() or len(query) > 500)) or not isinstance(locales, list) or not locales or any(not isinstance(value, str) or not _LOCALE.fullmatch(value) for value in locales):
+            return failure(ErrorCode.VALIDATION_ERROR, "Unified search requires non-empty valid locales and optional query of 1 to 500 characters")
+        if type(limit) is not int or not 1 <= limit <= 1000 or (cursor is not None and (not isinstance(cursor, str) or not cursor)):
+            return failure(ErrorCode.VALIDATION_ERROR, "limit must be 1 to 1000 and cursor must be non-empty")
+        filters = {"filter[locales]": ",".join(locales), "filter[content_types]": "ARTICLE"}
+        if query is not None: filters["query"] = query.strip()
+        for key, values in (("brand_ids", brand_ids), ("category_ids", category_ids), ("section_ids", section_ids)):
+            if values is None: continue
+            if not isinstance(values, list) or not values or any(not self._valid_id(value) if key == "brand_ids" else _help_center_id(value) is None or "," in str(value) or not str(value).strip() for value in values):
+                return failure(ErrorCode.VALIDATION_ERROR, f"{key} must be a non-empty list of valid IDs without commas")
+            filters[f"filter[{key}]"] = ",".join(str(value) for value in values)
+        selected_brands = brand_ids
+        if selected_brands is None:
+            result = collect_complete_cursor(self._get, "/api/v2/brands.json", "brands")
+            if not result.get("ok"): return result
+            if any(not self._valid_id(brand.get("id")) or type(brand.get("has_help_center")) is not bool for brand in result["items"]):
+                return failure(ErrorCode.UPSTREAM_ERROR, "Zendesk returned invalid Help Center brand metadata")
+            selected_brands = [brand["id"] for brand in result["items"] if brand["has_help_center"]]
+        enabled = set()
+        for identifier in dict.fromkeys(selected_brands):
+            scoped = self._for_brand(identifier)
+            if isinstance(scoped, dict): return scoped
+            result = scoped.list_locales()
+            if not result.get("ok"): return result
+            data = result.get("data")
+            available = data.get("locales") if isinstance(data, dict) else None
+            if not isinstance(available, list) or any(not isinstance(value, str) for value in available):
+                return failure(ErrorCode.UPSTREAM_ERROR, "Zendesk returned invalid Help Center locales")
+            enabled.update(available)
+            if brand_ids is None and set(locales) <= enabled: break
+        if not set(locales) <= enabled:
+            return failure(ErrorCode.VALIDATION_ERROR, "Requested locales are not enabled in the selected Help Centers")
+        return collect_cursor(self._get, "/api/v2/guide/search", "results", limit, cursor, filters=filters, page_size=50)
     def export_articles(self, locale: str, max_articles: int = 100000, *, brand_id: int | None = None) -> dict[str, object]:
         articles: list[object] = []
         result = self._export_article_pages(locale, max_articles, articles.extend, brand_id=brand_id)

@@ -231,6 +231,27 @@ def test_guide_mcp_calls_preserve_pagination_arguments(monkeypatch):
         assert result.root.structuredContent == expected_result, name
 
 
+def test_mcp_unified_article_search_accepts_filter_only_query_and_opaque_cursor(monkeypatch):
+    from zendesk_mcp_server.contracts import success
+    from zendesk_mcp_server.tools.guide import GuideTools
+    module = importlib.import_module("zendesk_mcp_server.server")
+    class Client:
+        def get(self, path, *, params=None):
+            if path == "/api/v2/brands/7.json":
+                return success({"brand": {"subdomain": "one", "has_help_center": True}})
+            assert path == "/api/v2/guide/search"
+            assert params == {"filter[locales]": "ko", "filter[content_types]": "ARTICLE", "filter[brand_ids]": "7", "filter[category_ids]": "cat-A", "filter[section_ids]": "sec-B", "page[size]": "1", "page[after]": "opaque=="}
+            return success({"results": [{"title": "Guide", "type": "ARTICLE"}], "meta": {"has_more": False}})
+        def get_for_subdomain(self, subdomain, path, *, params=None):
+            assert subdomain == "one" and path == "/api/v2/help_center/locales.json"
+            return success({"locales": ["ko"]})
+    monkeypatch.setattr(module, "build_guide_tools", lambda _: GuideTools(Client()))
+    server = module.create_server({"ZENDESK_CAPABILITIES": "guide"})
+    request = types.CallToolRequest(params=types.CallToolRequestParams(name="zendesk_search_help_center_articles", arguments={"locales": ["ko"], "brand_ids": [7], "category_ids": ["cat-A"], "section_ids": ["sec-B"], "limit": 1, "cursor": "opaque=="}))
+    result = asyncio.run(server.request_handlers[types.CallToolRequest](request))
+    assert result.root.structuredContent == {"ok": True, "items": [{"title": "Guide", "type": "ARTICLE"}], "has_more": False, "next_cursor": None, "truncated": False}
+
+
 def test_metadata_mcp_calls_preserve_pagination_arguments(monkeypatch):
     from zendesk_mcp_server.contracts import success
     from zendesk_mcp_server.tools.metadata import MetadataTools
@@ -895,11 +916,14 @@ def test_every_registered_tool_reaches_a_domain_dispatcher(monkeypatch):
         if schema.get("type") == "integer": return max(1, schema.get("minimum", 1))
         if schema.get("type") == "boolean": return True
         if schema.get("type") == "array": return [value(schema["items"])] if schema.get("minItems") else []
+        if schema.get("pattern") == "^[a-z]{2,3}(-[a-z0-9]+)*$": return "en-us"
         return "1h" if schema.get("pattern") else "value"
 
     def arguments(schema):
         properties = schema.get("properties", {})
         result = {name: value(properties[name]) for name in schema.get("required", [])}
+        if schema.get("oneOf"):
+            result.update({name: value(properties[name]) for name in schema["oneOf"][0].get("required", [])})
         for variant in schema.get("anyOf", []):
             result.update({name: value(properties[name]) for name in variant.get("required", []) if name not in result})
         return result
