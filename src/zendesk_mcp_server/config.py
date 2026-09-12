@@ -20,7 +20,7 @@ _OAUTH_SCOPES = {
     "operations": {"account_settings:read", "users:read", "groups:read", "organizations:read", "brands:read", "tickets:read", "ticket_views:read", "macros:read", "triggers:read"},
     "guide": {"brands:read", "hc:read"},
     "community": {"hc:read"},
-    "csat": {"satisfaction_ratings:read"},
+    "csat": {"satisfaction_ratings:read", "account_settings:read"},
     "custom_objects": {"custom_objects:read", "account_settings:read"},
     "badges": {"hc:read"},
     "git_zen": {"tickets:read"},

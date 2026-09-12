@@ -294,6 +294,22 @@ Category and section list tools now accept an optional `locale` (for example,
 Omitting it preserves the existing unlocalized list request. Resume a cursor
 with the same brand and locale; refresh the MCP tool list to discover this input.
 
+CSAT `backend=auto` now reads the account's `active_features` using
+`GET /api/v2/account/settings.json` instead of guessing from the supplied filters.
+Exactly one of `customer_satisfaction` and `customer_satisfaction_survey` must be
+active. Missing/non-boolean metadata is an upstream error; neither or both active
+returns `unsupported`. Authentication/permission failures are preserved without
+trying another backend. Incompatible filters are rejected, never dropped.
+An explicit `legacy` or `survey` skips detection and can retrieve historical data
+even when that survey is no longer enabled. Use an explicit backend when resuming
+across an account configuration change; do not move cursors between backends.
+
+The `csat` capability now also requests `account_settings:read`. Existing OAuth
+grants lacking this scope require login again; saved credentials are not rewritten
+to pretend the scope was granted. API tokens still use the account user's access.
+No CSAT settings are changed by detection. See the official
+[Account Settings API](https://developer.zendesk.com/api-reference/ticketing/account-configuration/account_settings/).
+
 The pre-release implementation used six names that differed from PRD section 8.
 Clients must now use the canonical names below; the old names are not aliases.
 Refresh the MCP tool list after updating. HTTP endpoints and write gates are unchanged.

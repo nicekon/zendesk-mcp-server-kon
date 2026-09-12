@@ -52,18 +52,35 @@ class GuideTools:
     def get_satisfaction_ratings(self, limit: int = 100, *, cursor: str | None = None) -> dict[str, object]:
         return self.list_csat("legacy", limit=limit, cursor=cursor)
     def list_csat(self, backend: str = "auto", *, score: str | None = None, ticket_id: int | None = None, responder_ids: list[int] | None = None, created_at_start: str | None = None, created_at_end: str | None = None, limit: int = 100, cursor: str | None = None) -> dict[str, object]:
-        key = "satisfaction_ratings" if backend == "legacy" or (backend == "auto" and score is not None) else "survey_responses"
+        backend = self._resolve_csat_backend(backend)
+        if isinstance(backend, dict): return backend
+        key = "satisfaction_ratings" if backend == "legacy" else "survey_responses"
         def get_page(path, *, params):
             return self._csat_page(backend, score=score, ticket_id=ticket_id, responder_ids=responder_ids, created_at_start=created_at_start, created_at_end=created_at_end, page_size=int(params["page[size]"]), cursor=params.get("page[after]"))
         result = collect_cursor(get_page, "", key, limit, cursor)
         return {**result, "untrusted_user_content": True} if result.get("ok") else result
 
-    def _csat_page(self, backend: str = "auto", *, score: str | None = None, ticket_id: int | None = None, responder_ids: list[int] | None = None, created_at_start: str | None = None, created_at_end: str | None = None, page_size: int | None = None, cursor: str | None = None) -> dict[str, object]:
+    def _resolve_csat_backend(self, backend: str) -> str | dict[str, object]:
+        if backend in ("legacy", "survey"): return backend
+        if backend != "auto": return failure(ErrorCode.VALIDATION_ERROR, "backend must be auto, legacy, or survey")
+        result = self._get("/api/v2/account/settings.json")
+        if not result.get("ok"): return result
+        data = result.get("data")
+        settings = data.get("settings") if isinstance(data, dict) else None
+        features = settings.get("active_features") if isinstance(settings, dict) else None
+        legacy = features.get("customer_satisfaction") if isinstance(features, dict) else None
+        survey = features.get("customer_satisfaction_survey") if isinstance(features, dict) else None
+        if type(legacy) is not bool or type(survey) is not bool:
+            return failure(ErrorCode.UPSTREAM_ERROR, "Account settings did not identify CSAT features; specify legacy or survey explicitly")
+        if legacy == survey:
+            return failure(ErrorCode.UNSUPPORTED, "No unique active CSAT backend; specify legacy or survey explicitly for historical data")
+        return "legacy" if legacy else "survey"
+
+    def _csat_page(self, backend: str, *, score: str | None = None, ticket_id: int | None = None, responder_ids: list[int] | None = None, created_at_start: str | None = None, created_at_end: str | None = None, page_size: int | None = None, cursor: str | None = None) -> dict[str, object]:
         if (page_size is not None and (not isinstance(page_size, int) or isinstance(page_size, bool) or not 1 <= page_size <= 100)) or (cursor is not None and (not isinstance(cursor, str) or not cursor or page_size is None)): return failure(ErrorCode.VALIDATION_ERROR, "CSAT page size and cursor must be valid")
         pagination = {"page[size]": str(page_size)} if page_size is not None else {}
         if cursor is not None: pagination["page[after]"] = cursor
-        if backend not in {"auto", "legacy", "survey"}: return failure(ErrorCode.VALIDATION_ERROR, "backend must be auto, legacy, or survey")
-        if backend == "auto": backend = "legacy" if score is not None else "survey"
+        if backend not in {"legacy", "survey"}: return failure(ErrorCode.VALIDATION_ERROR, "CSAT page requires a resolved backend")
         if backend == "survey" and page_size is not None: pagination["page[size]"] = str(min(page_size, 50))
         start = _epoch(created_at_start, milliseconds=backend == "survey"); end = _epoch(created_at_end, milliseconds=backend == "survey")
         if (created_at_start is not None and start is None) or (created_at_end is not None and end is None) or (start is not None and end is not None and start > end): return failure(ErrorCode.VALIDATION_ERROR, "CSAT dates must be ordered ISO-8601 timestamps with timezone")
@@ -75,10 +92,12 @@ class GuideTools:
     def export_csat(self, backend: str = "auto", *, score: str | None = None, ticket_id: int | None = None, responder_ids: list[int] | None = None, created_at_start: str | None = None, created_at_end: str | None = None, output_format: str = "json") -> dict[str, object]:
         if output_format not in {"json", "csv"}: return failure(ErrorCode.VALIDATION_ERROR, "output_format must be json or csv")
         if self._settings is None or self._settings.attachment_cache_root is None: return failure(ErrorCode.NOT_CONFIGURED, "Zendesk export cache is not configured")
+        backend = self._resolve_csat_backend(backend)
+        if isinstance(backend, dict): return backend
         root = self._settings.attachment_cache_root.parent / "exports"
         _clean_export_cache(root)
         count = 0; cursor = None; seen: set[str] = set(); truncated = False
-        key = "satisfaction_ratings" if backend == "legacy" or (backend == "auto" and score is not None) else "survey_responses"
+        key = "satisfaction_ratings" if backend == "legacy" else "survey_responses"
         try:
             with tempfile.TemporaryFile(mode="w+", encoding="utf-8") as spool:
                 while count < 100000:

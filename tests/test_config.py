@@ -192,6 +192,7 @@ def test_windows_without_acl_support_refuses_oauth_reads_and_writes(tmp_path, mo
 
 @pytest.mark.parametrize("capability,extra,expected", [
     ("custom_objects", {}, {"custom_objects:read", "account_settings:read"}),
+    ("csat", {}, {"satisfaction_ratings:read", "account_settings:read"}),
     ("git_zen", {}, {"tickets:read"}),
     ("time_tracking", {}, {"tickets:read"}),
     ("time_tracking", {"ZENDESK_WRITE_MODE": "standard"}, {"tickets:read", "tickets:write"}),
@@ -208,7 +209,7 @@ def test_operations_oauth_covers_its_endpoints_without_support_capability():
     assert set(settings.oauth.scopes) == {"account_settings:read", "users:read", "groups:read", "organizations:read", "brands:read", "tickets:read", "ticket_views:read", "macros:read", "triggers:read"}
 
 
-@pytest.mark.parametrize("capability,removed_scope", [("operations", "account_settings:read"), ("support", "read")])
+@pytest.mark.parametrize("capability,removed_scope", [("operations", "account_settings:read"), ("support", "read"), ("csat", "account_settings:read")])
 def test_old_grant_requires_relogin_without_rewriting_tokens(tmp_path, monkeypatch, capability, removed_scope):
     from dataclasses import replace
     from zendesk_mcp_server.auth import OAuthTokens, save_connection
@@ -240,6 +241,7 @@ def test_oauth_scopes_are_limited_to_enabled_capabilities_and_gates():
 
     assert settings.oauth is not None
     assert settings.oauth.scopes == (
+        "account_settings:read",
         "brands:read",
         "groups:read",
         "hc:read",

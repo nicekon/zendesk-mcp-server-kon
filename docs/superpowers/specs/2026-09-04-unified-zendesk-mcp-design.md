@@ -573,7 +573,7 @@ OAuth setup은 활성 capability의 resource-specific scope 합집합을 요청�
 | Support·계정 metadata 읽기 | `tickets:read users:read groups:read organizations:read brands:read ticket_attachments:read` 및 승인된 검색 예외 `read` |
 | Views·Macros·Triggers 읽기 | `ticket_views:read macros:read triggers:read` |
 | Guide·Community 읽기 | `hc:read` |
-| CSAT 읽기 | `satisfaction_ratings:read` |
+| CSAT 읽기·backend 감지 | `satisfaction_ratings:read`, `account_settings:read` |
 | custom object 결과 확장 | `custom_objects:read` |
 | standard ticket 쓰기 | `tickets:write` |
 | Guide·Community 공개/파괴적 쓰기 | `hc:write` |

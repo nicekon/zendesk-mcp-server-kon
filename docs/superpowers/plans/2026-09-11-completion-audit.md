@@ -17,6 +17,8 @@
 
 ## 최근 코드 검증
 
+- CSAT auto의 score 기반 추정을 제거했다. 공식 Account Settings `active_features`의 legacy/survey boolean으로 한 번 판단하고 목록·export의 전체 페이지에서 동일 backend를 유지한다. 판정 실패·권한 오류에는 fallback하지 않고, 비호환 필터도 자동 전환 없이 거부한다. 명시 backend는 과거 데이터 조회를 위해 감지를 생략한다. 조건부 OAuth `account_settings:read` 및 기존 grant의 재로그인 요구를 추가했다. 15개 auto 회귀와 OAuth scope 회귀의 실패를 먼저 확인했으며 전체 569 passed. 계정 설정·로그인 정보·운영 데이터는 변경하지 않았다. 공식 문서 근거와 호환성은 migration의 CSAT 항목 참조.
+
 - Guide category·section 목록에 누락됐던 선택 `locale`을 추가했다. [공식 category locale 경로](https://developer.zendesk.com/api-reference/help_center/help-center-api/categories/#list-categories-by-locale)와 [section locale 경로](https://developer.zendesk.com/api-reference/help_center/help-center-api/sections/#list-sections-by-locale)를 사용하며, 선택한 브랜드의 활성 locale 확인 및 기존 cursor·wire ID 보존을 검증했다. 잘못된 locale은 요청 전에 거부하고 비활성 locale은 목록 조회 전에 거부한다. 16개 신규 회귀와 MCP 전달 실패를 먼저 재현했으며 전체 552 passed. 실제 Zendesk 쓰기 없음. 이 보완은 Guide 구조화 검색·전체 번역 범위나 CSAT auto 탐지를 검증한 것이 아니다.
 
 - PRD 12.1 쓰기 성공 상태: 공통 HTTP JSON/binary 성공 응답에 top-level `operation_state=applied`를 추가하고, 응답을 재구성하는 subscription·badge icon·publish에도 상태와 write request ID를 보존했다. GET/HEAD에는 붙이지 않는다. HTTP 4개 쓰기 method·binary upload 및 3개 wrapper에서 누락을 실패 재현했다. 실제 MCP→공통 client→MockTransport 전송 경계도 검증했다. publish는 재조회가 실패하거나 지정 locale/draft=false가 아니면 non-retryable `outcome_unknown`/unknown으로 반환하고 write request ID를 보존한다. 5개 실패·불일치 회귀와 브랜드별 성공을 검증했다. 전체 536 passed; 실제 외부 쓰기 성공을 뜻하지 않는다. 공통 output schema의 해당 선택 필드만 frozen fixture에 추가했다.

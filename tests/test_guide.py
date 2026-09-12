@@ -456,6 +456,8 @@ def test_survey_page_cap_preserves_list_and_export_totals(tmp_path, backend):
     class Client:
         def __init__(self): self.sizes = []
         def get(self, path, *, params=None):
+            if path == "/api/v2/account/settings.json":
+                return success({"settings": {"active_features": {"customer_satisfaction": False, "customer_satisfaction_survey": True}}})
             assert path == "/api/v2/guide/survey_responses"
             size = int(params["page[size]"])
             assert 1 <= size <= 50
@@ -474,6 +476,60 @@ def test_survey_page_cap_preserves_list_and_export_totals(tmp_path, backend):
     assert result["data"]["item_count"] == 101 and result["data"]["truncated"] is False
     assert json.loads(Path(result["data"]["cache_path"]).read_text()) == expected
     assert client.sizes == [50, 50, 50]
+
+
+@pytest.mark.parametrize("backend", ["legacy", "survey"])
+@pytest.mark.parametrize("operation", ["list", "export"])
+def test_csat_auto_uses_account_features_once_per_operation(tmp_path, backend, operation):
+    calls = []
+    key = "satisfaction_ratings" if backend == "legacy" else "survey_responses"
+    endpoint = "/api/v2/satisfaction_ratings.json" if backend == "legacy" else "/api/v2/guide/survey_responses"
+    class Client:
+        def get(self, path, *, params=None):
+            calls.append(path)
+            if path == "/api/v2/account/settings.json":
+                return success({"settings": {"active_features": {"customer_satisfaction": backend == "legacy", "customer_satisfaction_survey": backend == "survey"}}})
+            assert path == endpoint
+            more = "page[after]" not in params
+            return success({key: [{"id": 1 if more else 2}], "meta": {"has_more": more, "after_cursor": "next"}})
+    tools = GuideTools(Client(), Settings.load({"ZENDESK_ATTACHMENT_CACHE_ROOT": str(tmp_path / "attachments")}))
+    result = tools.list_csat(limit=2) if operation == "list" else tools.export_csat()
+    assert result["ok"] is True
+    items = result["items"] if operation == "list" else json.loads(Path(result["data"]["cache_path"]).read_text())
+    assert items == [{"id": 1}, {"id": 2}]
+    assert calls == ["/api/v2/account/settings.json", endpoint, endpoint]
+
+
+@pytest.mark.parametrize("operation", ["list", "export"])
+@pytest.mark.parametrize("settings_result,code", [
+    (failure(ErrorCode.PERMISSION_DENIED, "denied", request_id="detect-request"), "permission_denied"),
+    (success({"settings": {"active_features": {"customer_satisfaction": False, "customer_satisfaction_survey": False}}}), "unsupported"),
+    (success({"settings": {"active_features": {"customer_satisfaction": True, "customer_satisfaction_survey": True}}}), "unsupported"),
+    (success({"settings": {"active_features": {"customer_satisfaction": "false", "customer_satisfaction_survey": True}}}), "upstream_error"),
+    (success({"settings": {}}), "upstream_error"),
+])
+def test_csat_auto_does_not_guess_or_fallback_when_detection_fails(tmp_path, operation, settings_result, code):
+    calls = []
+    class Client:
+        def get(self, path, *, params=None):
+            calls.append(path)
+            return settings_result
+    tools = GuideTools(Client(), Settings.load({"ZENDESK_ATTACHMENT_CACHE_ROOT": str(tmp_path / "attachments")}))
+    result = tools.list_csat() if operation == "list" else tools.export_csat()
+    assert result["error"]["code"] == code
+    if not settings_result["ok"]: assert result == settings_result
+    assert calls == ["/api/v2/account/settings.json"]
+
+
+def test_csat_auto_never_uses_filter_as_backend_detection():
+    calls = []
+    class Client:
+        def get(self, path, *, params=None):
+            calls.append(path)
+            return success({"settings": {"active_features": {"customer_satisfaction": False, "customer_satisfaction_survey": True}}})
+    result = GuideTools(Client()).list_csat(score="good")
+    assert result["error"]["code"] == "validation_error"
+    assert calls == ["/api/v2/account/settings.json"]
 
 
 def test_csat_export_writes_a_managed_artifact(tmp_path):
