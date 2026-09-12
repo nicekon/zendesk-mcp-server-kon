@@ -1,5 +1,15 @@
 # Migration and rollback
 
+## Connection status OAuth scopes
+
+OAuth connection status now includes `oauth_required_scopes`, derived from the
+current capabilities and write gates. This is the scope set needed by the
+configuration, not a verified inventory of the access token's granted scopes.
+An unprobed status does not use or refresh tokens for authentication or contact
+Zendesk (loading a saved connection still reads its local file); a successful user
+probe verifies identity, not every product permission. API-token and unconfigured
+status responses do not include this OAuth-only field.
+
 ## Community author and creation-time impersonation
 
 Creating a post/comment with `author_id` or `created_at` now checks the current

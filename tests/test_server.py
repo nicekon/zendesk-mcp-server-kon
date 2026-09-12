@@ -833,6 +833,32 @@ def test_connection_status_does_not_expose_credentials():
     assert "agent@example.test" not in repr(result)
 
 
+def test_connection_status_reports_required_oauth_scopes_without_claiming_grant(tmp_path, monkeypatch):
+    from zendesk_mcp_server import server as module
+
+    def unexpected(*_):
+        raise AssertionError("unprobed status must not load tokens or contact Zendesk")
+    monkeypatch.setattr(module, "build_authorization", unexpected)
+    environ = {
+        "ZENDESK_SUBDOMAIN": "acme",
+        "ZENDESK_AUTH_MODE": "oauth",
+        "ZENDESK_OAUTH_CLIENT_ID": "private-client-id",
+        "ZENDESK_OAUTH_CLIENT_SECRET": "private-client-secret",
+        "ZENDESK_OAUTH_TOKEN_STORE": str(tmp_path / "private-token-store.json"),
+        "ZENDESK_CAPABILITIES": "community",
+    }
+    for gates, expected in (
+        ({}, ["hc:read"]),
+        ({"ZENDESK_ENABLE_IMPERSONATION": "true"}, ["hc:read", "impersonate", "users:read"]),
+    ):
+        result = module.build_connection_status({**environ, **gates})
+        assert result["ok"] is True
+        assert result["data"]["oauth_required_scopes"] == expected
+        assert "oauth_granted_scopes" not in result["data"]
+        assert "verified_user" not in result["data"]
+        assert "private-" not in json.dumps(result)
+
+
 def test_oauth_authorization_failure_requires_reauthorization(monkeypatch):
     from zendesk_mcp_server import server as server_module
     from zendesk_mcp_server.config import ConfigurationError

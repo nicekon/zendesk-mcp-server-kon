@@ -207,6 +207,7 @@ class Settings:
         return {
             "configured": True,
             "auth_mode": self.auth_mode.value,
+            **({"oauth_required_scopes": list(self.oauth.scopes)} if self.oauth is not None else {}),
             "write_mode": self.write_mode,
             "active_write_gates": self.active_write_gates(),
             "capabilities": sorted(self.capabilities),
