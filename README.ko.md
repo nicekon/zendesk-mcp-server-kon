@@ -71,6 +71,10 @@ http://127.0.0.1:3000/oauth/callback
 
 client에는 활성 capability가 요청하는 읽기 scope가 허용돼야 합니다. 관리자는
 client identifier만 사용자에게 전달하며 client secret은 배포하지 않습니다.
+기본 활성화된 Support는 Search/Search Export를 위해 승인된 예외인 broad `read`도
+요청합니다. 이는 검색만이 아니라 사용자 역할에 허용된 모든 GET 접근 권한입니다.
+쓰기 권한을 활성화하지 않으며 서버 쓰기 gate는 별도로 유지됩니다.
+`read`가 없는 기존 grant는 다시 로그인해야 합니다.
 사용자는 다음 명령을 실행합니다.
 
 ```bash
@@ -83,6 +87,10 @@ zendesk check --probe
 `~/.config/zendesk-mcp-server/connection.json`에 저장하고 listener를 종료합니다.
 사용자가 authorization code를 복사할 필요는 없습니다. `--port`는 같은 대체
 redirect URI를 Zendesk에 등록했을 때만 사용합니다.
+
+현재 Windows에서는 사용자 전용 토큰 저장 권한을 보장하는 ACL 처리가 없어
+OAuth가 `unsupported`로 중단됩니다. Windows 패키지 설치·MCP 시작 검증은
+OAuth 로그인 지원을 의미하지 않습니다. Windows에서는 API token 설정을 사용합니다.
 
 macOS/Linux에서는 `command -v zendesk`, Windows에서는 `where zendesk`로 설치된
 실행 파일을 찾습니다. Codex에는 그 절대 경로를 등록하고 결과를 확인합니다.
@@ -163,8 +171,12 @@ code를 화면에 보이지 않게 입력받아 user-only 권한의 token store�
 
 `ZENDESK_CAPABILITIES`로 조건부 도메인을 활성화할 수 있습니다. 비활성 도구도
 목록에는 남지만 Zendesk 요청 전에 `not_configured`를 반환합니다. `git_zen`을
-활성화한 경우에만 `ZENDESK_GIT_ZEN_FIELD_ID`를 설정합니다. 시간 기록은 항상
-내부 note와 함께 Zendesk ticket audit metadata에 남깁니다.
+활성화한 경우에만 `ZENDESK_GIT_ZEN_FIELD_ID`를 설정합니다.
+시간 추적은 기본적으로 ticket audit metadata 방식을 사용합니다.
+Time Tracking 앱의 두 필드를 사용하려면 `ZENDESK_TIME_TRACKING_TOTAL_FIELD_ID`와
+`ZENDESK_TIME_TRACKING_LAST_FIELD_ID`를 모두 설정합니다. 두 필드는 서로 다른
+양의 ID여야 하며, 앱 방식은 누적 시간과 마지막 작업 시간을 초 단위로 갱신합니다.
+두 방식 모두 내부 note를 포함하며 동시에 기록하지 않습니다.
 
 ## 프롬프트
 

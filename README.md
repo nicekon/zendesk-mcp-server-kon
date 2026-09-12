@@ -94,6 +94,10 @@ stores the connection under `~/.config/zendesk-mcp-server/connection.json`, and
 closes the listener. The user does not copy an authorization code. Use `--port`
 only when the same alternate redirect URI is registered in Zendesk.
 
+OAuth currently returns `unsupported` on Windows because user-only token storage
+ACLs are not implemented. Windows package installation and MCP startup checks do
+not imply OAuth login support. Use API-token configuration on Windows.
+
 Find the installed executable with `command -v zendesk` on macOS/Linux or
 `where zendesk` on Windows. For Codex, register that absolute path and verify
 the entry:
@@ -178,8 +182,12 @@ user-only permissions.
 
 Enable optional domains with `ZENDESK_CAPABILITIES`; disabled tools remain
 listed but return `not_configured` before making a Zendesk request. Set
-`ZENDESK_GIT_ZEN_FIELD_ID` only when `git_zen` is enabled. Time logging uses
-Zendesk ticket audit metadata and always includes an internal note.
+`ZENDESK_GIT_ZEN_FIELD_ID` only when `git_zen` is enabled. Time tracking defaults
+to ticket audit metadata. To use Time Tracking app fields instead, configure both
+`ZENDESK_TIME_TRACKING_TOTAL_FIELD_ID` and `ZENDESK_TIME_TRACKING_LAST_FIELD_ID`
+with distinct positive field IDs. The app backend updates total and last-update
+time in seconds. Both backends include an internal note; they are not written
+simultaneously.
 
 ## Prompts
 
