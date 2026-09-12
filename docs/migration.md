@@ -439,3 +439,13 @@ Post-only and user-only inputs are unchanged; user scope cannot be mixed with po
 Keep both IDs unchanged when resuming `next_cursor`. This read-only operation reuses cursor pagination
 and propagates Zendesk permission errors; it does not change votes or subscriptions.
 See [Votes](https://developer.zendesk.com/api-reference/help_center/help-center-api/votes/).
+
+### Community HTML write verification
+
+Post/comment creation and updates containing `details`/`body` now read the saved resource after a successful write.
+The returned body is Zendesk's current stored value, which may differ from the submitted HTML after normalization.
+Successful verification returns `data.read_back_verified=true`; write request IDs are retained.
+If the write succeeds but its resource cannot be verified, the tool returns `partial_success` with
+`operation_state=applied`, `retryable=false`, and `read_back_verified=false` in error details.
+When the resource ID is known, details include its fixed API path for inspection. Do not repeat the write automatically.
+Preview, rejected writes and non-body updates do not perform this additional lookup.

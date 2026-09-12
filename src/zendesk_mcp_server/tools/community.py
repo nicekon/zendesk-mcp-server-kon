@@ -485,7 +485,21 @@ class CommunityTools:
             if (blocked := check_write_permission(self._settings, item)) is not None: return blocked
         if self._approvals is None or not isinstance(approval_request_id, str) or not isinstance(approval_token, str) or not self._approvals.consume(approval_request_id, tool, approval_payload, approval_token): return failure(ErrorCode.APPROVAL_REQUIRED, "a matching local approval is required")
         if self._client is None: return failure(ErrorCode.NOT_CONFIGURED, "Zendesk write client is not configured")
-        return self._client.request(method, path, json_body=json_body)
+        written = self._client.request(method, path, json_body=json_body)
+        if not written.get("ok") or method not in {"POST", "PUT"}: return written
+        for key, field in (("post", "details"), ("comment", "body")):
+            if not isinstance(json_body, dict) or not isinstance(json_body.get(key), dict) or field not in json_body[key]: continue
+            resource = self._nested_data(written, key)
+            identifier = approval_payload.get(f"{key}_id") if method == "PUT" else resource.get("id") if resource else None
+            incomplete = failure(ErrorCode.PARTIAL_SUCCESS, "content write succeeded but saved HTML could not be verified; inspect the resource before retrying", operation_state="applied", request_id=written.get("request_id"), details={"read_back_verified": False})
+            if not self._valid_id(identifier, "id"): return incomplete
+            read_path = path if method == "PUT" else f"{path.removesuffix('.json')}/{identifier}.json"
+            incomplete["error"]["details"].update({"resource_id": identifier, "resource_path": read_path})
+            observed = self._get(read_path)
+            saved = self._nested_data(observed, key) if observed.get("ok") else None
+            if saved is None or not self._valid_id(saved.get("id"), "id") or saved["id"] != identifier or not isinstance(saved.get(field), str): return incomplete
+            return success({**written["data"], key: saved, "read_back_verified": True}, request_id=written.get("request_id"), operation_state="applied")
+        return written
     def _get(self, path: str, params: dict[str, str] | None = None) -> dict[str, object]:
         if self._client is None: return failure(ErrorCode.NOT_CONFIGURED, "Zendesk is not configured")
         return self._client.get(path, params=params)

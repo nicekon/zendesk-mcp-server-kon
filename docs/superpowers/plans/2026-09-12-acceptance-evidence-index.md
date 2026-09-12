@@ -59,8 +59,9 @@ tests/docs/.github 경로는 저장소 루트 기준이며, `auth.py` 같은 소
 ## 다음 확인 순서
 
 Community 콘텐츠 추가 대조 결과: [콘텐츠 계약 감사](2026-09-12-community-content-audit.md).
-Post/Comment HTML 저장 후 read-back 및 Community 읽기 콘텐츠 표시·분리는 구현 누락으로
-확인됐다. 기존 suite 성공과 분리해 보완하며, 20번을 완료로 처리하지 않는다.
+Post/Comment HTML 저장 후 read-back 누락은 공통 쓰기 경로와 21개 합성 회귀 사례로 보완했다.
+Community 읽기 콘텐츠 표시·분리는 아직 구현 누락이다. 기존 suite 성공과 분리하며,
+20번을 완료로 처리하지 않는다.
 
 1. 02: 원본 기능 대응표의 G1–G8을 구현·검증한다. 시간 추적·Git-Zen·정렬의
    명시된 의미 차이는 PRD 승인 범위와 추가 대조한다.

@@ -10,11 +10,14 @@ class StubClient:
     def __init__(self): self.paths = []
     def get(self, path, *, params=None):
         self.paths.append((path, params))
+        if path == "/api/v2/community/posts/2.json": return success({"post": {"id": 2, "details": "Body"}})
+        if path == "/api/v2/community/posts/2/comments/3.json": return success({"comment": {"id": 3, "body": "Body"}})
         if path == "/api/v2/gather/badge_assignments": return success({"badge_assignments": []})
         return success({"posts": [{"id": 2}]})
 
     def request(self, method, path, *, json_body=None):
         self.paths.append((method, path, json_body))
+        if path == "/api/v2/community/posts/2/comments.json": return success({"comment": {"id": 3, "body": "Body"}})
         if path == "/api/v2/guide/user_images/uploads": return success({"upload": {"url": "https://cdn.example.test/upload", "headers": {"Content-Type": "image/png"}, "token": "upload-token"}})
         if path == "/api/v2/guide/user_images": return success({"user_image": {"path": "/hc/user_images/image.png", "content_type": "image/png", "size": 5}})
         if path == "/api/v2/gather/badges/icon_uploads": return success({"badge_icon_upload": {"url": "https://cdn.example.test/badge-icon", "headers": {"Content-Type": "image/png"}, "id": "badge-upload-id"}})
@@ -577,7 +580,65 @@ def test_community_comment_create_requires_local_public_approval(tmp_path):
     preview = tools.create_comment(2, "Body")
     token = store.approve(preview["data"]["approval_request_id"])
     result = tools.create_comment(2, "Body", execution_mode="apply", approval_request_id=preview["data"]["approval_request_id"], approval_token=token)
-    assert result["data"]["post"]["id"] == 2
+    assert result["data"]["comment"]["id"] == 3
+
+
+@pytest.mark.parametrize("operation,key,field,args", [
+    ("create_post", "post", "details", (4, "Title", "<b>Body</b>")),
+    ("update_post", "post", "details", (2, {"details": "<b>Body</b>"})),
+    ("create_comment", "comment", "body", (2, "<b>Body</b>")),
+    ("update_comment", "comment", "body", (2, 3, {"body": "<b>Body</b>"})),
+])
+@pytest.mark.parametrize("observed", ["normalized", "error", "wrong_id", "invalid_body", "invalid_created_id"])
+def test_html_write_reads_back_without_replaying(tmp_path, operation, key, field, args, observed):
+    from zendesk_mcp_server.contracts import ErrorCode, failure
+    calls = []
+    identifier = 2 if key == "post" else 3
+    class Client:
+        def request(self, method, path, *, json_body=None):
+            calls.append(method)
+            return success({key: {"id": None if observed == "invalid_created_id" else identifier, field: "stale", "url": "https://evil.test/"}}, request_id="write-1", operation_state="applied")
+        def get(self, path, *, params=None):
+            calls.append("GET")
+            assert path == ("/api/v2/community/posts/2.json" if key == "post" else "/api/v2/community/posts/2/comments/3.json")
+            if observed == "error": return failure(ErrorCode.PERMISSION_DENIED, "denied")
+            return success({key: {"id": 99 if observed == "wrong_id" else identifier, field: None if observed == "invalid_body" else "<strong>Body</strong>"}})
+    store = ApprovalStore(tmp_path / "approvals.json")
+    tools = CommunityTools(Client(), Settings.load({"ZENDESK_WRITE_MODE": "standard", "ZENDESK_ENABLE_PUBLIC_WRITES": "true"}), store)
+    call = getattr(tools, operation)
+    preview = call(*args)
+    assert calls == []
+    request_id = preview["data"]["approval_request_id"]
+    token = store.approve(request_id)
+    result = call(*args, execution_mode="apply", approval_request_id=request_id, approval_token=token)
+    if observed == "normalized" or (observed == "invalid_created_id" and operation.startswith("update")):
+        assert result["data"][key][field] == "<strong>Body</strong>"
+        assert result["operation_state"] == "applied" and result["request_id"] == "write-1"
+    else:
+        assert result["error"]["code"] == "partial_success"
+        assert result["error"]["operation_state"] == "applied" and result["error"]["retryable"] is False
+        if observed != "invalid_created_id": assert result["error"]["details"]["resource_id"] == identifier
+    assert len([method for method in calls if method != "GET"]) == 1
+    assert calls.count("GET") == (0 if observed == "invalid_created_id" and operation.startswith("create") else 1)
+    assert call(*args, execution_mode="apply", approval_request_id=request_id, approval_token=token)["error"]["code"] == "approval_required"
+
+
+def test_failed_html_write_does_not_read_back_or_replay(tmp_path):
+    from zendesk_mcp_server.contracts import ErrorCode, failure
+    calls = []
+    expected = failure(ErrorCode.OUTCOME_UNKNOWN, "write outcome unknown", operation_state="unknown")
+    class Client:
+        def request(self, *args, **kwargs):
+            calls.append("write")
+            return expected
+        def get(self, *args, **kwargs): raise AssertionError("failed write must not read back")
+    store = ApprovalStore(tmp_path / "approvals.json")
+    tools = CommunityTools(Client(), Settings.load({"ZENDESK_WRITE_MODE": "standard", "ZENDESK_ENABLE_PUBLIC_WRITES": "true"}), store)
+    preview = tools.create_post(4, "Title", "Body")
+    request_id = preview["data"]["approval_request_id"]
+    token = store.approve(request_id)
+    assert tools.create_post(4, "Title", "Body", execution_mode="apply", approval_request_id=request_id, approval_token=token) == expected
+    assert calls == ["write"]
 
 
 def test_community_html_writes_reject_unsafe_tags_and_image_sources(tmp_path):
