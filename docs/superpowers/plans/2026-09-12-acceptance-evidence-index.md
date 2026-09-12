@@ -11,6 +11,31 @@
 
 ## 조건별 근거
 
+### 최신 런타임 설치 검증: cb2d16be6cb7911c9f38cd5aa975b1b7013108d3
+
+- `/tmp/zendesk-approved-package.r2xyhP`에 sdist/wheel을 새로 빌드하고 별도
+  Python 3.12.5 환경에 정확한 wheel과 pytest를 설치했다.
+- `python -I`의 site-packages import 확인 후 `-I -m pytest --import-mode=importlib -q`로
+  전체 852개가 8.33초에 통과했다. CLI 로그인 scope 환경 전달 회귀도 포함된다.
+- 설치된 실행 파일의 실제 stdio initialize와 101개 도구 목록을 확인했다.
+  handshake는 가짜 package-smoke subdomain으로 실행했으며 실제 credential을 쓰지 않았다.
+- wheel SHA-256: `b4a63f3a352bae716e1ffd3dc09f3e2c6d3e34c31ba480d6885e52e85c310d91`.
+- 아래 이전 커밋의 설치 증거를 보존하되 최신 설치 상태는 이 절을 기준으로 읽는다.
+  전체 PRD 수용 및 출시 완료를 뜻하지 않는다.
+
+### 후속 공개 답변의 실제 사람 승인 검증
+
+사용자가 같은 테스트 티켓에 공개 답변 한 건을 별도로 허용했다. cb2d16b의
+실제 MCP 요청 처리기로 preview를 생성하고, 사용자가 MCP 밖의 로컬 승인 CLI에서
+발급받아 전달한 일회성 토큰으로 동일 payload의 apply를 한 번 실행했다.
+apply는 ok=true였고 대화 재조회에서 해당 본문의 댓글이 public=true로 저장된
+것을 확인했다. 장기 credential, 승인 토큰, 수신 주소와 티켓 본문은 기록하지 않는다.
+
+이는 공개 답변의 preview→사람 승인→apply→저장 확인 경로에 대한 실제 증거다.
+사용자 확인에 따라 메일 수신 여부는 이 MCP 테스트의 완료 조건이 아니다.
+Community/Guide/Badge/업로드 등 다른 고위험 작업, 별도 sandbox release check,
+제품·역할별 전체 검증을 대체하지 않는다. 추가 운영 쓰기 권한으로 해석하지 않는다.
+
 ### 사용자 지정 티켓의 제한된 실제 쓰기 검증
 
 이전의 “실제 쓰기 없음” 기록 이후, 사용자가 직접 생성한 테스트 티켓 한 건과
@@ -25,8 +50,8 @@
 status는 복원됐으며 내부 메모는 남겼다. 테스트 후 기본 read_only도 확인했다.
 수신 주소·티켓 본문·credential은 이 문서에 기록하지 않는다.
 
-이는 일반 티켓 쓰기의 제한된 실제 증거다. MCP 밖의 일회성 승인 토큰이 필요한
-고위험 작업, 수동 sandbox release check, Community/Guide/Badge/업로드 검증을
+이는 일반 티켓 쓰기의 제한된 실제 증거다. 위 후속 절의 공개 답변 외 고위험
+작업, 수동 sandbox release check, Community/Guide/Badge/업로드 검증을
 대체하지 않는다. 해당 티켓의 지정 범위 밖 쓰기를 승인한 것으로 해석하지 않는다.
 
 재인증 준비 중 발견한 CLI 누락도 보완했다. `zendesk login`이 기능·쓰기 설정을
