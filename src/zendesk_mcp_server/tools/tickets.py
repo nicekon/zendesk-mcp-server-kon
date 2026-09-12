@@ -18,7 +18,7 @@ import zipfile
 import json
 import re
 from datetime import datetime
-from html.parser import HTMLParser
+from ..html_text import HTMLText
 from pathlib import Path
 from typing import Callable, Iterable, Iterator, Mapping, Protocol
 
@@ -34,25 +34,6 @@ _OBJECT_PATH_PART = re.compile(r"(?!\.{1,2}$)[A-Za-z0-9._~-]+")
 _GIT_ZEN_URL = re.compile(r"https://(?:github\.com/[^\s/]+/[^\s/]+/(?:(?:issues|pull)/\d+|commit/[0-9a-fA-F]{7,64})|gitlab\.com/[^\s<>\"']+/-/(?:(?:issues|merge_requests)/\d+|commit/[0-9a-fA-F]{7,64}))")
 
 
-class _ConversationImageText(HTMLParser):
-    def __init__(self):
-        super().__init__(convert_charrefs=True)
-        self.parts = []; self.has_images = False
-
-    def handle_starttag(self, tag, attrs):
-        if tag == "img":
-            self.has_images = True
-            alt = dict(attrs).get("alt")
-            self.parts.append(f"[image: {alt}]" if alt else "[image]")
-        elif tag in ("br", "p", "div", "li"):
-            self.parts.append("\n")
-
-    def handle_endtag(self, tag):
-        if tag in ("p", "div", "li"): self.parts.append("\n")
-
-    def handle_data(self, data): self.parts.append(data)
-
-
 def _conversation_display(record):
     item = {**record, "untrusted_user_content": True}
     content = record.get("content")
@@ -60,7 +41,7 @@ def _conversation_display(record):
     if not isinstance(html, str) and isinstance(content, dict) and content.get("type") == "html":
         html = content.get("body")
     if isinstance(html, str) and "<img" in html.lower():
-        parser = _ConversationImageText()
+        parser = HTMLText()
         try:
             parser.feed(html); parser.close()
         except (AssertionError, ValueError):

@@ -15,6 +15,7 @@ from tempfile import TemporaryFile
 from urllib.parse import urlsplit
 from ..approvals import ApprovalStore
 from ..config import Settings
+from ..html_text import HTMLText
 from ..pagination import collect_array, collect_cursor, collect_offset
 from ..contracts import ErrorCode, failure
 from ..contracts import success
@@ -57,6 +58,25 @@ class _CommunityHTMLValidator(HTMLParser):
         if value.startswith("/hc/user_images/"): return True
         parsed = urlsplit(value)
         return self.subdomain is not None and parsed.scheme == "https" and parsed.netloc == f"{self.subdomain}.zendesk.com" and parsed.path.startswith("/hc/user_images/")
+
+def _content_display(record):
+    if not isinstance(record, dict): return record
+    fields = {key: record[key] for key in ("title", "name", "description", "body", "details") if isinstance(record.get(key), str)}
+    if not fields: return record
+    plain = {}; unavailable = []
+    for key, value in fields.items():
+        if key not in {"body", "details"}:
+            plain[key] = value
+            continue
+        parser = HTMLText()
+        try:
+            parser.feed(value); parser.close()
+        except (AssertionError, ValueError):
+            unavailable.append(key)
+            continue
+        plain[key] = "\n".join(line for line in "".join(parser.parts).splitlines() if line).strip()
+    return {**record, "untrusted_user_content": True, "plain_text": plain, **({"plain_text_unavailable": unavailable} if unavailable else {})}
+
 
 class CommunityClient(Protocol):
     def get(self, path: str, *, params: dict[str, str] | None = None) -> dict[str, object]: ...
@@ -502,7 +522,10 @@ class CommunityTools:
         return written
     def _get(self, path: str, params: dict[str, str] | None = None) -> dict[str, object]:
         if self._client is None: return failure(ErrorCode.NOT_CONFIGURED, "Zendesk is not configured")
-        return self._client.get(path, params=params)
+        result = self._client.get(path, params=params)
+        if not result.get("ok") or not isinstance(result.get("data"), dict): return result
+        data = {key: [_content_display(item) for item in value] if isinstance(value, list) else _content_display(value) for key, value in result["data"].items()}
+        return {**result, "data": data}
     def _notification_metadata(self, path: str, key: str) -> dict[str, object]:
         resource = self._nested_data(self._get(path), key)
         followers = resource.get("follower_count") if resource is not None else None

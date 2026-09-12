@@ -44,7 +44,15 @@
 실패는 partial_success/applied/retryable=false로 반환하며 가능한 경우 복구용 ID와 경로를 제공한다.
 20개 합성 사례로 네 소비자의 정규화·조회 실패·다른 ID·잘못된 본문·잘못된 생성 ID를 검증했고,
 추가 테스트로 실패한 쓰기의 no-read-back/no-replay를 검증한다. 운영 쓰기 증거는 아니다.
-위 2번의 콘텐츠 표시·분리는 아직 남아 있다.
+## 읽기 콘텐츠 표시·분리 보완
+
+위 2번은 Community 공통 `_get`에서 리소스와 목록 항목의 원문을 보존하며 보완했다.
+문자열 콘텐츠가 있는 항목에 untrusted_user_content와 필드별 plain_text를 제공한다.
+body/details는 기존 Ticket HTMLParser를 공통 모듈로 옮겨 텍스트를 추출하며,
+title/name/description은 원래 일반 텍스트로 보존한다. HTML 실행·이미지 요청은 없다.
+파서 실패 시 원문과 plain_text_unavailable를 반환한다. 보안 sanitizer라고 주장하지 않는다.
+7개 읽기 경로·잘못된 HTML·저장 후 조회·실제 MCP 전달 회귀 포함 전체 723 passed.
+이 증거는 두 콘텐츠 누락의 로컬 보완 근거이며 Community의 나머지 조건을 대체하지 않는다.
 
 권한·알림·첨부·구독·badge의 나머지 세부 조건은 별도 대조 대상이다.
 CI `34675808818`은 위 기준 커밋에서 성공했지만, 위 누락 조건을 검사하지 않는 성공이다.

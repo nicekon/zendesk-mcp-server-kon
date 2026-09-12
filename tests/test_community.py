@@ -6,6 +6,29 @@ from zendesk_mcp_server.config import Settings
 from zendesk_mcp_server.tools.community import CommunityTools
 
 
+@pytest.mark.parametrize("method,args,key", [("list_posts", (), "posts"), ("search_posts", ("query",), "results"), ("get_post", (2,), "post"), ("list_comments", (2,), "comments"), ("get_comment", (3,), "comment"), ("list_topics", (), "topics"), ("get_topic", (2,), "topic")])
+def test_community_content_preserves_html_and_separates_untrusted_text(method, args, key):
+    html = '<p>A &amp; B<img src="https://evil.test/x" alt="Screenshot"></p><p>Next</p>'
+    record = {"id": 2, "title": "literal <title>", "body": html, "details": html}
+    class Client:
+        def get(self, path, *, params=None):
+            return success({key: record if key in {"post", "comment", "topic"} else [record], "meta": {"has_more": False}, "next_page": None})
+    result = getattr(CommunityTools(Client()), method)(*args)
+    item = result["items"][0] if "items" in result else result["data"][key]
+    assert item["untrusted_user_content"] is True
+    assert item["body"] == item["details"] == html
+    assert item["plain_text"] == {"title": "literal <title>", "body": "A & B[image: Screenshot]\nNext", "details": "A & B[image: Screenshot]\nNext"}
+    assert "plain_text" not in record and "untrusted_user_content" not in record
+
+
+def test_community_malformed_html_preserves_raw_without_claiming_plain_text():
+    class Client:
+        def get(self, path, *, params=None): return success({"post": {"id": 2, "details": "<![invalid]>"}})
+    item = CommunityTools(Client()).get_post(2)["data"]["post"]
+    assert item["details"] == "<![invalid]>" and item["untrusted_user_content"] is True
+    assert item["plain_text"] == {} and item["plain_text_unavailable"] == ["details"]
+
+
 class StubClient:
     def __init__(self): self.paths = []
     def get(self, path, *, params=None):
@@ -613,6 +636,8 @@ def test_html_write_reads_back_without_replaying(tmp_path, operation, key, field
     result = call(*args, execution_mode="apply", approval_request_id=request_id, approval_token=token)
     if observed == "normalized" or (observed == "invalid_created_id" and operation.startswith("update")):
         assert result["data"][key][field] == "<strong>Body</strong>"
+        assert result["data"][key]["plain_text"][field] == "Body"
+        assert result["data"][key]["untrusted_user_content"] is True
         assert result["operation_state"] == "applied" and result["request_id"] == "write-1"
     else:
         assert result["error"]["code"] == "partial_success"

@@ -1323,6 +1323,21 @@ def test_support_read_tools_are_registered():
     ]
 
 
+def test_community_content_presentation_survives_mcp_boundary(tmp_path, monkeypatch):
+    from zendesk_mcp_server import server as module
+    from zendesk_mcp_server.contracts import success
+    class Client:
+        def __init__(self, *args, **kwargs): pass
+        def get(self, path, *, params=None):
+            assert path == "/api/v2/community/posts/2.json"
+            return success({"post": {"id": 2, "details": "<p>Hello &amp; welcome</p>"}})
+    monkeypatch.setattr(module, "ZendeskClient", Client)
+    server = module.create_server({"ZENDESK_SUBDOMAIN": "example", "ZENDESK_EMAIL": "test@example.test", "ZENDESK_API_TOKEN": "test-only", "ZENDESK_CAPABILITIES": "community", "ZENDESK_AUDIT_LOG": str(tmp_path / "audit.jsonl")})
+    request = types.CallToolRequest(params=types.CallToolRequestParams(name="zendesk_get_community_post", arguments={"post_id": 2}))
+    result = asyncio.run(server.request_handlers[types.CallToolRequest](request)).root.structuredContent
+    assert result["data"]["post"] == {"id": 2, "details": "<p>Hello &amp; welcome</p>", "plain_text": {"details": "Hello & welcome"}, "untrusted_user_content": True}
+
+
 def test_comment_vote_mcp_dispatch_preserves_comment_scope(tmp_path, monkeypatch):
     from zendesk_mcp_server import server as module
     from zendesk_mcp_server.contracts import success
