@@ -236,7 +236,7 @@ class CommunityTools:
         if not observed.get("ok"): return failure(ErrorCode.OUTCOME_UNKNOWN, "subscription write succeeded but read-back failed", operation_state="unknown")
         subscription = observed["data"]["subscription"]
         if not isinstance(subscription, dict) or subscription.get("include_comments") is not include_comments: return failure(ErrorCode.OUTCOME_UNKNOWN, "subscription write could not be verified", operation_state="unknown")
-        return success({"current_subscription": existing, "subscription": subscription, "operation_state": "applied", "idempotent": False})
+        return success({"current_subscription": existing, "subscription": subscription, "operation_state": "applied", "idempotent": False}, request_id=written.get("request_id"), operation_state="applied")
     def delete_user_subscription(self, user_id: int | str, subscription_id: int, *, execution_mode: str = "preview", approval_request_id: str | None = None, approval_token: str | None = None) -> dict[str, object]:
         path = self._user_subscription_path(user_id, subscription_id)
         if path is None: return failure(ErrorCode.VALIDATION_ERROR, "valid user_id and subscription_id are required")
@@ -332,7 +332,7 @@ class CommunityTools:
             headers["Content-Length"] = size
             uploaded = self._client.upload_presigned(url, headers, iter(lambda: content.read(65536), b""))
             if not uploaded.get("ok"): return uploaded
-            if badge: return success({"badge_icon_upload_id": identifier})
+            if badge: return success({"badge_icon_upload_id": identifier}, request_id=prepared.get("request_id"), operation_state="applied")
             created = self._client.request("POST", "/api/v2/guide/user_images", json_body={"token": identifier, "brand_id": payload["brand_id"]})
             if not created.get("ok"): return created
             image = self._nested_data(created, "user_image")

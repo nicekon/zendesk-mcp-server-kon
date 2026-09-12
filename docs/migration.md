@@ -282,6 +282,13 @@ success from a timeout or connection failure.
 
 ## Canonical tool names before 1.0.0
 
+Successful outbound writes now include top-level `operation_state: "applied"`
+as required by the result contract. Reads, previews and no-op results are not
+marked applied. The existing nested subscription state remains for compatibility.
+Publish verifies the requested locale's `draft=false` after the write; failed or
+mismatched read-back returns non-retryable `outcome_unknown`, preserving the write
+request ID when available. Inspect that translation before retrying.
+
 The pre-release implementation used six names that differed from PRD section 8.
 Clients must now use the canonical names below; the old names are not aliases.
 Refresh the MCP tool list after updating. HTTP endpoints and write gates are unchanged.

@@ -772,6 +772,7 @@ def test_user_subscription_upsert_previews_change_and_reads_back_after_approval(
     assert preview["data"]["proposed_subscription"] == {"followed_id": 7, "include_comments": True}
     assert result["data"]["subscription"] == {"id": 5, "followed_id": 7, "include_comments": True}
     assert result["data"]["operation_state"] == "applied"
+    assert result["operation_state"] == "applied"
     assert client.calls == [
         ("GET", "/api/v2/help_center/users/me/user_subscriptions.json", {"type": "followings", "page[size]": "100"}),
         ("GET", "/api/v2/help_center/users/me/user_subscriptions.json", {"type": "followings", "page[size]": "100"}),
@@ -1139,6 +1140,7 @@ def test_badge_icon_upload_uses_the_secure_external_upload_flow(tmp_path):
     result = tools.upload_badge_icon("icon.png", "image/png", execution_mode="apply", approval_request_id=preview["data"]["approval_request_id"], approval_token=token)
 
     assert result["data"]["badge_icon_upload_id"] == "badge-upload-id"
+    assert result["operation_state"] == "applied"
     assert client.paths[-2:] == [
         ("POST", "/api/v2/gather/badges/icon_uploads", {"content_type": "image/png", "file_size": 5}),
         ("PUT", "https://cdn.example.test/badge-icon", {"Content-Type": "image/png", "Content-Length": "5"}, b"image"),

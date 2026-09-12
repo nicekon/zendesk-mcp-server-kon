@@ -954,6 +954,25 @@ def test_ticket_closure_mcp_dispatch_preserves_approval_options(tmp_path, monkey
         assert client.calls[-1][2] == {"ticket": {key: value for key, value in args.items() if key != "ticket_id"}}
 
 
+def test_mcp_write_preserves_transport_operation_state_and_request_id(tmp_path, monkeypatch):
+    import httpx
+    from zendesk_mcp_server import server as module
+    from zendesk_mcp_server.client import ZendeskClient
+    calls = []
+    def response(request):
+        assert request.method == "PUT" and request.url.path == "/api/v2/tickets/9.json"
+        assert json.loads(request.content) == {"ticket": {"subject": "Updated"}}
+        calls.append(request)
+        return httpx.Response(200, json={"ticket": {"id": 9, "subject": "Updated"}}, headers={"x-zendesk-request-id": "write-123"}, request=request)
+    monkeypatch.setattr(module, "ZendeskClient", lambda settings, authorization: ZendeskClient(settings, authorization, transport=httpx.MockTransport(response)))
+    server = module.create_server({"ZENDESK_SUBDOMAIN": "example", "ZENDESK_EMAIL": "test@example.test", "ZENDESK_API_TOKEN": "test-only", "ZENDESK_WRITE_MODE": "standard", "ZENDESK_AUDIT_LOG": str(tmp_path / "audit.jsonl")})
+    request = types.CallToolRequest(params=types.CallToolRequestParams(name="zendesk_update_ticket", arguments={"ticket_id": 9, "subject": "Updated"}))
+    result = asyncio.run(server.request_handlers[types.CallToolRequest](request)).root.structuredContent
+    assert result["ok"] is True and result["operation_state"] == "applied"
+    assert result["request_id"] == "write-123" and result["data"]["ticket"]["id"] == 9
+    assert len(calls) == 1
+
+
 def test_canonical_names_preserve_dispatch_capabilities_and_approval_identity(tmp_path, monkeypatch):
     from zendesk_mcp_server import server as module
     from zendesk_mcp_server.approvals import ApprovalStore

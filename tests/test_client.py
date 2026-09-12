@@ -22,6 +22,27 @@ def authorization():
     return ApiTokenAuthorization(email="agent@example.test", token="token")
 
 
+@pytest.mark.parametrize("method", ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE"])
+def test_successful_transport_reports_applied_only_for_writes(settings, authorization, method):
+    client = ZendeskClient(settings, authorization, transport=httpx.MockTransport(
+        lambda request: httpx.Response(204, headers={"X-Zendesk-Request-Id": "write-request"}, request=request)))
+    result = client.request(method, "/api/v2/tickets/9.json")
+    assert result["ok"] is True and result["request_id"] == "write-request"
+    if method in {"GET", "HEAD"}:
+        assert "operation_state" not in result
+    else:
+        assert result["operation_state"] == "applied"
+
+
+def test_successful_binary_upload_reports_applied(settings, authorization, monkeypatch):
+    import zendesk_mcp_server.client as module
+    monkeypatch.setattr(module, "_is_public_https_url", lambda _: True)
+    client = ZendeskClient(settings, authorization, transport=httpx.MockTransport(
+        lambda request: httpx.Response(200, headers={"X-Zendesk-Request-Id": "upload-request"}, request=request)))
+    result = client.upload_presigned("https://cdn.example.test/upload", {}, b"content")
+    assert result == {"ok": True, "data": {}, "operation_state": "applied", "request_id": "upload-request"}
+
+
 def test_rate_limit_is_shared_between_clients_and_expires(settings, authorization, monkeypatch):
     import zendesk_mcp_server.client as module
     clock = [100.0]
@@ -428,7 +449,7 @@ def test_invalid_success_json_is_not_reported_as_success(settings, authorization
 
 def test_no_content_delete_remains_successful(settings, authorization):
     client = ZendeskClient(settings, authorization, transport=httpx.MockTransport(lambda request: httpx.Response(204, request=request)))
-    assert client.request("DELETE", "/api/v2/tickets/9.json") == {"ok": True, "data": {}}
+    assert client.request("DELETE", "/api/v2/tickets/9.json") == {"ok": True, "data": {}, "operation_state": "applied"}
 
 
 def test_client_rejects_an_absolute_or_foreign_path(settings, authorization):

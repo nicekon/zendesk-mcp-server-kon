@@ -566,14 +566,17 @@ def test_article_create_binds_brand_to_approval_and_uses_its_subdomain(tmp_path)
 
 def test_article_publish_binds_brand_to_approval_and_uses_its_subdomain(tmp_path):
     class BrandClient:
-        def __init__(self): self.paths = []
+        def __init__(self): self.paths = []; self.draft = True
         def get(self, path, *, params=None):
             self.paths.append((path, params)); return success({"brand": {"subdomain": "brand-one", "has_help_center": True}})
         def get_for_subdomain(self, subdomain, path, *, params=None):
             self.paths.append((subdomain, path, params))
-            return success({"locales": ["en-us"]}) if path.endswith("locales.json") else success({"translation": {"id": 6, "draft": True}})
+            return success({"locales": ["en-us"]}) if path.endswith("locales.json") else success({"translation": {"id": 6, "locale": "en-us", "draft": self.draft}})
         def request_for_subdomain(self, subdomain, method, path, *, json_body=None):
-            self.paths.append((subdomain, method, path, json_body)); return success({})
+            self.paths.append((subdomain, method, path, json_body))
+            assert subdomain == "brand-one" and method == "PUT" and json_body == {"translation": {"draft": False}}
+            self.draft = False
+            return success({}, request_id="brand-publish-request", operation_state="applied")
 
     client = BrandClient(); store = ApprovalStore(tmp_path / "approvals.json")
     tools = GuideTools(client, Settings.load({"ZENDESK_WRITE_MODE": "standard", "ZENDESK_ENABLE_PUBLIC_WRITES": "true"}), store)
@@ -582,6 +585,7 @@ def test_article_publish_binds_brand_to_approval_and_uses_its_subdomain(tmp_path
     result = tools.publish_article(3, "en-us", brand_id=7, execution_mode="apply", approval_request_id=preview["data"]["approval_request_id"], approval_token=token)
 
     assert result["data"]["translation"]["id"] == 6
+    assert result["operation_state"] == "applied" and result["request_id"] == "brand-publish-request"
     assert ("brand-one", "PUT", "/api/v2/help_center/articles/3/translations/en-us.json", {"translation": {"draft": False}}) in client.paths
 
 
@@ -667,12 +671,43 @@ def test_publish_translation_requires_public_approval_and_reads_back(tmp_path):
     result = tools.publish_article(3, "en-us", execution_mode="apply", approval_request_id=preview["data"]["approval_request_id"], approval_token=token)
 
     assert result["data"]["translation"]["draft"] is False
+    assert result["operation_state"] == "applied"
     assert client.paths[-4:] == [
         ("/api/v2/help_center/articles/3/translations/en-us.json", None),
         ("/api/v2/help_center/locales.json", None),
         ("PUT", "/api/v2/help_center/articles/3/translations/en-us.json", {"translation": {"draft": False}}),
         ("/api/v2/help_center/articles/3/translations/en-us.json", None),
     ]
+
+
+@pytest.mark.parametrize("observed", [
+    success({"translation": {"locale": "en-us", "draft": True}}),
+    success({"translation": {"locale": "ko", "draft": False}}),
+    success({"translation": {"locale": "en-us"}}),
+    success({}),
+    failure(ErrorCode.PERMISSION_DENIED, "read-back forbidden"),
+])
+def test_publish_read_back_failure_preserves_unknown_write_outcome(tmp_path, observed):
+    class Client(TranslationClient):
+        def get(self, path, *, params=None):
+            if self.published and path.endswith("/translations/en-us.json"):
+                return observed
+            return super().get(path, params=params)
+        def request(self, method, path, *, json_body=None):
+            result = super().request(method, path, json_body=json_body)
+            return {**result, "request_id": "publish-request", "operation_state": "applied"}
+    client = Client(existing=True)
+    store = ApprovalStore(tmp_path / "approvals.json")
+    tools = GuideTools(client, Settings.load({"ZENDESK_WRITE_MODE": "standard", "ZENDESK_ENABLE_PUBLIC_WRITES": "true"}), store)
+    preview = tools.publish_article(3, "en-us")
+    identifier = preview["data"]["approval_request_id"]
+    result = tools.publish_article(3, "en-us", execution_mode="apply", approval_request_id=identifier, approval_token=store.approve(identifier))
+    assert result["ok"] is False
+    assert result["error"]["code"] == "outcome_unknown"
+    assert result["error"]["operation_state"] == "unknown"
+    assert result["error"]["request_id"] == "publish-request"
+    assert result["error"]["retryable"] is False
+    assert sum(item[0] == "PUT" for item in client.paths) == 1
 
 
 def test_upsert_of_published_translation_requires_public_and_destructive_gates(tmp_path):

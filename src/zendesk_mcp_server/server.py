@@ -85,6 +85,7 @@ RESULT_SCHEMA = {
         "data": {"type": "object"},
         "error": {"type": "object"},
         "request_id": {"type": "string"},
+        "operation_state": {"type": "string", "enum": ["applied", "partial", "unknown"]},
     },
     "required": ["ok"],
     "additionalProperties": True,

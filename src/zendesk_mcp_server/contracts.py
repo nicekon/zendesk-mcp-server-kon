@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from enum import Enum
-from typing import Mapping
+from typing import Literal, Mapping
 
 
 class ErrorCode(str, Enum):
@@ -32,10 +32,13 @@ def success(
     data: Mapping[str, object],
     *,
     request_id: str | None = None,
+    operation_state: Literal["applied", "partial", "unknown"] | None = None,
 ) -> dict[str, object]:
     result: dict[str, object] = {"ok": True, "data": dict(data)}
     if request_id is not None:
         result["request_id"] = request_id
+    if operation_state is not None:
+        result["operation_state"] = operation_state
     return result
 
 

@@ -138,7 +138,7 @@ class ZendeskClient:
                         operation_state="not_applied" if read_request else "unknown",
                         request_id=_request_id(response),
                     )
-                return success(data, request_id=_request_id(response))
+                return success(data, request_id=_request_id(response), operation_state=None if read_request else "applied")
 
             if response.status_code == 401 and not refreshed:
                 refresh = getattr(self._authorization, "refresh", None)
@@ -201,7 +201,7 @@ class ZendeskClient:
         except (httpx.HTTPError, OSError):
             return failure(ErrorCode.UPSTREAM_ERROR, "Zendesk upload could not be completed", operation_state="unknown")
         if response.is_success:
-            return success({}, request_id=_request_id(response))
+            return success({}, request_id=_request_id(response), operation_state="applied")
         return failure(_error_code(response.status_code), f"Zendesk upload failed with HTTP {response.status_code}", operation_state="not_applied" if response.status_code in {401, 403, 429} else "unknown", request_id=_request_id(response))
 
     def download_attachment(self, content_url: str, *, max_bytes: int, store: Callable[[Iterable[bytes]], dict[str, object]] | None = None) -> dict[str, object]:

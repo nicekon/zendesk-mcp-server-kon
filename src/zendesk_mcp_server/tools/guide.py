@@ -288,7 +288,9 @@ class GuideTools:
         updated = scoped._request("PUT", f"/api/v2/help_center/articles/{identifier}/translations/{locale}.json", {"translation": {"draft": False}})
         if not updated.get("ok"): return updated
         read_back = scoped._get_translation(article_id, locale)
-        return success({"translation": read_back}) if isinstance(read_back, dict) and "ok" not in read_back else read_back
+        if not isinstance(read_back, dict) or "ok" in read_back or read_back.get("draft") is not False or read_back.get("locale") != locale:
+            return failure(ErrorCode.OUTCOME_UNKNOWN, "publish write succeeded but the requested locale could not be verified; inspect it before retrying", operation_state="unknown", request_id=updated.get("request_id"), details={"article_id": article_id, "locale": locale})
+        return success({"translation": read_back}, request_id=updated.get("request_id"), operation_state="applied")
     def _article_payload(self, section_id: object, locale: object, title: object, body: object, labels: object, position: object, permission_group_id: object, user_segment_id: object, draft: object, notify_subscribers: object) -> dict[str, object] | None:
         if _help_center_id(section_id) is None or not isinstance(locale, str) or not _LOCALE.fullmatch(locale) or not isinstance(title, str) or not title.strip() or not isinstance(body, str) or not isinstance(draft, bool) or not draft or not isinstance(notify_subscribers, bool): return None
         article: dict[str, object] = {"title": title.strip(), "body": body, "locale": locale, "draft": True}
