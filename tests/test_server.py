@@ -231,6 +231,29 @@ def test_guide_mcp_calls_preserve_pagination_arguments(monkeypatch):
         assert result.root.structuredContent == expected_result, name
 
 
+def test_mcp_article_all_translations_returns_metadata_and_image_content(monkeypatch):
+    from zendesk_mcp_server.contracts import success
+    from zendesk_mcp_server.tools.guide import GuideTools
+    module = importlib.import_module("zendesk_mcp_server.server")
+    class Client:
+        def get(self, path, *, params=None):
+            if path.endswith("locales.json"): return success({"locales": ["ko"]})
+            if path.endswith("translations.json"):
+                return success({"translations": [{"locale": "ko", "body": '<img src="https://acme.zendesk.com/hc/user_images/one.png">'}], "meta": {"has_more": False}})
+            assert params == {"include": "users,sections,categories"}
+            return success({"article": {"id": 7, "author_id": 9}, "users": [{"id": 9, "name": "Author"}]})
+        def download_help_center_image(self, url, *, max_bytes, subdomain):
+            return success({"content": b"image", "content_type": "image/png"})
+    monkeypatch.setattr(module, "build_guide_tools", lambda _: GuideTools(Client()))
+    server = module.create_server({"ZENDESK_CAPABILITIES": "guide"})
+    request = types.CallToolRequest(params=types.CallToolRequestParams(name="zendesk_get_help_center_article", arguments={"article_id": 7, "locale": "all", "embed_images": True, "include_metadata": True}))
+    result = asyncio.run(server.request_handlers[types.CallToolRequest](request))
+    assert result.root.structuredContent["data"]["metadata"] == {"author_name": "Author", "category_name": None, "section_name": None}
+    assert result.root.structuredContent["data"]["translations"][0]["locale"] == "ko"
+    assert result.root.structuredContent["data"]["untrusted_user_content"] is True
+    assert any(isinstance(item, types.ImageContent) for item in result.root.content)
+
+
 def test_mcp_scoped_export_uses_default_locale_and_returns_file(monkeypatch, tmp_path):
     from zendesk_mcp_server.contracts import success
     from zendesk_mcp_server.config import Settings

@@ -307,6 +307,24 @@ The existing `max_articles` bound, streaming file storage and no-partial-file-on
 failure behavior are unchanged. See the official [article list routes](https://developer.zendesk.com/api-reference/help_center/help-center-api/articles/)
 and [enabled/default locales](https://developer.zendesk.com/api-reference/help_center/help-center-api/translations/#list-enabled-locales-and-default-locale).
 
+Article reads accept `locale="all"` to list translations for all enabled languages
+of the selected brand. Disabled languages are excluded under the active-locale
+policy. The server follows translation cursors to completion (shared complete-read
+safety cap: 100,000 records), rejecting incomplete/error responses rather than
+returning a partial list as complete. With `embed_images=true`, the existing
+20 MB image budget is shared across the returned translations, not reset per
+language. Images remain separate MCP image content, not rewritten HTML data URIs.
+
+Set `include_metadata=true` to add `metadata.section_name`, `category_name` and
+`author_name`, joined by IDs from official article sideloads. Missing/inaccessible
+related names are null, not guessed. Metadata is read in the article endpoint's
+default locale; it is not a promise of translated names for every translation.
+The option defaults to false to preserve existing read calls and avoid fetching
+unrequested related records. Raw IDs and normal article/translation bodies remain
+unchanged; related names are also marked untrusted content. See official
+[translation lists](https://developer.zendesk.com/api-reference/help_center/help-center-api/translations/#list-translations)
+and [article sideloads](https://developer.zendesk.com/api-reference/help_center/help-center-api/articles/#show-article).
+
 Article search now also supports Unified Search through a non-empty `locales`
 array, with optional `query`, `brand_ids`, `category_ids` and `section_ids` arrays.
 For example, `{"locales":["ko","en-us"],"brand_ids":[7,8],"limit":100}` searches

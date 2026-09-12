@@ -235,26 +235,50 @@ class GuideTools:
             return failure(ErrorCode.UPSTREAM_ERROR, "article export spool could not be written")
         if not cached.get("ok"): return cached
         return success({"format": output_format, **result["data"], **cached["data"]})
-    def get_article(self, article_id: object, *, brand_id: int | None = None, locale: str | None = None, embed_images: bool = False) -> dict[str, object]:
+    def get_article(self, article_id: object, *, brand_id: int | None = None, locale: str | None = None, embed_images: bool = False, include_metadata: bool = False) -> dict[str, object]:
         identifier = _help_center_id(article_id)
-        if identifier is None or not isinstance(embed_images, bool) or (locale is not None and (not isinstance(locale, str) or not _LOCALE.fullmatch(locale))): return failure(ErrorCode.VALIDATION_ERROR, "article_id, locale, and embed_images must be valid")
+        if identifier is None or not isinstance(embed_images, bool) or not isinstance(include_metadata, bool) or (locale is not None and (not isinstance(locale, str) or not _LOCALE.fullmatch(locale))): return failure(ErrorCode.VALIDATION_ERROR, "article_id, locale, embed_images and include_metadata must be valid")
         scoped = self._for_brand(brand_id)
         if isinstance(scoped, dict): return scoped
-        if scoped is not self: return scoped.get_article(article_id, locale=locale, embed_images=embed_images)
+        if scoped is not self: return scoped.get_article(article_id, locale=locale, embed_images=embed_images, include_metadata=include_metadata)
+        article_result = None; metadata = {}
+        if include_metadata:
+            article_result = self._get(f"/api/v2/help_center/articles/{identifier}.json", {"include": "users,sections,categories"})
+            if not article_result.get("ok"): return article_result
+            data = article_result.get("data")
+            if not isinstance(data, dict) or not isinstance(data.get("article"), dict): return failure(ErrorCode.UPSTREAM_ERROR, "Zendesk returned invalid article metadata")
+            metadata = {"metadata": _article_names(data), "untrusted_user_content": True}
+        if locale == "all":
+            locales_result = self.list_locales()
+            if not locales_result.get("ok"): return locales_result
+            data = locales_result.get("data")
+            enabled = data.get("locales") if isinstance(data, dict) else None
+            if not isinstance(enabled, list) or not enabled or any(not isinstance(value, str) or not _LOCALE.fullmatch(value) for value in enabled):
+                return failure(ErrorCode.UPSTREAM_ERROR, "Zendesk returned invalid enabled locales")
+            def get_page(path, *, params):
+                return self._get(path, {**params, "locales": ",".join(enabled)})
+            translations = collect_complete_cursor(get_page, f"/api/v2/help_center/articles/{identifier}/translations.json", "translations")
+            if not translations.get("ok"): return translations
+            if any(item.get("locale") not in enabled for item in translations["items"]):
+                return failure(ErrorCode.UPSTREAM_ERROR, "Zendesk returned translations outside the requested locales")
+            data = {"translations": [{**item, "untrusted_user_content": True} for item in translations["items"]], **metadata}
+            if not embed_images: return success(data)
+            images = self._embed_images("\n".join(item["body"] for item in translations["items"] if isinstance(item.get("body"), str)))
+            return images if isinstance(images, dict) else success({**data, "images": images})
         if locale is not None:
             locale_check = self._validate_active_locale(locale)
             if locale_check is not None: return locale_check
             translation = self._get_translation(article_id, locale)
             if not isinstance(translation, dict) or "ok" in translation: return translation
             translation = {**translation, "untrusted_user_content": True}
-            if not embed_images: return success({"translation": translation})
+            if not embed_images: return success({"translation": translation, **metadata})
             images = self._embed_images(translation.get("body"))
-            return images if isinstance(images, dict) else success({"translation": translation, "images": images})
-        result = self._get(f"/api/v2/help_center/articles/{identifier}.json")
+            return images if isinstance(images, dict) else success({"translation": translation, "images": images, **metadata})
+        result = article_result if article_result is not None else self._get(f"/api/v2/help_center/articles/{identifier}.json")
         if not result.get("ok"): return result
         data = result.get("data"); article = data.get("article") if isinstance(data, dict) else None; body = article.get("body") if isinstance(article, dict) else None
         if isinstance(data, dict) and isinstance(article, dict):
-            data = {**data, "article": {**article, "untrusted_user_content": True}}
+            data = {**data, "article": {**article, "untrusted_user_content": True}, **metadata}
             result = success(data)
             article = data["article"]; body = article.get("body")
         if not embed_images: return result
@@ -431,6 +455,17 @@ def _epoch(value: str | None, *, milliseconds: bool) -> int | None:
         epoch = int(parsed.timestamp())
         return epoch * 1000 if milliseconds else epoch
     except ValueError: return None
+
+
+def _article_names(data: dict[str, object]) -> dict[str, object]:
+    article = data["article"]
+    def related(key, identifier):
+        records = data.get(key)
+        return next((item for item in records if isinstance(item, dict) and _help_center_id(identifier) is not None and _help_center_id(item.get("id")) == _help_center_id(identifier)), {}) if isinstance(records, list) else {}
+    section = related("sections", article.get("section_id"))
+    category = related("categories", section.get("category_id"))
+    author = related("users", article.get("author_id"))
+    return {key: item.get("name") if isinstance(item.get("name"), str) else None for key, item in (("section_name", section), ("category_name", category), ("author_name", author))}
 
 
 def _help_center_id(value: object) -> str | None:

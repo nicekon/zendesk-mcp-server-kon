@@ -17,6 +17,8 @@
 
 ## 최근 코드 검증
 
+- G2 전체 번역/관련 이름: `locale=all`로 선택 브랜드의 활성 언어 번역을 공식 cursor 목록에서 수집한다. 중간 페이지 오류는 원본 오류로 반환하고 일부 목록을 완료로 표시하지 않는다. 번역 전체가 기존 이미지 20 MB 예산을 공유한다. 선택 `include_metadata`는 공식 article sideload의 section/category/author를 ID로 결합하며 이름 누락은 null, 이름도 untrusted로 표시한다. 본문/단일 번역 기본 호출은 유지한다. 5개 도메인 실패와 MCP metadata/ImageContent 실패를 먼저 재현한 뒤 전체 618 passed. 실제 계정 전체 번역 조회 E2E 또는 나머지 기능 합집합 완료를 뜻하지 않는다.
+
 - G3 범위별 export: locale 생략 시 선택한 브랜드의 공식 default_locale을 사용하고, category_id/section_id(동시 지정은 section 우선)를 전체 페이지에 적용한다. 문자열 ID를 정수로 강제 변환하지 않는다. 공통 page reader에서 explicit locale의 활성 여부도 확인하도록 보완했다. 잘못된 입력은 브랜드 요청 전 거부, 기본 언어 누락·불일치는 오류로 반환한다. 21개 도메인 실패와 MCP CSV/file-link 실패를 먼저 재현한 뒤 전체 610 passed. 기존 페이지 실패·메모리 상한·중간 실패 시 artifact 미공개 회귀도 통과했다. 해당 export 도구 입력 fixture만 변경했고 실제 운영 데이터는 변경하지 않았다.
 
 - G1 구조화 검색: `locales` 배열을 받는 Unified Search 경로를 기존 도구에 추가했다. query 선택·복수 brand/category/section·ARTICLE 필터·opaque cursor·공식 page size 50을 검증했다. 선택된 브랜드의 활성 locale 합집합을 확인하며 브랜드 미지정 시 전체 브랜드 목록을 페이지 순회한다. 기존 singular 입력/offset 경로는 유지하고 schema와 runtime에서 혼용을 거부한다. 16개 도메인 실패 및 실제 MCP 등록/전달 실패를 먼저 재현했고 전체 586 passed. schema fixture는 해당 검색 도구 1개만 갱신했다. 실제 계정의 다중 브랜드 검색 E2E나 G2–G8 완료를 뜻하지 않는다.

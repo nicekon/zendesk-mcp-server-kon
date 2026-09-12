@@ -133,7 +133,16 @@ locale 생략 시 선택 브랜드의 default_locale을 확인하며, category/s
 공식 경로에 적용하는 export를 구현했다. 둘 다 지정하면 section이 우선한다.
 공통 page reader가 explicit locale의 활성 여부도 확인하므로 inline/export artifact
 경로에 동일하게 적용된다. 21개 신규 도메인 회귀와 MCP CSV/file-link 회귀,
-전체 610 passed가 근거다. 실제 계정 전체 export 실증과는 구별한다. 다음은 G2다.
+전체 610 passed가 근거다. 실제 계정 전체 export 실증과는 구별한다.
+
+### 후속 구현: G2
+
+`locale=all`은 선택 브랜드의 활성 locale 번역을 cursor 순회로 수집하고,
+`embed_images`는 반환 번역 전체에 공통 20 MB 예산을 적용한다. 비활성 언어는
+PRD 활성 locale 정책에 따라 제외한다. `include_metadata=true`로 기본 locale의
+section/category/author 이름을 ID로 연결하며, 확인되지 않은 이름은 null이다.
+5개 신규 도메인 회귀와 MCP metadata/ImageContent 회귀, 전체 618 passed가 근거다.
+운영 계정의 전체 번역 실증과 구별한다. 다음은 G4/G6/G7 및 G5/G8이다.
 
 M10의 원본 priority/status 정렬, M06의 원본 상세 GitLab metadata, M19의 표시 포맷은
 PRD가 승인한 범위와 추가 대조한다. 원본 입력과 다르다는 이유만으로 위험한 호환 alias나

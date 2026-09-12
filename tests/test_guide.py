@@ -275,6 +275,67 @@ def test_guide_search_uses_official_brand_and_locale_filters():
     ]
 
 
+def test_all_article_translations_are_brand_scoped_paginated_and_share_image_budget():
+    downloads = []
+    class Client:
+        def get(self, path, *, params=None):
+            assert path == "/api/v2/brands/7.json"
+            return success({"brand": {"subdomain": "one", "has_help_center": True}})
+        def get_for_subdomain(self, subdomain, path, *, params=None):
+            assert subdomain == "one"
+            if path == "/api/v2/help_center/locales.json": return success({"locales": ["en-us", "ko"]})
+            assert path == "/api/v2/help_center/articles/art-A/translations.json"
+            assert params["locales"] == "en-us,ko"
+            more = "page[after]" not in params
+            if not more: assert params["page[after]"] == "next"
+            locale = "en-us" if more else "ko"
+            return success({"translations": [{"id": locale, "locale": locale, "body": f'<img src="https://one.zendesk.com/hc/user_images/{locale}.png">'}], "meta": {"has_more": more, "after_cursor": "next"}})
+        def download_help_center_image(self, url, *, max_bytes, subdomain):
+            downloads.append((url, max_bytes, subdomain))
+            return success({"content": b"abc", "content_type": "image/png"})
+    result = GuideTools(Client()).get_article("art-A", brand_id=7, locale="all", embed_images=True)
+    assert result["ok"] is True
+    assert [item["locale"] for item in result["data"]["translations"]] == ["en-us", "ko"]
+    assert all(item["untrusted_user_content"] for item in result["data"]["translations"])
+    assert [entry[1] for entry in downloads] == [20 * 1024 * 1024, 20 * 1024 * 1024 - 3]
+    assert all(entry[2] == "one" for entry in downloads)
+
+
+@pytest.mark.parametrize("locale", [None, "ko", "all"])
+def test_article_metadata_names_are_joined_by_ids_not_positions(locale):
+    class Client:
+        def get(self, path, *, params=None):
+            if path == "/api/v2/help_center/locales.json": return success({"locales": ["ko"]})
+            if path.endswith("/translations/ko.json"): return success({"translation": {"locale": "ko", "body": "body"}})
+            if path.endswith("/translations.json"): return success({"translations": [{"locale": "ko", "body": "body"}], "meta": {"has_more": False}})
+            assert path == "/api/v2/help_center/articles/art-A.json"
+            assert params == {"include": "users,sections,categories"}
+            return success({"article": {"id": "art-A", "section_id": "s", "author_id": 9}, "sections": [{"id": "other", "name": "Wrong"}, {"id": "s", "category_id": "c", "name": "Section"}], "categories": [{"id": "c", "name": "Category"}], "users": [{"id": 8, "name": "Wrong"}, {"id": 9, "name": "Author"}]})
+    result = GuideTools(Client()).get_article("art-A", locale=locale, include_metadata=True)
+    assert result["ok"] is True
+    assert result["data"]["metadata"] == {"section_name": "Section", "category_name": "Category", "author_name": "Author"}
+
+
+def test_all_translation_read_does_not_return_partial_success_on_later_failure():
+    denied = failure(ErrorCode.PERMISSION_DENIED, "denied", request_id="translations")
+    class Client:
+        def get(self, path, *, params=None):
+            if path.endswith("locales.json"): return success({"locales": ["ko"]})
+            if "page[after]" in params: return denied
+            return success({"translations": [{"locale": "ko", "body": "body"}], "meta": {"has_more": True, "after_cursor": "next"}})
+    assert GuideTools(Client()).get_article("a", locale="all") == denied
+
+
+@pytest.mark.parametrize("returned_locale", [None, "en-us"])
+def test_all_translation_read_rejects_unrequested_upstream_locale(returned_locale):
+    class Client:
+        def get(self, path, *, params=None):
+            if path.endswith("locales.json"): return success({"locales": ["ko"]})
+            return success({"translations": [{"locale": returned_locale, "body": "body"}], "meta": {"has_more": False}})
+    result = GuideTools(Client()).get_article("a", locale="all")
+    assert result["error"]["code"] == "upstream_error"
+
+
 def test_article_read_validates_locale_and_uses_the_translation_endpoint():
     class TranslationClient:
         def __init__(self): self.paths = []
