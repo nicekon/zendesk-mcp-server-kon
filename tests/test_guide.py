@@ -1,12 +1,30 @@
 import os
 import csv
 import json
+import pytest
 from pathlib import Path
 
 from zendesk_mcp_server.contracts import ErrorCode, failure, success
 from zendesk_mcp_server.approvals import ApprovalStore
 from zendesk_mcp_server.config import Settings
 from zendesk_mcp_server.tools.guide import GuideTools
+
+
+@pytest.mark.parametrize("page", [
+    {"articles": [], "meta": {}},
+    {"articles": [None], "meta": {"has_more": False}},
+    {"articles": [], "meta": {"has_more": True, "after_cursor": "next"}},
+])
+def test_article_export_rejects_invalid_or_nonprogressing_pages(page):
+    class Client:
+        def __init__(self): self.calls = 0
+        def get(self, path, *, params=None):
+            self.calls += 1
+            assert self.calls == 1
+            return success(page)
+    result = GuideTools(Client()).export_articles("en-us")
+    assert result["ok"] is False
+    assert result["error"]["code"] == "upstream_error"
 
 
 class StubClient:
@@ -18,6 +36,58 @@ class StubClient:
 
     def request(self, method, path, *, json_body=None):
         self.paths.append((method, path, json_body)); return success({"article": {"id": 4}})
+
+
+def test_satisfaction_ratings_resume_cursor():
+    class Client:
+        def get(self, path, *, params=None):
+            assert path == "/api/v2/satisfaction_ratings.json"
+            assert params == {"page[size]": "1", "page[after]": "next"}
+            return success({"satisfaction_ratings": [{"id": 9}], "meta": {"has_more": False}})
+    assert GuideTools(Client()).get_satisfaction_ratings(limit=1, cursor="next") == {"ok": True, "items": [{"id": 9}], "has_more": False, "next_cursor": None, "truncated": False, "untrusted_user_content": True}
+
+
+def test_article_search_resumes_and_stops_at_1000_results():
+    class Client:
+        def get(self, path, *, params=None):
+            assert path == "/api/v2/help_center/articles/search.json"
+            assert params == {"query": "billing", "per_page": "100", "page": "10"}
+            return success({"results": [{"id": i} for i in range(900, 1000)], "next_page": "https://untrusted.example/ignored"})
+    t = GuideTools(Client())
+    assert t.search_articles("billing", limit=1, cursor="999") == {"ok": True, "items": [{"id": 999}], "has_more": True, "next_cursor": None, "truncated": True}
+    assert t.search_articles("billing", cursor="1000")["error"]["code"] == "validation_error"
+
+
+def test_user_segments_preserve_filter_across_pages():
+    for applicable in (False, True):
+        class Client:
+            def get(self, path, *, params=None):
+                assert path == ("/api/v2/help_center/user_segments/applicable.json" if applicable else "/api/v2/help_center/user_segments.json")
+                assert params["built_in"] == "false"
+                more = "page[after]" not in params
+                assert params["page[size]"] == ("2" if more else "1")
+                if not more: assert params["page[after]"] == "next"
+                return success({"user_segments": [{"id": 1 if more else 2}], "meta": {"has_more": more, "after_cursor": "next"}})
+        assert GuideTools(Client()).list_user_segments(built_in=False, applicable=applicable, limit=2) == {"ok": True, "items": [{"id": 1}, {"id": 2}], "has_more": False, "next_cursor": None, "truncated": False}
+
+
+def test_permission_groups_resume_offset():
+    class Client:
+        def get(self, path, *, params=None):
+            assert path == "/api/v2/guide/permission_groups.json"
+            assert params == {"per_page": "100", "page": "2"}
+            return success({"permission_groups": [{"id": 9}], "next_page": None})
+    assert GuideTools(Client()).list_permission_groups(limit=1, cursor="100") == {"ok": True, "items": [{"id": 9}], "has_more": False, "next_cursor": None, "truncated": False}
+
+
+def test_guide_category_and_section_lists_resume():
+    for key in ("categories", "sections"):
+        class Client:
+            def get(self, path, *, params=None):
+                assert path == f"/api/v2/help_center/{key}.json"
+                assert params == {"page[size]": "1", "page[after]": "next"}
+                return success({key: [{"id": 9}], "meta": {"has_more": False}})
+        assert getattr(GuideTools(Client()), f"list_{key}")(limit=1, cursor="next") == {"ok": True, "items": [{"id": 9}], "has_more": False, "next_cursor": None, "truncated": False}
 
 
 def test_guide_and_csat_reads_use_fixed_endpoints():
@@ -33,13 +103,13 @@ def test_guide_and_csat_reads_use_fixed_endpoints():
     tools.list_user_segments(built_in=False)
 
     assert client.paths == [
-        ("/api/v2/help_center/categories.json", None),
-        ("/api/v2/help_center/sections.json", None),
-        ("/api/v2/help_center/articles/search.json", {"query": "billing"}),
+        ("/api/v2/help_center/categories.json", {"page[size]": "100"}),
+        ("/api/v2/help_center/sections.json", {"page[size]": "100"}),
+        ("/api/v2/help_center/articles/search.json", {"query": "billing", "per_page": "100", "page": "1"}),
         ("/api/v2/help_center/articles/3.json", None),
-        ("/api/v2/satisfaction_ratings.json", None),
-        ("/api/v2/guide/permission_groups.json", None),
-        ("/api/v2/help_center/user_segments.json", {"built_in": "false"}),
+        ("/api/v2/satisfaction_ratings.json", {"page[size]": "100"}),
+        ("/api/v2/guide/permission_groups.json", {"per_page": "100", "page": "1"}),
+        ("/api/v2/help_center/user_segments.json", {"built_in": "false", "page[size]": "100"}),
     ]
 
 
@@ -51,15 +121,15 @@ def test_guide_category_read_resolves_brand_id_to_its_subdomain():
             return success({"brand": {"id": 7, "subdomain": "brand-one", "has_help_center": True}})
         def get_for_subdomain(self, subdomain, path, *, params=None):
             self.paths.append((subdomain, path, params))
-            return success({"categories": [{"id": "guide-1"}]})
+            return success({"categories": [{"id": "guide-1"}], "meta": {"has_more": False}})
 
     client = BrandClient()
     result = GuideTools(client).list_categories(brand_id=7)
 
-    assert result["data"]["categories"] == [{"id": "guide-1"}]
+    assert result["items"] == [{"id": "guide-1"}]
     assert client.paths == [
         ("/api/v2/brands/7.json", None),
-        ("brand-one", "/api/v2/help_center/categories.json", None),
+        ("brand-one", "/api/v2/help_center/categories.json", {"page[size]": "100"}),
     ]
 
 
@@ -95,7 +165,7 @@ def test_guide_search_uses_official_brand_and_locale_filters():
     assert client.paths == [
         ("/api/v2/brands/7.json", None),
         ("brand-one", "/api/v2/help_center/locales.json", None),
-        ("/api/v2/help_center/articles/search.json", {"query": "billing", "brand_id": "7", "locale": "en-us"}),
+        ("/api/v2/help_center/articles/search.json", {"query": "billing", "brand_id": "7", "locale": "en-us", "per_page": "100", "page": "1"}),
     ]
 
 
@@ -241,6 +311,28 @@ def test_article_artifact_streams_pages_and_preserves_late_csv_columns(tmp_path)
             else: assert list(csv.DictReader(stream)) == [{"id": "1", "title": "Welcome", "late": ""}, {"id": "2", "title": "", "late": "추가"}]
 
 
+@pytest.mark.parametrize("output_format", ["json", "csv"])
+def test_article_export_does_not_buffer_the_serialized_artifact(tmp_path, output_format):
+    import tracemalloc
+    class Client:
+        def get(self, path, *, params=None):
+            start = int(params.get("page[after]", "0"))
+            end = min(10000, start + int(params["page[size]"]))
+            return success({"articles": [{"id": i, "body": str(i) + "x" * 1024} for i in range(start, end)], "meta": {"has_more": end < 10000, "after_cursor": str(end)}})
+    tools = GuideTools(Client(), Settings.load({"ZENDESK_ATTACHMENT_CACHE_ROOT": str(tmp_path / "attachments")}))
+    tracemalloc.start()
+    try:
+        result = tools.export_article_artifact("en-us", max_articles=10000, output_format=output_format)
+        _, peak = tracemalloc.get_traced_memory()
+    finally:
+        tracemalloc.stop()
+    assert result["ok"] is True
+    assert result["data"]["item_count"] == 10000
+    assert result["data"]["truncated"] is False
+    assert Path(result["data"]["cache_path"]).stat().st_size == result["data"]["size"] > 10_000_000
+    assert peak < 4_000_000, "export retained page bodies or the serialized file in memory"
+
+
 def test_article_export_failure_does_not_publish_partial_artifact(tmp_path):
     class ExportClient:
         def get(self, path, *, params=None):
@@ -253,6 +345,34 @@ def test_article_export_failure_does_not_publish_partial_artifact(tmp_path):
     assert not list(tmp_path.rglob("*export*"))
 
 
+def test_csat_results_mark_customer_content_untrusted(tmp_path):
+    class Client:
+        def get(self, path, *, params=None):
+            key = "satisfaction_ratings" if "satisfaction_ratings" in path else "survey_responses"
+            return success({key: [{"id": 1, "comment": "Customer text"}], "meta": {"has_more": False}})
+    tools = GuideTools(Client(), Settings.load({"ZENDESK_ATTACHMENT_CACHE_ROOT": str(tmp_path / "attachments")}))
+    assert tools.get_satisfaction_ratings()["untrusted_user_content"] is True
+    for backend in ("legacy", "survey"):
+        listed = tools.list_csat(backend)
+        assert listed["untrusted_user_content"] is True
+        assert listed["items"][0]["comment"] == "Customer text"
+        assert tools.export_csat(backend)["data"]["untrusted_user_content"] is True
+
+
+def test_csat_lists_preserve_backend_filters_across_pages():
+    for backend, key, filters in (("legacy", "satisfaction_ratings", {"score": "good"}), ("survey", "survey_responses", {"ticket_id": 9})):
+        class Client:
+            def get(self, path, *, params=None):
+                assert path == ("/api/v2/satisfaction_ratings.json" if backend == "legacy" else "/api/v2/guide/survey_responses")
+                assert params.get("score") == ("good" if backend == "legacy" else None)
+                assert params.get("filter[subject_zrns]") == ("zen:ticket:9" if backend == "survey" else None)
+                more = "page[after]" not in params
+                assert params["page[size]"] == ("2" if more else "1")
+                if not more: assert params["page[after]"] == "next"
+                return success({key: [{"id": 1 if more else 2}], "meta": {"has_more": more, "after_cursor": "next"}})
+        assert GuideTools(Client()).list_csat(backend, limit=2, **filters) == {"ok": True, "items": [{"id": 1}, {"id": 2}], "has_more": False, "next_cursor": None, "truncated": False, "untrusted_user_content": True}
+
+
 def test_csat_adapters_only_send_their_official_filters():
     client = StubClient(); tools = GuideTools(client)
 
@@ -260,9 +380,61 @@ def test_csat_adapters_only_send_their_official_filters():
     tools.list_csat("survey", ticket_id=9, responder_ids=[3, 4], created_at_start="2026-09-01T00:00:00+00:00")
 
     assert client.paths == [
-        ("/api/v2/satisfaction_ratings.json", {"score": "good", "start_time": "1788220800", "end_time": "1788307200"}),
-        ("/api/v2/guide/survey_responses.json", {"filter[subject_zrns]": "zen:ticket:9", "filter[responder_ids]": "3,4", "filter[created_at_start]": "1788220800000"}),
+        ("/api/v2/satisfaction_ratings.json", {"page[size]": "100", "score": "good", "start_time": "1788220800", "end_time": "1788307200"}),
+        ("/api/v2/guide/survey_responses", {"page[size]": "50", "filter[subject_zrns]": "zen:ticket:9", "filter[responder_ids]": "3,4", "filter[created_at_start]": "1788220800000"}),
     ]
+
+
+@pytest.mark.parametrize("backend,key", [("legacy", "satisfaction_ratings"), ("survey", "survey_responses")])
+@pytest.mark.parametrize("bad_page,more", [([None], False), ([], True)])
+def test_csat_export_rejects_bad_later_page_without_publishing(tmp_path, backend, key, bad_page, more):
+    class Client:
+        def __init__(self): self.calls = 0
+        def get(self, path, *, params=None):
+            self.calls += 1
+            assert self.calls <= 2
+            if self.calls == 1:
+                return success({key: [{"id": 1}], "meta": {"has_more": True, "after_cursor": "next"}})
+            return success({key: bad_page, "meta": {"has_more": more, "after_cursor": "another"}})
+    settings = Settings.load({"ZENDESK_ATTACHMENT_CACHE_ROOT": str(tmp_path / "attachments")})
+    result = GuideTools(Client(), settings).export_csat(backend)
+    assert result["ok"] is False and result["error"]["code"] == "upstream_error"
+    assert not list(tmp_path.rglob("*.json"))
+
+
+def test_survey_list_and_export_use_official_suffixless_path(tmp_path):
+    class Client:
+        def get(self, path, *, params=None):
+            assert path == "/api/v2/guide/survey_responses"
+            return success({"survey_responses": [], "meta": {"has_more": False}})
+    tools = GuideTools(Client(), Settings.load({"ZENDESK_ATTACHMENT_CACHE_ROOT": str(tmp_path / "attachments")}))
+    assert tools.list_csat("survey", limit=1)["ok"] is True
+    assert tools.export_csat("survey")["ok"] is True
+
+
+@pytest.mark.parametrize("backend", ["auto", "survey"])
+def test_survey_page_cap_preserves_list_and_export_totals(tmp_path, backend):
+    class Client:
+        def __init__(self): self.sizes = []
+        def get(self, path, *, params=None):
+            assert path == "/api/v2/guide/survey_responses"
+            size = int(params["page[size]"])
+            assert 1 <= size <= 50
+            self.sizes.append(size)
+            start = int(params.get("page[after]", "0"))
+            end = min(101, start + size)
+            return success({"survey_responses": [{"id": i} for i in range(start, end)], "meta": {"has_more": end < 101, "after_cursor": str(end)}})
+    client = Client()
+    tools = GuideTools(client, Settings.load({"ZENDESK_ATTACHMENT_CACHE_ROOT": str(tmp_path / "attachments")}))
+    expected = [{"id": i} for i in range(101)]
+    result = tools.list_csat(backend, limit=101)
+    assert result["ok"] is True and result["items"] == expected
+    assert client.sizes == [50, 50, 1]
+    client.sizes.clear()
+    result = tools.export_csat(backend)
+    assert result["data"]["item_count"] == 101 and result["data"]["truncated"] is False
+    assert json.loads(Path(result["data"]["cache_path"]).read_text()) == expected
+    assert client.sizes == [50, 50, 50]
 
 
 def test_csat_export_writes_a_managed_artifact(tmp_path):
@@ -288,7 +460,7 @@ def test_csat_export_follows_cursors_without_retaining_pages(tmp_path):
         class CsatClient:
             previous = None
             def get(self, path, *, params=None):
-                assert params["page[size]"] == "100"
+                assert params["page[size]"] == ("100" if backend == "legacy" else "50")
                 if params.get("page[after]") == "next":
                     assert self.previous() is None
                     return success({key: [{"id": 2}], "meta": {"has_more": False}})
@@ -300,6 +472,28 @@ def test_csat_export_follows_cursors_without_retaining_pages(tmp_path):
         assert result["data"]["item_count"] == 2
         assert result["data"]["truncated"] is False
         assert json.loads(Path(result["data"]["cache_path"]).read_text()) == [{"id": 1}, {"id": 2}]
+
+
+@pytest.mark.parametrize("backend,key", [("legacy", "satisfaction_ratings"), ("survey", "survey_responses")])
+@pytest.mark.parametrize("output_format", ["json", "csv"])
+def test_csat_export_bounds_memory_for_large_artifacts(tmp_path, backend, key, output_format):
+    import tracemalloc
+    class Client:
+        def get(self, path, *, params=None):
+            start = int(params.get("page[after]", "0"))
+            end = min(10000, start + int(params["page[size]"]))
+            return success({key: [{"id": i, "comment": str(i) + "x" * 1024} for i in range(start, end)], "meta": {"has_more": end < 10000, "after_cursor": str(end)}})
+    tools = GuideTools(Client(), Settings.load({"ZENDESK_ATTACHMENT_CACHE_ROOT": str(tmp_path / "attachments")}))
+    tracemalloc.start()
+    try:
+        result = tools.export_csat(backend, output_format=output_format)
+        _, peak = tracemalloc.get_traced_memory()
+    finally:
+        tracemalloc.stop()
+    assert result["ok"] is True
+    assert result["data"]["item_count"] == 10000 and result["data"]["truncated"] is False
+    assert Path(result["data"]["cache_path"]).stat().st_size == result["data"]["size"] > 10_000_000
+    assert peak < 4_000_000, "CSAT export retained page bodies or the serialized artifact"
 
 
 def test_csat_export_rejects_repeated_cursor_and_enforces_total_cap(tmp_path):

@@ -227,6 +227,20 @@ def test_oauth_authorization_code_state_is_single_use_and_binds_redirect(tmp_pat
         exchange_oauth_authorization_code(lambda _: pytest.fail("unexpected exchange"), "client", "secret", "code", request["state"], "https://app.example.test/callback", ("tickets:read",), state_store, token_store, now=102)
 
 
+def test_support_search_read_exception_is_in_authorization_url_without_enabling_writes(tmp_path: Path):
+    from zendesk_mcp_server.auth import create_settings_oauth_authorization_request
+    from zendesk_mcp_server.config import Settings
+    from zendesk_mcp_server.tools.tickets import TicketTools
+    for capabilities in ("support", "operations,guide,community,csat,custom_objects,git_zen,time_tracking,badges"):
+        settings = Settings.load({"ZENDESK_SUBDOMAIN": "acme", "ZENDESK_AUTH_MODE": "oauth", "ZENDESK_OAUTH_CLIENT_KIND": "public", "ZENDESK_OAUTH_CLIENT_ID": "client", "ZENDESK_OAUTH_TOKEN_STORE": str(tmp_path / "oauth.json"), "ZENDESK_CAPABILITIES": capabilities})
+        request = create_settings_oauth_authorization_request(settings, "http://127.0.0.1:3000/oauth/callback", OAuthStateStore(tmp_path / "state.json"), now=100, code_verifier="a" * 43)
+        scopes = parse_qs(urlsplit(request["authorization_url"]).query)["scope"][0].split()
+        assert ("read" in scopes) is (capabilities == "support")
+        assert not any(scope == "write" or scope.endswith(":write") for scope in scopes)
+        assert settings.write_mode == "read_only"
+        assert TicketTools(None, settings).log_time(1, "1m", "test")["error"]["code"] == "write_disabled"
+
+
 def test_settings_oauth_authorization_request_uses_calculated_scopes(tmp_path: Path):
     from zendesk_mcp_server.auth import create_settings_oauth_authorization_request
     from zendesk_mcp_server.config import Settings
@@ -241,7 +255,7 @@ def test_settings_oauth_authorization_request_uses_calculated_scopes(tmp_path: P
     })
     request = create_settings_oauth_authorization_request(settings, "https://app.example.test/callback", OAuthStateStore(tmp_path / "state.json"), now=100)
 
-    assert parse_qs(urlsplit(request["authorization_url"]).query)["scope"] == ["hc:read"]
+    assert parse_qs(urlsplit(request["authorization_url"]).query)["scope"] == ["brands:read hc:read"]
 
 
 def test_settings_oauth_code_exchange_reuses_the_configured_state_and_token_stores(tmp_path: Path):

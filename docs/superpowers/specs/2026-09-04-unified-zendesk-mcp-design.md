@@ -561,12 +561,15 @@ MCP schema validation
 기존 `ZENDESK_API_KEY`는 `1.0.0`에서 `ZENDESK_API_TOKEN`으로 이동하고 migration
 문서에서 명시한다. 비밀값을 CLI 인자로 받지 않는다.
 
-OAuth setup은 broad `read`/`read write` 대신 활성 capability의 resource-specific
-scope 합집합을 요청한다.
+OAuth setup은 활성 capability의 resource-specific scope 합집합을 요청한다.
+사용자 승인 예외로 Support가 활성화되면 Search/Search Export를 위해 broad
+`read`도 요청한다. 이 scope는 검색만이 아니라 계정 역할이 허용하는 모든 GET
+리소스를 읽을 수 있게 한다. Support 비활성 시에는 요청하지 않으며 broad
+`write`는 계속 금지한다. 서버 read-only 기본값과 쓰기 gate·사람 승인은 유지한다.
 
 | 활성 capability | 요청 scope |
 | --- | --- |
-| Support·계정 metadata 읽기 | `tickets:read users:read groups:read organizations:read brands:read ticket_attachments:read` |
+| Support·계정 metadata 읽기 | `tickets:read users:read groups:read organizations:read brands:read ticket_attachments:read` 및 승인된 검색 예외 `read` |
 | Views·Macros·Triggers 읽기 | `ticket_views:read macros:read triggers:read` |
 | Guide·Community 읽기 | `hc:read` |
 | CSAT 읽기 | `satisfaction_ratings:read` |
@@ -792,9 +795,9 @@ timeout을 서로 구분한다. 오류 문자열을 정상 문자열 결과로 �
 - [ ] OAuth 일부 설정은 API token으로 fallback하지 않고 구성 오류가 된다.
 - [ ] OAuth state 검증, refresh 1회, concurrent refresh와 원자 저장 테스트가
       통과한다.
-- [ ] OAuth는 활성 capability에 필요한 resource-specific scope 합집합만
-      요청하고, broad `read`/`read write`를 요청하지 않으며 서버 gate는
-      scope와 독립적으로 적용된다.
+- [ ] OAuth는 활성 capability의 resource-specific scope 합집합과, Support
+      활성 시 사용자 승인된 검색용 broad `read` 예외만 요청한다. broad `write`는
+      요청하지 않으며 서버 gate는 scope와 독립적으로 적용된다.
 - [ ] cursor/offset 목록이 동일한 표준 envelope를 반환하고 2페이지 이상,
       빈 마지막 페이지, 반복 cursor, cross-host next URL을 검증한다.
 - [ ] 읽기 429가 최초+2회, 총 sleep 30초 제한 안에서 재시도되고 쓰기는 자동

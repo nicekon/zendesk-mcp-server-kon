@@ -13,6 +13,7 @@ from urllib.parse import quote, urlsplit
 from ..approvals import ApprovalStore
 from ..config import Settings
 from ..contracts import ErrorCode, failure, success
+from ..pagination import collect_cursor, collect_offset
 from ..write_policy import WriteRisk, check_write_permission
 from .tickets import _cache_ticket_export, _clean_export_cache, _stream_ticket_export
 
@@ -34,24 +35,33 @@ class GuideTools:
     def __init__(self, client: GuideClient | None, settings: Settings | None = None, approvals: ApprovalStore | None = None, brand_subdomain: str | None = None) -> None: self._client, self._settings, self._approvals, self._brand_subdomain = client, settings, approvals, brand_subdomain
     def list_locales(self, *, brand_id: int | None = None) -> dict[str, object]:
         scoped = self._for_brand(brand_id); return scoped if isinstance(scoped, dict) else scoped._get("/api/v2/help_center/locales.json")
-    def list_categories(self, *, brand_id: int | None = None) -> dict[str, object]:
-        scoped = self._for_brand(brand_id); return scoped if isinstance(scoped, dict) else scoped._get("/api/v2/help_center/categories.json")
-    def list_sections(self, *, brand_id: int | None = None) -> dict[str, object]:
-        scoped = self._for_brand(brand_id); return scoped if isinstance(scoped, dict) else scoped._get("/api/v2/help_center/sections.json")
-    def get_satisfaction_ratings(self) -> dict[str, object]: return self._get("/api/v2/satisfaction_ratings.json")
-    def list_csat(self, backend: str = "auto", *, score: str | None = None, ticket_id: int | None = None, responder_ids: list[int] | None = None, created_at_start: str | None = None, created_at_end: str | None = None, page_size: int | None = None, cursor: str | None = None) -> dict[str, object]:
+    def list_categories(self, *, brand_id: int | None = None, limit: int = 100, cursor: str | None = None) -> dict[str, object]:
+        scoped = self._for_brand(brand_id); return scoped if isinstance(scoped, dict) else collect_cursor(scoped._get, "/api/v2/help_center/categories.json", "categories", limit, cursor)
+    def list_sections(self, *, brand_id: int | None = None, limit: int = 100, cursor: str | None = None) -> dict[str, object]:
+        scoped = self._for_brand(brand_id); return scoped if isinstance(scoped, dict) else collect_cursor(scoped._get, "/api/v2/help_center/sections.json", "sections", limit, cursor)
+    def get_satisfaction_ratings(self, limit: int = 100, *, cursor: str | None = None) -> dict[str, object]:
+        return self.list_csat("legacy", limit=limit, cursor=cursor)
+    def list_csat(self, backend: str = "auto", *, score: str | None = None, ticket_id: int | None = None, responder_ids: list[int] | None = None, created_at_start: str | None = None, created_at_end: str | None = None, limit: int = 100, cursor: str | None = None) -> dict[str, object]:
+        key = "satisfaction_ratings" if backend == "legacy" or (backend == "auto" and score is not None) else "survey_responses"
+        def get_page(path, *, params):
+            return self._csat_page(backend, score=score, ticket_id=ticket_id, responder_ids=responder_ids, created_at_start=created_at_start, created_at_end=created_at_end, page_size=int(params["page[size]"]), cursor=params.get("page[after]"))
+        result = collect_cursor(get_page, "", key, limit, cursor)
+        return {**result, "untrusted_user_content": True} if result.get("ok") else result
+
+    def _csat_page(self, backend: str = "auto", *, score: str | None = None, ticket_id: int | None = None, responder_ids: list[int] | None = None, created_at_start: str | None = None, created_at_end: str | None = None, page_size: int | None = None, cursor: str | None = None) -> dict[str, object]:
         if (page_size is not None and (not isinstance(page_size, int) or isinstance(page_size, bool) or not 1 <= page_size <= 100)) or (cursor is not None and (not isinstance(cursor, str) or not cursor or page_size is None)): return failure(ErrorCode.VALIDATION_ERROR, "CSAT page size and cursor must be valid")
         pagination = {"page[size]": str(page_size)} if page_size is not None else {}
         if cursor is not None: pagination["page[after]"] = cursor
         if backend not in {"auto", "legacy", "survey"}: return failure(ErrorCode.VALIDATION_ERROR, "backend must be auto, legacy, or survey")
         if backend == "auto": backend = "legacy" if score is not None else "survey"
+        if backend == "survey" and page_size is not None: pagination["page[size]"] = str(min(page_size, 50))
         start = _epoch(created_at_start, milliseconds=backend == "survey"); end = _epoch(created_at_end, milliseconds=backend == "survey")
         if (created_at_start is not None and start is None) or (created_at_end is not None and end is None) or (start is not None and end is not None and start > end): return failure(ErrorCode.VALIDATION_ERROR, "CSAT dates must be ordered ISO-8601 timestamps with timezone")
         if backend == "legacy":
             if ticket_id is not None or responder_ids is not None or (score is not None and score not in _CSAT_SCORES): return failure(ErrorCode.VALIDATION_ERROR, "legacy CSAT accepts only a valid score and date range")
             return self._get("/api/v2/satisfaction_ratings.json", {key: value for key, value in {**pagination, "score": score, "start_time": str(start) if start is not None else None, "end_time": str(end) if end is not None else None}.items() if value is not None} or None)
         if score is not None or (ticket_id is not None and not self._valid_id(ticket_id)) or (responder_ids is not None and (not isinstance(responder_ids, list) or not responder_ids or any(not self._valid_id(value) for value in responder_ids))): return failure(ErrorCode.VALIDATION_ERROR, "survey CSAT accepts ticket_id, responder_ids, and date range only")
-        return self._get("/api/v2/guide/survey_responses.json", {key: value for key, value in {**pagination, "filter[subject_zrns]": f"zen:ticket:{ticket_id}" if ticket_id is not None else None, "filter[responder_ids]": ",".join(str(value) for value in responder_ids) if responder_ids is not None else None, "filter[created_at_start]": str(start) if start is not None else None, "filter[created_at_end]": str(end) if end is not None else None}.items() if value is not None} or None)
+        return self._get("/api/v2/guide/survey_responses", {key: value for key, value in {**pagination, "filter[subject_zrns]": f"zen:ticket:{ticket_id}" if ticket_id is not None else None, "filter[responder_ids]": ",".join(str(value) for value in responder_ids) if responder_ids is not None else None, "filter[created_at_start]": str(start) if start is not None else None, "filter[created_at_end]": str(end) if end is not None else None}.items() if value is not None} or None)
     def export_csat(self, backend: str = "auto", *, score: str | None = None, ticket_id: int | None = None, responder_ids: list[int] | None = None, created_at_start: str | None = None, created_at_end: str | None = None, output_format: str = "json") -> dict[str, object]:
         if output_format not in {"json", "csv"}: return failure(ErrorCode.VALIDATION_ERROR, "output_format must be json or csv")
         if self._settings is None or self._settings.attachment_cache_root is None: return failure(ErrorCode.NOT_CONFIGURED, "Zendesk export cache is not configured")
@@ -62,12 +72,13 @@ class GuideTools:
         try:
             with tempfile.TemporaryFile(mode="w+", encoding="utf-8") as spool:
                 while count < 100000:
-                    result = self.list_csat(backend, score=score, ticket_id=ticket_id, responder_ids=responder_ids, created_at_start=created_at_start, created_at_end=created_at_end, page_size=min(100, 100000-count), cursor=cursor)
+                    result = self._csat_page(backend, score=score, ticket_id=ticket_id, responder_ids=responder_ids, created_at_start=created_at_start, created_at_end=created_at_end, page_size=min(100, 100000-count), cursor=cursor)
                     if not result.get("ok"): return result
                     data = result.get("data")
                     page = data.get(key) if isinstance(data, dict) else None
                     meta = data.get("meta") if isinstance(data, dict) else None
-                    if not isinstance(page, list) or not isinstance(meta, dict) or not isinstance(meta.get("has_more"), bool): return failure(ErrorCode.UPSTREAM_ERROR, "Zendesk returned an invalid CSAT export page")
+                    if not isinstance(page, list) or any(not isinstance(item, dict) for item in page) or not isinstance(meta, dict) or not isinstance(meta.get("has_more"), bool): return failure(ErrorCode.UPSTREAM_ERROR, "Zendesk returned an invalid CSAT export page")
+                    if not page and meta["has_more"]: return failure(ErrorCode.UPSTREAM_ERROR, "Zendesk CSAT export returned a nonprogressing page")
                     remaining = 100000-count
                     spool.writelines(json.dumps(item, ensure_ascii=False, separators=(",", ":")) + "\n" for item in page[:remaining])
                     count += min(len(page), remaining)
@@ -84,19 +95,20 @@ class GuideTools:
         except OSError:
             return failure(ErrorCode.UPSTREAM_ERROR, "CSAT export spool could not be written")
         if not cached.get("ok"): return cached
-        return success({"format": output_format, "item_count": count, "truncated": truncated, **cached["data"]})
-    def list_permission_groups(self) -> dict[str, object]: return self._get("/api/v2/guide/permission_groups.json")
-    def list_user_segments(self, *, built_in: bool | None = None, applicable: bool = False) -> dict[str, object]:
+        return success({"format": output_format, "item_count": count, "truncated": truncated, "untrusted_user_content": True, **cached["data"]})
+    def list_permission_groups(self, limit: int = 100, *, cursor: str | None = None) -> dict[str, object]:
+        return collect_offset(self._get, "/api/v2/guide/permission_groups.json", "permission_groups", limit, cursor)
+    def list_user_segments(self, *, built_in: bool | None = None, applicable: bool = False, limit: int = 100, cursor: str | None = None) -> dict[str, object]:
         if not isinstance(applicable, bool) or (built_in is not None and not isinstance(built_in, bool)): return failure(ErrorCode.VALIDATION_ERROR, "built_in and applicable must be booleans")
-        return self._get("/api/v2/help_center/user_segments/applicable.json" if applicable else "/api/v2/help_center/user_segments.json", {"built_in": str(built_in).lower()} if built_in is not None else None)
-    def search_articles(self, query: str, *, brand_id: int | None = None, locale: str | None = None) -> dict[str, object]:
+        return collect_cursor(self._get, "/api/v2/help_center/user_segments/applicable.json" if applicable else "/api/v2/help_center/user_segments.json", "user_segments", limit, cursor, filters={"built_in": str(built_in).lower()} if built_in is not None else None)
+    def search_articles(self, query: str, *, brand_id: int | None = None, locale: str | None = None, limit: int = 100, cursor: str | None = None) -> dict[str, object]:
         if not isinstance(query, str) or not query.strip() or (brand_id is not None and not self._valid_id(brand_id)) or (locale is not None and (not isinstance(locale, str) or not _LOCALE.fullmatch(locale))): return failure(ErrorCode.VALIDATION_ERROR, "query, brand_id, and locale must be valid")
         if locale is not None:
             scoped = self._for_brand(brand_id)
             if isinstance(scoped, dict): return scoped
             locale_check = scoped._validate_active_locale(locale)
             if locale_check is not None: return locale_check
-        return self._get("/api/v2/help_center/articles/search.json", {key: value for key, value in {"query": query.strip(), "brand_id": str(brand_id) if brand_id is not None else None, "locale": locale}.items() if value is not None})
+        return collect_offset(self._get, "/api/v2/help_center/articles/search.json", "results", limit, cursor, max_results=1000, filters={key: value for key, value in {"query": query.strip(), "brand_id": str(brand_id) if brand_id is not None else None, "locale": locale}.items() if value is not None})
     def export_articles(self, locale: str, max_articles: int = 100000, *, brand_id: int | None = None) -> dict[str, object]:
         articles: list[object] = []
         result = self._export_article_pages(locale, max_articles, articles.extend, brand_id=brand_id)
@@ -114,7 +126,8 @@ class GuideTools:
             result = self._get(f"/api/v2/help_center/{locale}/articles.json", params)
             if not result.get("ok"): return result
             data = result.get("data"); page = data.get("articles") if isinstance(data, dict) else None; meta = data.get("meta") if isinstance(data, dict) else None
-            if not isinstance(page, list) or not isinstance(meta, dict): return failure(ErrorCode.UPSTREAM_ERROR, "Zendesk returned an invalid article export page")
+            if not isinstance(page, list) or any(not isinstance(article, dict) for article in page) or not isinstance(meta, dict) or not isinstance(meta.get("has_more"), bool): return failure(ErrorCode.UPSTREAM_ERROR, "Zendesk returned an invalid article export page")
+            if not page and meta["has_more"]: return failure(ErrorCode.UPSTREAM_ERROR, "Zendesk article export returned a nonprogressing page")
             remaining = max_articles - count
             consume(page[:remaining]); count += min(len(page), remaining)
             if len(page) > remaining: return success({"item_count": count, "truncated": True})

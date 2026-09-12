@@ -4,6 +4,22 @@ from pathlib import Path
 from zendesk_mcp_server.config import AuthMode, ConfigurationError, Settings
 
 
+def test_time_tracking_fields_require_distinct_positive_pair():
+    total = "ZENDESK_TIME_TRACKING_TOTAL_FIELD_ID"
+    last = "ZENDESK_TIME_TRACKING_LAST_FIELD_ID"
+    settings = Settings.load({total: "12", last: "34"})
+    assert settings.time_tracking_total_field_id == 12
+    assert settings.time_tracking_last_field_id == 34
+    defaults = Settings.load({})
+    assert defaults.time_tracking_total_field_id is None
+    assert defaults.time_tracking_last_field_id is None
+    for values in ({total: "12"}, {last: "34"}, {total: "12", last: "12"},
+                   *({total: bad, last: "34"} for bad in ("", "0", "-1", "1.5", "true", "1_2", "１２", "9" * 5000))):
+        with pytest.raises(ConfigurationError) as error:
+            Settings.load(values)
+        assert error.value.code == "invalid_time_tracking_fields"
+
+
 def test_auto_uses_api_token_when_no_oauth_settings_exist():
     settings = Settings.load(
         {
@@ -150,7 +166,7 @@ def test_saved_connection_rejects_group_readable_permissions(tmp_path, monkeypat
     assert error.value.code == "unsafe_oauth_permissions"
 
 
-def test_windows_does_not_apply_posix_mode_bits_to_saved_connection(tmp_path, monkeypatch):
+def test_windows_without_acl_support_refuses_oauth_reads_and_writes(tmp_path, monkeypatch):
     import zendesk_mcp_server.config as config
     from zendesk_mcp_server.auth import OAuthTokenStore, OAuthTokens, save_connection
 
@@ -167,8 +183,45 @@ def test_windows_does_not_apply_posix_mode_bits_to_saved_connection(tmp_path, mo
     path.chmod(0o666)
     monkeypatch.setattr(config, "_CHECK_POSIX_PERMISSIONS", False)
 
-    assert Settings.load({}).auth_mode is AuthMode.OAUTH
-    assert OAuthTokenStore(path).load().access_token == "access"
+    for operation in (lambda: Settings.load({}), lambda: OAuthTokenStore(path).load(), lambda: OAuthTokenStore(tmp_path / "new.json").save(OAuthTokens("new", "refresh", 999))):
+        with pytest.raises(ConfigurationError) as error:
+            operation()
+        assert error.value.code == "unsupported"
+    assert not (tmp_path / "new.json").exists()
+
+
+@pytest.mark.parametrize("capability,extra,expected", [
+    ("custom_objects", {}, {"custom_objects:read", "account_settings:read"}),
+    ("git_zen", {}, {"tickets:read"}),
+    ("time_tracking", {}, {"tickets:read"}),
+    ("time_tracking", {"ZENDESK_WRITE_MODE": "standard"}, {"tickets:read", "tickets:write"}),
+    ("guide", {"ZENDESK_WRITE_MODE": "standard", "ZENDESK_ENABLE_PUBLIC_WRITES": "true"}, {"brands:read", "hc:read", "hc:write"}),
+    ("git_zen", {"ZENDESK_WRITE_MODE": "standard", "ZENDESK_ENABLE_PUBLIC_WRITES": "true"}, {"tickets:read"}),
+])
+def test_conditional_oauth_scopes_follow_active_read_and_write_tools(capability, extra, expected):
+    settings = Settings.load({"ZENDESK_SUBDOMAIN": "acme", "ZENDESK_AUTH_MODE": "oauth", "ZENDESK_OAUTH_CLIENT_KIND": "public", "ZENDESK_OAUTH_CLIENT_ID": "client", "ZENDESK_OAUTH_TOKEN_STORE": "/tmp/not-read.json", "ZENDESK_CAPABILITIES": capability, **extra})
+    assert set(settings.oauth.scopes) == expected
+
+
+def test_operations_oauth_covers_its_endpoints_without_support_capability():
+    settings = Settings.load({"ZENDESK_SUBDOMAIN": "acme", "ZENDESK_AUTH_MODE": "oauth", "ZENDESK_OAUTH_CLIENT_KIND": "public", "ZENDESK_OAUTH_CLIENT_ID": "client", "ZENDESK_OAUTH_TOKEN_STORE": "/tmp/not-read.json", "ZENDESK_CAPABILITIES": "operations"})
+    assert set(settings.oauth.scopes) == {"account_settings:read", "users:read", "groups:read", "organizations:read", "brands:read", "tickets:read", "ticket_views:read", "macros:read", "triggers:read"}
+
+
+@pytest.mark.parametrize("capability,removed_scope", [("operations", "account_settings:read"), ("support", "read")])
+def test_old_grant_requires_relogin_without_rewriting_tokens(tmp_path, monkeypatch, capability, removed_scope):
+    from dataclasses import replace
+    from zendesk_mcp_server.auth import OAuthTokens, save_connection
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
+    path = tmp_path / ".config" / "zendesk-mcp-server" / "connection.json"
+    settings = Settings.load({"ZENDESK_SUBDOMAIN": "acme", "ZENDESK_AUTH_MODE": "oauth", "ZENDESK_OAUTH_CLIENT_KIND": "public", "ZENDESK_OAUTH_CLIENT_ID": "client", "ZENDESK_OAUTH_TOKEN_STORE": str(path), "ZENDESK_CAPABILITIES": capability})
+    old = replace(settings, oauth=replace(settings.oauth, scopes=tuple(scope for scope in settings.oauth.scopes if scope != removed_scope)))
+    save_connection(old, OAuthTokens("access", "refresh", 999))
+    before = path.read_bytes()
+    with pytest.raises(ConfigurationError) as error:
+        Settings.load({"ZENDESK_CAPABILITIES": capability})
+    assert error.value.code == "oauth_relogin_required"
+    assert path.read_bytes() == before
 
 
 def test_oauth_scopes_are_limited_to_enabled_capabilities_and_gates():
@@ -192,6 +245,7 @@ def test_oauth_scopes_are_limited_to_enabled_capabilities_and_gates():
         "hc:read",
         "hc:write",
         "organizations:read",
+        "read",
         "satisfaction_ratings:read",
         "ticket_attachments:read",
         "tickets:read",

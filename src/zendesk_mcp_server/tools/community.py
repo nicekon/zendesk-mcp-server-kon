@@ -6,13 +6,16 @@ import json
 import os
 import re
 import stat
+from contextlib import ExitStack
 from datetime import datetime
 from html.parser import HTMLParser
 from pathlib import Path
-from typing import Protocol
+from typing import BinaryIO, Iterator, Protocol
+from tempfile import TemporaryFile
 from urllib.parse import urlsplit
 from ..approvals import ApprovalStore
 from ..config import Settings
+from ..pagination import collect_array, collect_cursor, collect_offset
 from ..contracts import ErrorCode, failure
 from ..contracts import success
 from ..write_policy import WriteRisk, check_write_permission
@@ -22,6 +25,7 @@ _HTML_TAGS = {"p", "div", "span", "br", "b", "i", "u", "strong", "em", "sub", "s
 _VOID_HTML_TAGS = {"br", "hr", "img", "col"}
 _HTML_ATTRIBUTES = {"a": {"href", "title", "rel"}, "img": {"src", "alt", "title", "width", "height"}, "th": {"colspan", "rowspan", "scope"}, "td": {"colspan", "rowspan", "scope"}}
 _LOCALE = re.compile(r"[a-z]{2,3}(?:-[a-z0-9]+)*$")
+_SECURE_UPLOAD_OPEN = os.open in os.supports_dir_fd and all(hasattr(os, name) for name in ("O_NOFOLLOW", "O_DIRECTORY", "O_NONBLOCK"))
 
 
 class _CommunityHTMLValidator(HTMLParser):
@@ -57,19 +61,18 @@ class _CommunityHTMLValidator(HTMLParser):
 class CommunityClient(Protocol):
     def get(self, path: str, *, params: dict[str, str] | None = None) -> dict[str, object]: ...
     def request(self, method: str, path: str, *, json_body: dict[str, object] | None = None) -> dict[str, object]: ...
-    def upload_presigned(self, url: str, headers: dict[str, str], content: bytes) -> dict[str, object]: ...
+    def upload_presigned(self, url: str, headers: dict[str, str], content: bytes | Iterator[bytes]) -> dict[str, object]: ...
 
 class CommunityTools:
     def __init__(self, client: CommunityClient | None, settings: Settings | None = None, approvals: ApprovalStore | None = None) -> None: self._client, self._settings, self._approvals = client, settings, approvals
     def list_posts(self, *, topic_id: int | None = None, user_id: int | str | None = None, status: str | None = None, sort_by: str | None = None, cursor: str | None = None, limit: int = 100) -> dict[str, object]:
-        if (topic_id is not None and user_id is not None) or (topic_id is not None and not self._valid_id(topic_id, "topic_id")) or (user_id is not None and user_id != "me" and not self._valid_id(user_id, "user_id")) or (status is not None and status not in {"planned", "not_planned", "completed", "answered", "none"}) or (sort_by is not None and sort_by not in {"created_at", "edited_at", "updated_at", "recent_activity", "votes", "comments"}) or not isinstance(limit, int) or isinstance(limit, bool) or not 1 <= limit <= 100 or (cursor is not None and (not isinstance(cursor, str) or not cursor)): return failure(ErrorCode.VALIDATION_ERROR, "valid post scope, filters, cursor, and limit are required")
+        if (topic_id is not None and user_id is not None) or (topic_id is not None and not self._valid_id(topic_id, "topic_id")) or (user_id is not None and user_id != "me" and not self._valid_id(user_id, "user_id")) or (status is not None and status not in {"planned", "not_planned", "completed", "answered", "none"}) or (sort_by is not None and sort_by not in {"created_at", "edited_at", "updated_at", "recent_activity", "votes", "comments"}): return failure(ErrorCode.VALIDATION_ERROR, "valid post scope and filters are required")
         path = f"/api/v2/community/topics/{topic_id}/posts.json" if topic_id is not None else f"/api/v2/community/users/{user_id}/posts.json" if user_id is not None else "/api/v2/community/posts.json"
-        params = {name: value for name, value in {"filter_by": status, "sort_by": sort_by}.items() if value is not None}; params["page[size]"] = str(limit)
-        if cursor is not None: params["page[after]"] = cursor
-        return self._cursor_page(path, params, "posts")
-    def search_posts(self, query: str) -> dict[str, object]:
+        filters = {name: value for name, value in {"filter_by": status, "sort_by": sort_by}.items() if value is not None}
+        return collect_cursor(self._get, path, "posts", limit, cursor, filters=filters)
+    def search_posts(self, query: str, *, limit: int = 100, cursor: str | None = None) -> dict[str, object]:
         if not isinstance(query, str) or not query.strip(): return failure(ErrorCode.VALIDATION_ERROR, "query must be a non-empty string")
-        return self._get("/api/v2/community/posts/search.json", {"query": query.strip()})
+        return collect_offset(self._get, "/api/v2/help_center/community_posts/search.json", "results", limit, cursor, filters={"query": query.strip()}, max_results=1000, page_size=25)
     def get_post(self, post_id: int) -> dict[str, object]:
         if not isinstance(post_id, int) or isinstance(post_id, bool) or post_id < 1: return failure(ErrorCode.VALIDATION_ERROR, "post_id must be a positive integer")
         return self._get(f"/api/v2/community/posts/{post_id}.json")
@@ -124,54 +127,48 @@ class CommunityTools:
         if not self._valid_id(topic_id, "topic_id"): return failure(ErrorCode.VALIDATION_ERROR, "topic_id must be a positive integer")
         return self._approved_request("zendesk_delete_community_topic", {"topic_id": topic_id}, "DELETE", f"/api/v2/community/topics/{topic_id}.json", None, WriteRisk.DESTRUCTIVE, execution_mode, approval_request_id, approval_token)
     def list_comments(self, post_id: int | None = None, *, user_id: int | str | None = None, cursor: str | None = None, limit: int = 100) -> dict[str, object]:
-        if (post_id is None) == (user_id is None) or (post_id is not None and not self._valid_id(post_id, "post_id")) or (user_id is not None and user_id != "me" and not self._valid_id(user_id, "user_id")) or not isinstance(limit, int) or isinstance(limit, bool) or not 1 <= limit <= 100 or (cursor is not None and (not isinstance(cursor, str) or not cursor)): return failure(ErrorCode.VALIDATION_ERROR, "exactly one valid post_id or user_id, cursor, and limit are required")
+        if (post_id is None) == (user_id is None) or (post_id is not None and not self._valid_id(post_id, "post_id")) or (user_id is not None and user_id != "me" and not self._valid_id(user_id, "user_id")): return failure(ErrorCode.VALIDATION_ERROR, "exactly one valid post_id or user_id is required")
         path = f"/api/v2/community/posts/{post_id}/comments.json" if post_id is not None else f"/api/v2/community/users/{user_id}/comments.json"
-        params = {"page[size]": str(limit)}
-        if cursor is not None: params["page[after]"] = cursor
-        return self._cursor_page(path, params, "comments")
+        return collect_cursor(self._get, path, "comments", limit, cursor)
     def get_comment(self, comment_id: int, *, post_id: int | None = None, locale: str | None = None) -> dict[str, object]:
         if not self._valid_id(comment_id, "comment_id") or (post_id is not None and not self._valid_id(post_id, "post_id")) or (locale is not None and (post_id is None or not isinstance(locale, str) or not _LOCALE.fullmatch(locale))): return failure(ErrorCode.VALIDATION_ERROR, "valid comment_id, post_id, and locale are required")
         if post_id is None: return self._by_id("/api/v2/community/comments/{id}.json", comment_id, "comment_id")
         path = f"/api/v2/help_center/{locale}/community/posts/{post_id}/comments/{comment_id}.json" if locale is not None else f"/api/v2/community/posts/{post_id}/comments/{comment_id}.json"
         return self._get(path)
     def list_topics(self, *, cursor: str | None = None, limit: int = 100) -> dict[str, object]:
-        if not isinstance(limit, int) or isinstance(limit, bool) or not 1 <= limit <= 100 or (cursor is not None and (not isinstance(cursor, str) or not cursor)): return failure(ErrorCode.VALIDATION_ERROR, "valid cursor and limit are required")
-        params = {"page[size]": str(limit)}
-        if cursor is not None: params["page[after]"] = cursor
-        return self._cursor_page("/api/v2/community/topics.json", params, "topics")
+        return collect_cursor(self._get, "/api/v2/community/topics.json", "topics", limit, cursor)
     def get_topic(self, topic_id: int) -> dict[str, object]: return self._by_id("/api/v2/community/topics/{id}.json", topic_id, "topic_id")
     def list_votes(self, post_id: int | None = None, *, user_id: int | str | None = None, cursor: str | None = None, limit: int = 100) -> dict[str, object]:
-        if (post_id is None) == (user_id is None) or (post_id is not None and not self._valid_id(post_id, "post_id")) or (user_id is not None and user_id != "me" and not self._valid_id(user_id, "user_id")) or not isinstance(limit, int) or isinstance(limit, bool) or not 1 <= limit <= 100:
-            return failure(ErrorCode.VALIDATION_ERROR, "exactly one valid post_id or user_id and a limit from 1 to 100 are required")
+        if (post_id is None) == (user_id is None) or (post_id is not None and not self._valid_id(post_id, "post_id")) or (user_id is not None and user_id != "me" and not self._valid_id(user_id, "user_id")) or not isinstance(limit, int) or isinstance(limit, bool) or not 1 <= limit <= 1000:
+            return failure(ErrorCode.VALIDATION_ERROR, "exactly one valid post_id or user_id and a limit from 1 to 1000 are required")
         if post_id is not None:
-            params = {"page[size]": str(limit)}
-            if cursor is not None:
-                if not isinstance(cursor, str) or not cursor: return failure(ErrorCode.VALIDATION_ERROR, "cursor must be a non-empty string")
-                params["page[after]"] = cursor
-            return self._cursor_page(f"/api/v2/help_center/posts/{post_id}/votes.json", params, "votes")
+            return collect_cursor(self._get, f"/api/v2/community/posts/{post_id}/votes.json", "votes", limit, cursor)
         state = _decode_vote_cursor(cursor, user_id)
         if state is None: return failure(ErrorCode.VALIDATION_ERROR, "cursor is invalid for this user")
         after, skip, scanned, items, seen = state["after"], state["skip"], 0, [], set()
+        if after is not None: seen.add(after)
         while scanned < 1000:
-            params = {"page[size]": "100"}
+            page_size = min(100, 1000 - scanned)
+            params = {"page[size]": str(page_size)}
             if after is not None: params["page[after]"] = after
             result = self._get(f"/api/v2/help_center/users/{user_id}/votes.json", params)
             if not result.get("ok"): return result
             data = result.get("data"); votes = data.get("votes") if isinstance(data, dict) else None; meta = data.get("meta", {}) if isinstance(data, dict) else None
-            if not isinstance(votes, list) or not isinstance(meta, dict): return failure(ErrorCode.UPSTREAM_ERROR, "Zendesk returned an invalid vote page")
+            if not isinstance(votes, list) or len(votes) > page_size or any(not isinstance(vote, dict) for vote in votes) or not isinstance(meta, dict) or not isinstance(meta.get("has_more"), bool): return failure(ErrorCode.UPSTREAM_ERROR, "Zendesk returned an invalid vote page")
+            next_after = meta.get("after_cursor")
+            if meta["has_more"] and (not isinstance(next_after, str) or not next_after or next_after in seen): return failure(ErrorCode.UPSTREAM_ERROR, "Zendesk returned an invalid vote cursor")
             scanned += len(votes)
             community_votes = [vote for vote in votes if isinstance(vote, dict) and vote.get("item_type") in {"Post", "PostComment"}]
             if skip > len(community_votes): return failure(ErrorCode.UPSTREAM_ERROR, "Zendesk returned an invalid vote cursor")
             remaining = limit - len(items)
             if len(community_votes) - skip > remaining:
                 items.extend(community_votes[skip:skip + remaining])
-                return {"ok": True, "items": items, "has_more": True, "next_cursor": _encode_vote_cursor(user_id, after, skip + remaining), "truncated": False, "scanned_count": scanned}
+                return {"ok": True, "items": items, "has_more": True, "next_cursor": _encode_vote_cursor(user_id, after, skip + remaining), "truncated": True, "scanned_count": scanned}
             items.extend(community_votes[skip:]); skip = 0
             if not meta.get("has_more"): return {"ok": True, "items": items, "has_more": False, "next_cursor": None, "truncated": False, "scanned_count": scanned}
-            next_after = meta.get("after_cursor")
-            if not isinstance(next_after, str) or not next_after or next_after in seen: return failure(ErrorCode.UPSTREAM_ERROR, "Zendesk returned an invalid vote cursor")
-            if len(items) == limit: return {"ok": True, "items": items, "has_more": True, "next_cursor": _encode_vote_cursor(user_id, next_after, 0), "truncated": False, "scanned_count": scanned}
+            if len(items) == limit: return {"ok": True, "items": items, "has_more": True, "next_cursor": _encode_vote_cursor(user_id, next_after, 0), "truncated": True, "scanned_count": scanned}
             seen.add(next_after); after = next_after
+            if not votes: break
         return {"ok": True, "items": items, "has_more": True, "next_cursor": _encode_vote_cursor(user_id, after, 0), "truncated": True, "scanned_count": scanned}
     def get_vote(self, vote_id: int) -> dict[str, object]: return self._by_id("/api/v2/help_center/votes/{id}.json", vote_id, "vote_id")
     def cast_vote(self, content_type: str, post_id: int, comment_id: int | None, direction: str, *, execution_mode: str = "preview", approval_request_id: str | None = None, approval_token: str | None = None) -> dict[str, object]:
@@ -183,8 +180,12 @@ class CommunityTools:
     def delete_vote(self, vote_id: int, *, execution_mode: str = "preview", approval_request_id: str | None = None, approval_token: str | None = None) -> dict[str, object]:
         if not self._valid_id(vote_id, "vote_id"): return failure(ErrorCode.VALIDATION_ERROR, "vote_id must be a positive integer")
         return self._approved_request("zendesk_remove_community_vote", {"vote_id": vote_id}, "DELETE", f"/api/v2/help_center/votes/{vote_id}.json", None, WriteRisk.DESTRUCTIVE, execution_mode, approval_request_id, approval_token)
-    def list_post_subscriptions(self, post_id: int) -> dict[str, object]: return self._by_id("/api/v2/community/posts/{id}/subscriptions.json", post_id, "post_id")
-    def list_topic_subscriptions(self, topic_id: int) -> dict[str, object]: return self._by_id("/api/v2/community/topics/{id}/subscriptions.json", topic_id, "topic_id")
+    def list_post_subscriptions(self, post_id: int, *, limit: int = 100, cursor: str | None = None) -> dict[str, object]:
+        path = self._subscription_path("post", post_id)
+        return collect_cursor(self._get, path, "subscriptions", limit, cursor) if path else failure(ErrorCode.VALIDATION_ERROR, "post_id must be a positive integer")
+    def list_topic_subscriptions(self, topic_id: int, *, limit: int = 100, cursor: str | None = None) -> dict[str, object]:
+        path = self._subscription_path("topic", topic_id)
+        return collect_cursor(self._get, path, "subscriptions", limit, cursor) if path else failure(ErrorCode.VALIDATION_ERROR, "topic_id must be a positive integer")
     def get_subscription(self, content_type: str, content_id: int, subscription_id: int) -> dict[str, object]:
         path = self._subscription_path(content_type, content_id, subscription_id)
         return self._get(path) if path else failure(ErrorCode.VALIDATION_ERROR, "valid content_type, content_id, and subscription_id are required")
@@ -205,10 +206,8 @@ class CommunityTools:
         return self._approved_request("zendesk_delete_content_subscription", {"content_type": content_type, "content_id": content_id, "subscription_id": subscription_id}, "DELETE", path, None, WriteRisk.DESTRUCTIVE, execution_mode, approval_request_id, approval_token)
     def list_user_subscriptions(self, user_id: int | str, direction: str = "followers", *, cursor: str | None = None, limit: int = 100) -> dict[str, object]:
         path = self._user_subscription_path(user_id)
-        if path is None or direction not in {"followers", "followings"} or not isinstance(limit, int) or isinstance(limit, bool) or not 1 <= limit <= 100 or (cursor is not None and (not isinstance(cursor, str) or not cursor)): return failure(ErrorCode.VALIDATION_ERROR, "valid user_id, direction, cursor, and limit are required")
-        params = {"type": direction, "page[size]": str(limit)}
-        if cursor is not None: params["page[after]"] = cursor
-        return self._cursor_page(path, params, "user_subscriptions")
+        if path is None or direction not in {"followers", "followings"}: return failure(ErrorCode.VALIDATION_ERROR, "valid user_id and direction are required")
+        return collect_cursor(self._get, path, "user_subscriptions", limit, cursor, filters={"type": direction})
     def upsert_user_subscription(self, user_id: int | str, followed_id: int, *, include_comments: bool = False, execution_mode: str = "preview", approval_request_id: str | None = None, approval_token: str | None = None) -> dict[str, object]:
         path = self._user_subscription_path(user_id)
         if path is None or not self._valid_id(followed_id, "followed_id") or not isinstance(include_comments, bool): return failure(ErrorCode.VALIDATION_ERROR, "valid user subscription fields are required")
@@ -218,7 +217,7 @@ class CommunityTools:
         current = self._find_user_subscription(path, followed_id)
         if not current.get("ok"): return current
         existing = current["data"]["subscription"]
-        if isinstance(existing, dict) and existing.get("include_comments") == include_comments:
+        if isinstance(existing, dict) and existing.get("include_comments") is include_comments:
             return success({"current_subscription": existing, "subscription": existing, "operation_state": "not_applied", "idempotent": True, "outbound_write": False})
         proposed = {"followed_id": followed_id, "include_comments": include_comments}
         if execution_mode == "preview":
@@ -236,120 +235,143 @@ class CommunityTools:
         observed = self._find_user_subscription(path, followed_id)
         if not observed.get("ok"): return failure(ErrorCode.OUTCOME_UNKNOWN, "subscription write succeeded but read-back failed", operation_state="unknown")
         subscription = observed["data"]["subscription"]
-        if not isinstance(subscription, dict) or subscription.get("include_comments") != include_comments: return failure(ErrorCode.OUTCOME_UNKNOWN, "subscription write could not be verified", operation_state="unknown")
+        if not isinstance(subscription, dict) or subscription.get("include_comments") is not include_comments: return failure(ErrorCode.OUTCOME_UNKNOWN, "subscription write could not be verified", operation_state="unknown")
         return success({"current_subscription": existing, "subscription": subscription, "operation_state": "applied", "idempotent": False})
     def delete_user_subscription(self, user_id: int | str, subscription_id: int, *, execution_mode: str = "preview", approval_request_id: str | None = None, approval_token: str | None = None) -> dict[str, object]:
         path = self._user_subscription_path(user_id, subscription_id)
         if path is None: return failure(ErrorCode.VALIDATION_ERROR, "valid user_id and subscription_id are required")
         risk: WriteRisk | tuple[WriteRisk, ...] = WriteRisk.DESTRUCTIVE if user_id == "me" else (WriteRisk.DESTRUCTIVE, WriteRisk.IMPERSONATION)
         return self._approved_request("zendesk_delete_user_subscription", {"user_id": user_id, "subscription_id": subscription_id}, "DELETE", path, None, risk, execution_mode, approval_request_id, approval_token)
-    def list_badge_categories(self, brand_id: int | None = None) -> dict[str, object]:
+    def list_badge_categories(self, brand_id: int | None = None, *, limit: int = 100, cursor: str | None = None) -> dict[str, object]:
         if brand_id is not None and not self._valid_id(brand_id, "brand_id"): return failure(ErrorCode.VALIDATION_ERROR, "brand_id must be a positive integer")
-        return self._get("/api/v2/gather/badge_categories.json", {"brand_id": str(brand_id)} if brand_id is not None else None)
+        return collect_array(self._get, "/api/v2/gather/badge_categories", "badge_categories", limit, cursor, filters={"brand_id": str(brand_id)} if brand_id is not None else None)
     def get_badge_category(self, category_id: str) -> dict[str, object]:
         if not self._valid_tag_id(category_id): return failure(ErrorCode.VALIDATION_ERROR, "category_id must be a non-empty path-safe string")
-        return self._get(f"/api/v2/gather/badge_categories/{category_id}.json")
+        return self._get(f"/api/v2/gather/badge_categories/{category_id}")
     def create_badge_category(self, brand_id: int, name: str, slug: str, *, execution_mode: str = "preview", approval_request_id: str | None = None, approval_token: str | None = None) -> dict[str, object]:
         if not self._valid_id(brand_id, "brand_id") or not isinstance(name, str) or not name.strip() or not self._valid_tag_id(slug): return failure(ErrorCode.VALIDATION_ERROR, "valid brand_id, name, and slug are required")
         payload = {"badge_category": {"brand_id": brand_id, "name": name.strip(), "slug": slug}}
-        return self._approved_request("zendesk_create_badge_category", payload, "POST", "/api/v2/gather/badge_categories.json", payload, WriteRisk.PUBLIC, execution_mode, approval_request_id, approval_token)
+        return self._approved_request("zendesk_create_badge_category", payload, "POST", "/api/v2/gather/badge_categories", payload, WriteRisk.PUBLIC, execution_mode, approval_request_id, approval_token)
     def delete_badge_category(self, category_id: str, *, execution_mode: str = "preview", approval_request_id: str | None = None, approval_token: str | None = None) -> dict[str, object]:
         if not self._valid_tag_id(category_id): return failure(ErrorCode.VALIDATION_ERROR, "category_id must be a non-empty path-safe string")
-        return self._approved_request("zendesk_delete_badge_category", {"category_id": category_id}, "DELETE", f"/api/v2/gather/badge_categories/{category_id}.json", None, WriteRisk.DESTRUCTIVE, execution_mode, approval_request_id, approval_token)
-    def list_badges(self, brand_id: int | None = None) -> dict[str, object]:
+        return self._approved_request("zendesk_delete_badge_category", {"category_id": category_id}, "DELETE", f"/api/v2/gather/badge_categories/{category_id}", None, WriteRisk.DESTRUCTIVE, execution_mode, approval_request_id, approval_token)
+    def list_badges(self, brand_id: int | None = None, *, limit: int = 100, cursor: str | None = None) -> dict[str, object]:
         if brand_id is not None and not self._valid_id(brand_id, "brand_id"): return failure(ErrorCode.VALIDATION_ERROR, "brand_id must be a positive integer")
-        return self._get("/api/v2/gather/badges.json", {"brand_id": str(brand_id)} if brand_id is not None else None)
+        return collect_array(self._get, "/api/v2/gather/badges", "badges", limit, cursor, filters={"brand_id": str(brand_id)} if brand_id is not None else None)
     def get_badge(self, badge_id: str) -> dict[str, object]:
         if not self._valid_tag_id(badge_id): return failure(ErrorCode.VALIDATION_ERROR, "badge_id must be a non-empty path-safe string")
-        return self._get(f"/api/v2/gather/badges/{badge_id}.json")
+        return self._get(f"/api/v2/gather/badges/{badge_id}")
     def create_badge(self, badge_category_id: str, name: str, description: str, *, icon_upload_id: str | None = None, execution_mode: str = "preview", approval_request_id: str | None = None, approval_token: str | None = None) -> dict[str, object]:
         values: dict[str, object] = {"badge_category_id": badge_category_id, "name": name, "description": description}
         if icon_upload_id is not None: values["icon_upload_id"] = icon_upload_id
         payload = self._badge_payload(values)
         if payload is None or "badge_category_id" not in payload["badge"]: return failure(ErrorCode.VALIDATION_ERROR, "valid badge_category_id, name, and description are required")
-        return self._approved_request("zendesk_create_badge", payload, "POST", "/api/v2/gather/badges.json", payload, WriteRisk.PUBLIC, execution_mode, approval_request_id, approval_token)
+        return self._approved_request("zendesk_create_badge", payload, "POST", "/api/v2/gather/badges", payload, WriteRisk.PUBLIC, execution_mode, approval_request_id, approval_token)
     def update_badge(self, badge_id: str, badge: dict[str, object], *, execution_mode: str = "preview", approval_request_id: str | None = None, approval_token: str | None = None) -> dict[str, object]:
         payload = self._badge_payload(badge)
         if not self._valid_tag_id(badge_id) or payload is None: return failure(ErrorCode.VALIDATION_ERROR, "badge_id and a valid badge update are required")
-        return self._approved_request("zendesk_update_badge", {"badge_id": badge_id, **payload}, "PUT", f"/api/v2/gather/badges/{badge_id}.json", payload, WriteRisk.PUBLIC, execution_mode, approval_request_id, approval_token)
+        return self._approved_request("zendesk_update_badge", {"badge_id": badge_id, **payload}, "PUT", f"/api/v2/gather/badges/{badge_id}", payload, WriteRisk.PUBLIC, execution_mode, approval_request_id, approval_token)
     def delete_badge(self, badge_id: str, *, execution_mode: str = "preview", approval_request_id: str | None = None, approval_token: str | None = None) -> dict[str, object]:
         if not self._valid_tag_id(badge_id): return failure(ErrorCode.VALIDATION_ERROR, "badge_id must be a non-empty path-safe string")
-        return self._approved_request("zendesk_delete_badge", {"badge_id": badge_id}, "DELETE", f"/api/v2/gather/badges/{badge_id}.json", None, WriteRisk.DESTRUCTIVE, execution_mode, approval_request_id, approval_token)
-    def list_badge_assignments(self, *, user_id: int | None = None, badge_id: str | None = None, badge_category_id: str | None = None, brand_id: int | None = None) -> dict[str, object]:
+        if execution_mode not in {"preview", "apply"}: return failure(ErrorCode.VALIDATION_ERROR, "execution_mode must be preview or apply")
+        if execution_mode == "apply":
+            if self._settings is None: return failure(ErrorCode.WRITE_DISABLED, "Zendesk writes are disabled")
+            if (blocked := check_write_permission(self._settings, WriteRisk.DESTRUCTIVE)) is not None: return blocked
+        result = self._get("/api/v2/gather/badge_assignments", {"badge_id": badge_id})
+        if not result.get("ok"): return result
+        data = result.get("data")
+        assignments = data.get("badge_assignments") if isinstance(data, dict) else None
+        if not isinstance(assignments, list) or any(not isinstance(item, dict) or not self._valid_tag_id(item.get("id")) or item.get("badge_id") != badge_id for item in assignments):
+            return failure(ErrorCode.UPSTREAM_ERROR, "Zendesk returned invalid cascade assignments")
+        identifiers = sorted(item["id"] for item in assignments)
+        if len(set(identifiers)) != len(identifiers): return failure(ErrorCode.UPSTREAM_ERROR, "Zendesk returned duplicate cascade assignments")
+        payload = {"badge_id": badge_id, "cascade_assignment_count": len(identifiers), "cascade_snapshot_sha256": hashlib.sha256(json.dumps(identifiers).encode()).hexdigest(), "irreversible": True}
+        result = self._approved_request("zendesk_delete_badge", payload, "DELETE", f"/api/v2/gather/badges/{badge_id}", None, WriteRisk.DESTRUCTIVE, execution_mode, approval_request_id, approval_token)
+        if execution_mode == "preview" and result.get("ok"): result["data"].update(payload)
+        return result
+    def list_badge_assignments(self, *, user_id: int | None = None, badge_id: str | None = None, badge_category_id: str | None = None, brand_id: int | None = None, limit: int = 100, cursor: str | None = None) -> dict[str, object]:
         if any(value is not None and not self._valid_id(value, name) for value, name in ((user_id, "user_id"), (brand_id, "brand_id"))) or any(value is not None and not self._valid_tag_id(value) for value in (badge_id, badge_category_id)): return failure(ErrorCode.VALIDATION_ERROR, "badge assignment filters must be valid")
         params = {name: str(value) for name, value in {"user_id": user_id, "badge_id": badge_id, "badge_category_id": badge_category_id, "brand_id": brand_id}.items() if value is not None}
-        return self._get("/api/v2/gather/badge_assignments.json", params or None)
+        return collect_array(self._get, "/api/v2/gather/badge_assignments", "badge_assignments", limit, cursor, filters=params or None)
     def create_badge_assignment(self, badge_id: str, user_id: int, *, execution_mode: str = "preview", approval_request_id: str | None = None, approval_token: str | None = None) -> dict[str, object]:
         if not self._valid_tag_id(badge_id) or not self._valid_id(user_id, "user_id"): return failure(ErrorCode.VALIDATION_ERROR, "valid badge_id and user_id are required")
         payload = {"badge_assignment": {"badge_id": badge_id, "user_id": str(user_id)}}
-        return self._approved_request("zendesk_create_badge_assignment", payload, "POST", "/api/v2/gather/badge_assignments.json", payload, (WriteRisk.PUBLIC, WriteRisk.IMPERSONATION), execution_mode, approval_request_id, approval_token)
+        return self._approved_request("zendesk_create_badge_assignment", payload, "POST", "/api/v2/gather/badge_assignments", payload, (WriteRisk.PUBLIC, WriteRisk.IMPERSONATION), execution_mode, approval_request_id, approval_token)
     def delete_badge_assignment(self, assignment_id: str, *, execution_mode: str = "preview", approval_request_id: str | None = None, approval_token: str | None = None) -> dict[str, object]:
         if not self._valid_tag_id(assignment_id): return failure(ErrorCode.VALIDATION_ERROR, "assignment_id must be a non-empty path-safe string")
-        return self._approved_request("zendesk_delete_badge_assignment", {"assignment_id": assignment_id}, "DELETE", f"/api/v2/gather/badge_assignments/{assignment_id}.json", None, (WriteRisk.DESTRUCTIVE, WriteRisk.IMPERSONATION), execution_mode, approval_request_id, approval_token)
+        return self._approved_request("zendesk_delete_badge_assignment", {"assignment_id": assignment_id}, "DELETE", f"/api/v2/gather/badge_assignments/{assignment_id}", None, (WriteRisk.DESTRUCTIVE, WriteRisk.IMPERSONATION), execution_mode, approval_request_id, approval_token)
     def upload_user_image(self, image_path: str, content_type: str, brand_id: int, *, execution_mode: str = "preview", approval_request_id: str | None = None, approval_token: str | None = None) -> dict[str, object]:
         loaded = self._load_user_image(image_path, content_type, brand_id)
-        if isinstance(loaded, dict): return loaded
-        payload, content = loaded
-        if execution_mode == "preview":
-            if self._approvals is None: return failure(ErrorCode.NOT_CONFIGURED, "Zendesk approval store is not configured")
-            return success({"approval_request_id": self._approvals.create("zendesk_upload_community_user_image", payload), "execution_mode": "preview", "external_upload": True, "outbound_write": False, **payload})
-        if execution_mode != "apply": return failure(ErrorCode.VALIDATION_ERROR, "execution_mode must be preview or apply")
-        if self._settings is None or (blocked := check_write_permission(self._settings, WriteRisk.EXTERNAL_UPLOAD)) is not None: return blocked or failure(ErrorCode.WRITE_DISABLED, "Zendesk external uploads are disabled")
-        if self._approvals is None or not isinstance(approval_request_id, str) or not isinstance(approval_token, str) or not self._approvals.consume(approval_request_id, "zendesk_upload_community_user_image", payload, approval_token): return failure(ErrorCode.APPROVAL_REQUIRED, "a matching local approval is required")
-        if self._client is None or not hasattr(self._client, "upload_presigned"): return failure(ErrorCode.NOT_CONFIGURED, "Zendesk upload client is not configured")
-        prepared = self._client.request("POST", "/api/v2/guide/user_images/uploads", json_body={"content_type": content_type, "file_size": len(content)})
-        upload = self._nested_data(prepared, "upload")
-        if upload is None: return prepared
-        url, headers, token = upload.get("url"), upload.get("headers"), upload.get("token")
-        if not isinstance(url, str) or not isinstance(headers, dict) or not isinstance(token, str) or any(not isinstance(name, str) or not isinstance(value, str) for name, value in headers.items()): return failure(ErrorCode.UPSTREAM_ERROR, "Zendesk returned an invalid user-image upload response")
-        uploaded = self._client.upload_presigned(url, headers, content)
-        if not uploaded.get("ok"): return uploaded
-        return self._client.request("POST", "/api/v2/guide/user_images", json_body={"token": token, "brand_id": str(brand_id)})
+        return self._upload_image(loaded, "zendesk_upload_community_user_image", execution_mode, approval_request_id, approval_token)
     def upload_badge_icon(self, image_path: str, content_type: str, *, execution_mode: str = "preview", approval_request_id: str | None = None, approval_token: str | None = None) -> dict[str, object]:
         loaded = self._load_user_image(image_path, content_type, 1, allowed_content_types={"image/svg+xml", "image/png", "image/jpeg", "image/gif"})
+        if not isinstance(loaded, dict): loaded[0].pop("brand_id")
+        return self._upload_image(loaded, "zendesk_upload_badge_icon", execution_mode, approval_request_id, approval_token)
+    def _upload_image(self, loaded: tuple[dict[str, object], BinaryIO] | dict[str, object], tool: str, execution_mode: str, approval_request_id: str | None, approval_token: str | None) -> dict[str, object]:
         if isinstance(loaded, dict): return loaded
-        payload, content = loaded; payload.pop("brand_id")
-        if execution_mode == "preview":
-            if self._approvals is None: return failure(ErrorCode.NOT_CONFIGURED, "Zendesk approval store is not configured")
-            return success({"approval_request_id": self._approvals.create("zendesk_upload_badge_icon", payload), "execution_mode": "preview", "external_upload": True, "outbound_write": False, **payload})
-        if execution_mode != "apply": return failure(ErrorCode.VALIDATION_ERROR, "execution_mode must be preview or apply")
-        if self._settings is None or (blocked := check_write_permission(self._settings, WriteRisk.EXTERNAL_UPLOAD)) is not None: return blocked or failure(ErrorCode.WRITE_DISABLED, "Zendesk external uploads are disabled")
-        if self._approvals is None or not isinstance(approval_request_id, str) or not isinstance(approval_token, str) or not self._approvals.consume(approval_request_id, "zendesk_upload_badge_icon", payload, approval_token): return failure(ErrorCode.APPROVAL_REQUIRED, "a matching local approval is required")
-        if self._client is None or not hasattr(self._client, "upload_presigned"): return failure(ErrorCode.NOT_CONFIGURED, "Zendesk upload client is not configured")
-        prepared = self._client.request("POST", "/api/v2/gather/badges/icon_uploads", json_body={"content_type": content_type, "file_size": len(content)})
-        upload = self._nested_data(prepared, "badge_icon_upload")
-        if upload is None: return prepared
-        url, headers, upload_id = upload.get("url"), upload.get("headers"), upload.get("id")
-        if not isinstance(url, str) or not isinstance(headers, dict) or not self._valid_tag_id(upload_id) or any(not isinstance(name, str) or not isinstance(value, str) for name, value in headers.items()): return failure(ErrorCode.UPSTREAM_ERROR, "Zendesk returned an invalid badge-icon upload response")
-        uploaded = self._client.upload_presigned(url, headers, content)
-        return success({"badge_icon_upload_id": upload_id}) if uploaded.get("ok") else uploaded
+        payload, content = loaded
+        with content:
+            if execution_mode == "preview":
+                if self._approvals is None: return failure(ErrorCode.NOT_CONFIGURED, "Zendesk approval store is not configured")
+                return success({"approval_request_id": self._approvals.create(tool, payload), "execution_mode": "preview", "external_upload": True, "outbound_write": False, **payload})
+            if execution_mode != "apply": return failure(ErrorCode.VALIDATION_ERROR, "execution_mode must be preview or apply")
+            if self._settings is None or (blocked := check_write_permission(self._settings, WriteRisk.EXTERNAL_UPLOAD)) is not None: return blocked or failure(ErrorCode.WRITE_DISABLED, "Zendesk external uploads are disabled")
+            if self._approvals is None or not isinstance(approval_request_id, str) or not isinstance(approval_token, str) or not self._approvals.consume(approval_request_id, tool, payload, approval_token): return failure(ErrorCode.APPROVAL_REQUIRED, "a matching local approval is required")
+            if self._client is None or not hasattr(self._client, "upload_presigned"): return failure(ErrorCode.NOT_CONFIGURED, "Zendesk upload client is not configured")
+            badge = tool == "zendesk_upload_badge_icon"
+            prepared = self._client.request("POST", "/api/v2/gather/badges/icon_uploads" if badge else "/api/v2/guide/user_images/uploads", json_body={"content_type": payload["content_type"], "file_size": payload["file_size"]})
+            if not prepared.get("ok"): return prepared
+            upload = self._nested_data(prepared, "badge_icon_upload" if badge else "upload")
+            if upload is None: return failure(ErrorCode.UPSTREAM_ERROR, "Zendesk returned an invalid image upload response", operation_state="unknown")
+            url, headers, identifier = upload.get("url"), upload.get("headers"), upload.get("id" if badge else "token")
+            if not isinstance(url, str) or not isinstance(headers, dict) or not (self._valid_tag_id(identifier) if badge else isinstance(identifier, str) and bool(identifier.strip())) or any(not isinstance(name, str) or not isinstance(value, str) for name, value in headers.items()): return failure(ErrorCode.UPSTREAM_ERROR, "Zendesk returned an invalid image upload response", operation_state="unknown")
+            size = str(payload["file_size"])
+            if any(name.lower() == "transfer-encoding" or (name.lower() == "content-length" and value != size) for name, value in headers.items()):
+                return failure(ErrorCode.UPSTREAM_ERROR, "Zendesk returned conflicting upload framing", operation_state="unknown")
+            headers = {name: value for name, value in headers.items() if name.lower() != "content-length"}
+            headers["Content-Length"] = size
+            uploaded = self._client.upload_presigned(url, headers, iter(lambda: content.read(65536), b""))
+            if not uploaded.get("ok"): return uploaded
+            if badge: return success({"badge_icon_upload_id": identifier})
+            created = self._client.request("POST", "/api/v2/guide/user_images", json_body={"token": identifier, "brand_id": payload["brand_id"]})
+            if not created.get("ok"): return created
+            image = self._nested_data(created, "user_image")
+            path = image.get("path") if image is not None else None
+            if not isinstance(path, str) or not re.fullmatch(r"/hc/user_images/[^/?#\\\s]+", path) or path.rsplit("/", 1)[-1] in {".", ".."}:
+                return failure(ErrorCode.UPSTREAM_ERROR, "Zendesk returned an invalid user image path", operation_state="unknown")
+            return created
     def search_content_tags(self, prefix: str, *, cursor: str | None = None, limit: int = 100) -> dict[str, object]:
-        if not isinstance(prefix, str) or not isinstance(limit, int) or isinstance(limit, bool) or not 1 <= limit <= 100 or (cursor is not None and (not isinstance(cursor, str) or not cursor)): return failure(ErrorCode.VALIDATION_ERROR, "valid prefix, cursor, and limit are required")
-        params = {"filter[name_prefix]": prefix, "page[size]": str(limit)}
-        if cursor is not None: params["page[after]"] = cursor
-        return self._cursor_page("/api/v2/guide/content_tags.json", params, "records")
-    def count_content_tags(self) -> dict[str, object]: return self._get("/api/v2/guide/content_tags/count.json")
+        if not isinstance(prefix, str): return failure(ErrorCode.VALIDATION_ERROR, "prefix must be a string")
+        return collect_cursor(self._get, "/api/v2/guide/content_tags", "records", limit, cursor, filters={"filter[name_prefix]": prefix}, page_size=30)
+    def count_content_tags(self) -> dict[str, object]:
+        result = self._get("/api/v2/guide/content_tags/count")
+        if not result.get("ok"): return result
+        data = result.get("data")
+        if not isinstance(data, dict) or type(data.get("value")) is not int or data["value"] < 0:
+            return failure(ErrorCode.UPSTREAM_ERROR, "Zendesk returned an invalid content tag count")
+        return result
     def get_content_tag(self, tag_id: str) -> dict[str, object]:
         if not self._valid_tag_id(tag_id): return failure(ErrorCode.VALIDATION_ERROR, "tag_id must be a non-empty path-safe string")
-        return self._get(f"/api/v2/guide/content_tags/{tag_id}.json")
+        return self._get(f"/api/v2/guide/content_tags/{tag_id}")
     def create_content_tag(self, name: str, *, execution_mode: str = "preview", approval_request_id: str | None = None, approval_token: str | None = None) -> dict[str, object]:
         payload = self._content_tag_payload(name)
         if payload is None: return failure(ErrorCode.VALIDATION_ERROR, "name must be a non-empty string")
-        return self._approved_request("zendesk_create_content_tag", payload, "POST", "/api/v2/guide/content_tags.json", payload, WriteRisk.PUBLIC, execution_mode, approval_request_id, approval_token)
+        return self._approved_request("zendesk_create_content_tag", payload, "POST", "/api/v2/guide/content_tags", payload, WriteRisk.PUBLIC, execution_mode, approval_request_id, approval_token)
     def update_content_tag(self, tag_id: str, name: str, *, execution_mode: str = "preview", approval_request_id: str | None = None, approval_token: str | None = None) -> dict[str, object]:
         payload = self._content_tag_payload(name)
         if not self._valid_tag_id(tag_id) or payload is None: return failure(ErrorCode.VALIDATION_ERROR, "tag_id and name must be valid")
-        return self._approved_request("zendesk_update_content_tag", {"tag_id": tag_id, **payload}, "PUT", f"/api/v2/guide/content_tags/{tag_id}.json", payload, WriteRisk.PUBLIC, execution_mode, approval_request_id, approval_token)
+        return self._approved_request("zendesk_update_content_tag", {"tag_id": tag_id, **payload}, "PUT", f"/api/v2/guide/content_tags/{tag_id}", payload, WriteRisk.PUBLIC, execution_mode, approval_request_id, approval_token)
     def delete_content_tag(self, tag_id: str, *, execution_mode: str = "preview", approval_request_id: str | None = None, approval_token: str | None = None) -> dict[str, object]:
         if not self._valid_tag_id(tag_id): return failure(ErrorCode.VALIDATION_ERROR, "tag_id must be a non-empty path-safe string")
-        return self._approved_request("zendesk_delete_content_tag", {"tag_id": tag_id}, "DELETE", f"/api/v2/guide/content_tags/{tag_id}.json", None, WriteRisk.DESTRUCTIVE, execution_mode, approval_request_id, approval_token)
+        return self._approved_request("zendesk_delete_content_tag", {"tag_id": tag_id}, "DELETE", f"/api/v2/guide/content_tags/{tag_id}", None, WriteRisk.DESTRUCTIVE, execution_mode, approval_request_id, approval_token)
     def _by_id(self, template: str, value: int, name: str) -> dict[str, object]:
         if not self._valid_id(value, name): return failure(ErrorCode.VALIDATION_ERROR, f"{name} must be a positive integer")
         return self._get(template.format(id=value))
     @staticmethod
     def _valid_id(value: object, name: str) -> bool: return isinstance(value, int) and not isinstance(value, bool) and value > 0
     @staticmethod
-    def _valid_tag_id(value: object) -> bool: return isinstance(value, str) and bool(value.strip()) and value == value.strip() and not any(char in value for char in "/?#")
+    def _valid_tag_id(value: object) -> bool:
+        return isinstance(value, str) and bool(value) and value not in {".", ".."} and not any(char in "/?#\\%" or char.isspace() or ord(char) < 32 or ord(char) == 127 for char in value)
     def _vote_path(self, content_type: str, post_id: int, comment_id: int | None, direction: str) -> str | None:
         if direction not in {"up", "down"} or not self._valid_id(post_id, "post_id"): return None
         if content_type == "post" and comment_id is None: return f"/api/v2/help_center/posts/{post_id}/{direction}.json"
@@ -373,7 +395,7 @@ class CommunityTools:
         if "topic_id" in normalized and not self._valid_id(normalized["topic_id"], "topic_id"): return None
         if "status" in normalized and normalized["status"] not in {"planned", "not_planned", "answered", "completed"}: return None
         if any(name in normalized and not isinstance(normalized[name], bool) for name in {"closed", "featured", "pinned"}): return None
-        if "content_tag_ids" in normalized and (not isinstance(normalized["content_tag_ids"], list) or not all(self._valid_id(value, "content_tag_id") for value in normalized["content_tag_ids"])): return None
+        if "content_tag_ids" in normalized and (not isinstance(normalized["content_tag_ids"], list) or not all(self._valid_id(value, "content_tag_id") or self._valid_tag_id(value) for value in normalized["content_tag_ids"])): return None
         return {"post": normalized}
     def _comment_payload(self, comment: dict[str, object]) -> dict[str, object] | None:
         if not isinstance(comment, dict) or not comment or set(comment) - {"body", "official"}: return None
@@ -410,9 +432,11 @@ class CommunityTools:
         try: validator.feed(value); validator.close()
         except ValueError: return False
         return validator.valid and not validator.stack
-    def _load_user_image(self, image_path: object, content_type: object, brand_id: object, *, allowed_content_types: set[str] | None = None) -> tuple[dict[str, object], bytes] | dict[str, object]:
+    def _load_user_image(self, image_path: object, content_type: object, brand_id: object, *, allowed_content_types: set[str] | None = None) -> tuple[dict[str, object], BinaryIO] | dict[str, object]:
         if not isinstance(image_path, str) or not image_path or content_type not in (allowed_content_types or {"image/jpeg", "image/png", "image/gif"}) or not self._valid_id(brand_id, "brand_id"): return failure(ErrorCode.VALIDATION_ERROR, "valid image_path, content_type, and brand_id are required")
         if self._settings is None or self._settings.upload_root is None: return failure(ErrorCode.NOT_CONFIGURED, "ZENDESK_UPLOAD_ROOT is required for local image uploads")
+        if not _SECURE_UPLOAD_OPEN: return failure(ErrorCode.UNSUPPORTED, "secure local image uploads are not supported on this platform")
+        content = None
         try:
             root = self._settings.upload_root.resolve(strict=True)
             if not root.is_dir(): raise ValueError
@@ -420,20 +444,27 @@ class CommunityTools:
             candidate = candidate if candidate.is_absolute() else root / candidate
             relative = candidate.relative_to(root)
             if not relative.parts or ".." in relative.parts: raise ValueError
-            current = root
-            for part in relative.parts:
-                current /= part
-                if stat.S_ISLNK(os.lstat(current).st_mode): raise ValueError
-            descriptor = os.open(current, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
-            try:
+            with ExitStack() as opened:
+                directory = os.open(root.anchor, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+                opened.callback(os.close, directory)
+                for part in (*root.parts[1:], *relative.parts[:-1]):
+                    directory = os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=directory)
+                    opened.callback(os.close, directory)
+                descriptor = os.open(relative.name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=directory)
+                opened.callback(os.close, descriptor)
                 if not stat.S_ISREG(os.fstat(descriptor).st_mode): raise ValueError
-                with os.fdopen(descriptor, "rb", closefd=False) as source: content = source.read(2_000_001)
-            finally:
-                os.close(descriptor)
-            if len(content) > 2_000_000: raise ValueError
+                content = TemporaryFile(mode="w+b")
+                size = 0; digest = hashlib.sha256()
+                with os.fdopen(descriptor, "rb", closefd=False) as source:
+                    while chunk := source.read(65536):
+                        size += len(chunk)
+                        if size > 2_000_000: raise ValueError
+                        digest.update(chunk); content.write(chunk)
+                content.seek(0)
         except (OSError, ValueError):
+            if content is not None: content.close()
             return failure(ErrorCode.VALIDATION_ERROR, "image_path must be a regular non-symlink file under ZENDESK_UPLOAD_ROOT and at most 2 MB")
-        return ({"filename": current.name, "content_type": content_type, "file_size": len(content), "sha256": hashlib.sha256(content).hexdigest(), "brand_id": str(brand_id)}, content)
+        return ({"filename": relative.name, "content_type": content_type, "file_size": size, "sha256": digest.hexdigest(), "brand_id": str(brand_id)}, content)
     @staticmethod
     def _nested_data(result: dict[str, object], key: str) -> dict[str, object] | None:
         data = result.get("data") if isinstance(result, dict) else None
@@ -471,16 +502,18 @@ class CommunityTools:
     def _find_user_subscription(self, path: str, followed_id: int) -> dict[str, object]:
         after: str | None = None; seen: set[str] = set(); scanned = 0
         while scanned < 1000:
-            params = {"type": "followings", "page[size]": "100"}
+            page_size = min(100, 1000 - scanned)
+            params = {"type": "followings", "page[size]": str(page_size)}
             if after is not None: params["page[after]"] = after
             result = self._get(path, params)
             if not result.get("ok"): return result
             data = result.get("data"); subscriptions = data.get("user_subscriptions") if isinstance(data, dict) else None; meta = data.get("meta", {}) if isinstance(data, dict) else None
-            if not isinstance(subscriptions, list) or not isinstance(meta, dict) or len(subscriptions) > 100: return failure(ErrorCode.UPSTREAM_ERROR, "Zendesk returned an invalid user subscription page")
+            if not isinstance(subscriptions, list) or not isinstance(meta, dict) or len(subscriptions) > page_size or any(not isinstance(subscription, dict) for subscription in subscriptions) or not isinstance(meta.get("has_more"), bool): return failure(ErrorCode.UPSTREAM_ERROR, "Zendesk returned an invalid user subscription page")
             scanned += len(subscriptions)
             found = next((subscription for subscription in subscriptions if isinstance(subscription, dict) and subscription.get("followed_id") == followed_id), None)
             if found is not None: return success({"subscription": found})
             if not meta.get("has_more"): return success({"subscription": None})
+            if not subscriptions: return failure(ErrorCode.UPSTREAM_ERROR, "empty intermediate page prevents determining the current subscription")
             next_after = meta.get("after_cursor")
             if not isinstance(next_after, str) or not next_after or next_after in seen: return failure(ErrorCode.UPSTREAM_ERROR, "Zendesk returned an invalid user subscription cursor")
             seen.add(next_after); after = next_after

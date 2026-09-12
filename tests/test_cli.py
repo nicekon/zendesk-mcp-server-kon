@@ -51,6 +51,33 @@ def test_check_configuration_failure_exits_nonzero_with_json(monkeypatch, capsys
     assert output.err == ""
 
 
+def test_saved_scope_expansion_reaches_cli_and_mcp_without_network(tmp_path, monkeypatch, capsys):
+    import asyncio
+    from mcp import types
+    from zendesk_mcp_server.auth import OAuthTokens, save_connection
+    from zendesk_mcp_server.config import Settings
+    from zendesk_mcp_server.server import create_server
+    path = tmp_path / ".config" / "zendesk-mcp-server" / "connection.json"
+    settings = Settings.load({"ZENDESK_SUBDOMAIN": "acme", "ZENDESK_AUTH_MODE": "oauth", "ZENDESK_CAPABILITIES": "guide", "ZENDESK_OAUTH_CLIENT_KIND": "public", "ZENDESK_OAUTH_CLIENT_ID": "client", "ZENDESK_OAUTH_TOKEN_STORE": str(path)})
+    save_connection(settings, OAuthTokens("test-access", "test-refresh", 999))
+    original = path.read_bytes()
+    def no_network(*args, **kwargs):
+        raise AssertionError("Scope expansion must fail before HTTP")
+    monkeypatch.setattr("httpx.Client.send", no_network)
+    monkeypatch.setattr(sys, "argv", ["zendesk", "check", "--probe"])
+    with pytest.raises(SystemExit) as error:
+        main()
+    assert error.value.code == 1
+    cli = json.loads(capsys.readouterr().out)
+    server = create_server({})
+    request = types.CallToolRequest(params=types.CallToolRequestParams(name="zendesk_get_connection_status", arguments={}))
+    result = asyncio.run(server.request_handlers[types.CallToolRequest](request))
+    assert result.root.structuredContent == cli
+    assert cli["error"]["code"] == "reauthorization_required"
+    assert cli["error"]["operation_state"] == "not_applied"
+    assert path.read_bytes() == original
+
+
 def test_help_explains_login_without_starting_mcp(monkeypatch, capsys):
     monkeypatch.setattr(sys, "argv", ["zendesk", "--help"])
 

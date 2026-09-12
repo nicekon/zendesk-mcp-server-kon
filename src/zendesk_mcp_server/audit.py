@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
+import stat
 import time
 from collections.abc import Mapping
 from pathlib import Path
@@ -20,6 +22,9 @@ class AuditLog:
         return cls(path)
 
     def record(self, tool: str, risk_class: str, arguments: Mapping[str, object] | None, result: Mapping[str, object], *, started_at: float) -> None:
+        if not callable(getattr(os, "fchmod", None)):
+            logging.getLogger(__name__).warning("Local audit log unsupported: private file permissions unavailable; event not persisted")
+            return
         event = {
             "timestamp": int(time.time()),
             "tool": tool,
@@ -31,8 +36,11 @@ class AuditLog:
         }
         try:
             self.path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
-            descriptor = os.open(self.path, os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o600)
+            if self.path.is_symlink() or self.path.parent.is_symlink(): return
+            descriptor = os.open(self.path, os.O_WRONLY | os.O_APPEND | os.O_CREAT | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0), 0o600)
             try:
+                info = os.fstat(descriptor)
+                if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1: return
                 os.fchmod(descriptor, 0o600)
                 os.write(descriptor, (json.dumps(event, separators=(",", ":")) + "\n").encode())
             finally:

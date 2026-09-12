@@ -76,6 +76,10 @@ http://127.0.0.1:3000/oauth/callback
 ```
 
 The client must allow the read scopes requested by the enabled capabilities.
+Support (enabled by default) also requests broad `read` for Search/Search Export,
+as an approved policy exception. This permits all GET resources available to the
+user's role, not only search. It does not enable writes; server write gates remain
+independent. Existing grants without `read` require login again.
 The administrator distributes the client identifier, not a client secret.
 Each user then runs:
 

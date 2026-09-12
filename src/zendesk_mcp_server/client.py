@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import ipaddress
+import math
 import random
 import re
 import socket
 import time
-from collections.abc import Callable, Mapping
+from threading import Lock
+from collections.abc import Callable, Mapping, Iterable, Iterator
 from urllib.parse import urljoin, urlsplit
 
 import httpx
@@ -18,6 +20,12 @@ from .contracts import ErrorCode, failure, success
 
 
 _SUBDOMAIN = re.compile(r"[a-z0-9][a-z0-9-]{0,62}$")
+_COOLDOWNS: dict[str, float] = {}
+_COOLDOWN_LOCK = Lock()
+
+
+class _DownloadSizeExceeded(Exception):
+    pass
 
 
 class ZendeskClient:
@@ -83,8 +91,10 @@ class ZendeskClient:
 
         read_request = method in {"GET", "HEAD"}
         attempts = 3 if read_request else 1
-        refreshed = False; sleep_total = 0.0
+        refreshed = False; sleep_total = 0.0; own_cooldown = 0.0
         for attempt in range(attempts):
+            limited = self._cooldown_failure(own_cooldown if attempt else 0.0)
+            if limited is not None: return limited
             try:
                 response = self._client.request(
                     method,
@@ -143,6 +153,8 @@ class ZendeskClient:
 
             code = _error_code(response.status_code)
             retry_after = _retry_after(response)
+            if response.status_code == 429:
+                own_cooldown = self._record_cooldown(response)
             can_retry = read_request and attempt < attempts - 1 and (
                 response.status_code >= 500
                 or (response.status_code == 429 and retry_after is not None)
@@ -179,74 +191,118 @@ class ZendeskClient:
     def close(self) -> None:
         self._client.close()
 
-    def upload_presigned(self, url: str, headers: Mapping[str, str], content: bytes) -> dict[str, object]:
-        if not _is_public_https_url(url) or not isinstance(content, bytes) or any(not isinstance(name, str) or not isinstance(value, str) for name, value in headers.items()) or any(name.lower() in {"authorization", "host"} for name in headers):
+    def upload_presigned(self, url: str, headers: Mapping[str, str], content: bytes | Iterator[bytes]) -> dict[str, object]:
+        if not _is_public_https_url(url) or not isinstance(content, (bytes, Iterator)) or any(not isinstance(name, str) or not isinstance(value, str) for name, value in headers.items()) or any(name.lower() in {"authorization", "host"} for name in headers):
             return failure(ErrorCode.VALIDATION_ERROR, "presigned upload URL, headers, or content is unsafe")
         try:
             response = self._client.request("PUT", url, headers=dict(headers), content=content)
         except httpx.TimeoutException:
             return failure(ErrorCode.TIMEOUT, "Zendesk upload timed out", operation_state="unknown")
-        except httpx.HTTPError:
+        except (httpx.HTTPError, OSError):
             return failure(ErrorCode.UPSTREAM_ERROR, "Zendesk upload could not be completed", operation_state="unknown")
         if response.is_success:
             return success({}, request_id=_request_id(response))
-        return failure(_error_code(response.status_code), f"Zendesk upload failed with HTTP {response.status_code}", operation_state="unknown", request_id=_request_id(response))
+        return failure(_error_code(response.status_code), f"Zendesk upload failed with HTTP {response.status_code}", operation_state="not_applied" if response.status_code in {401, 403, 429} else "unknown", request_id=_request_id(response))
 
-    def download_attachment(self, content_url: str, *, max_bytes: int) -> dict[str, object]:
+    def download_attachment(self, content_url: str, *, max_bytes: int, store: Callable[[Iterable[bytes]], dict[str, object]] | None = None) -> dict[str, object]:
         if not isinstance(max_bytes, int) or isinstance(max_bytes, bool) or max_bytes < 1 or not self._is_attachment_url(content_url):
             return failure(ErrorCode.VALIDATION_ERROR, "attachment URL or size limit is unsafe")
-        url = content_url
-        for _ in range(3):
-            headers = self._authorization.headers() if urlsplit(url).hostname == urlsplit(self._base_url).hostname else {}
-            try:
-                with self._client.stream("GET", url, headers=headers) as response:
-                    if response.is_redirect:
-                        location = response.headers.get("Location")
-                        url = urljoin(url, location) if location else ""
-                        if not self._is_attachment_url(url):
-                            return failure(ErrorCode.VALIDATION_ERROR, "attachment redirect URL is unsafe")
-                        continue
-                    if not response.is_success:
-                        return failure(_error_code(response.status_code), f"Zendesk attachment download failed with HTTP {response.status_code}", retryable=response.status_code >= 500, request_id=_request_id(response))
-                    try:
-                        declared_size = int(response.headers.get("Content-Length", "0"))
-                    except ValueError:
-                        declared_size = 0
-                    if declared_size > max_bytes:
-                        return failure(ErrorCode.VALIDATION_ERROR, "attachment exceeds the download size limit")
-                    content = bytearray()
-                    for chunk in response.iter_bytes():
-                        content.extend(chunk)
-                        if len(content) > max_bytes:
-                            return failure(ErrorCode.VALIDATION_ERROR, "attachment exceeds the download size limit")
-                    return success({"content": bytes(content), "content_type": response.headers.get("Content-Type") or "application/octet-stream", "size": len(content)}, request_id=_request_id(response))
-            except httpx.TimeoutException:
-                return failure(ErrorCode.TIMEOUT, "Zendesk attachment download timed out", retryable=True)
-            except httpx.HTTPError:
-                return failure(ErrorCode.UPSTREAM_ERROR, "Zendesk attachment download could not be completed", retryable=True)
-        return failure(ErrorCode.UPSTREAM_ERROR, "Zendesk attachment redirected too many times")
+        return self._download_file(content_url, max_bytes, urlsplit(self._base_url).hostname, allow_redirects=True, store=store)
 
     def download_help_center_image(self, image_url: str, *, max_bytes: int, subdomain: str | None = None) -> dict[str, object]:
         if not isinstance(max_bytes, int) or isinstance(max_bytes, bool) or max_bytes < 1 or not self._is_help_center_image_url(image_url, subdomain):
             return failure(ErrorCode.VALIDATION_ERROR, "Help Center image URL or size limit is unsafe")
+        return self._download_file(image_url, max_bytes, urlsplit(image_url).hostname, allow_redirects=False)
+
+    def _download_file(self, url: str, max_bytes: int, authorized_host: str | None, *, allow_redirects: bool, store: Callable[[Iterable[bytes]], dict[str, object]] | None = None) -> dict[str, object]:
+        sleep_total = 0.0; own_cooldown = 0.0; attempt = 0; redirects = 0; refreshed = False
+        while attempt < 3:
+            authenticated = urlsplit(url).hostname == authorized_host
+            if authenticated:
+                limited = self._cooldown_failure(own_cooldown)
+                if limited is not None: return limited
+            delay = self._retry_delay(attempt)
+            try:
+                with self._client.stream("GET", url, headers=self._authorization.headers() if authenticated else {}) as response:
+                    if authenticated: own_cooldown = self._record_cooldown(response)
+                    if authenticated and response.status_code == 401 and not refreshed and attempt < 2:
+                        refresh = getattr(self._authorization, "refresh", None)
+                        if callable(refresh):
+                            response.close()
+                            try:
+                                refresh()
+                            except ConfigurationError:
+                                return failure(ErrorCode.REAUTHORIZATION_REQUIRED, "Zendesk authentication refresh failed")
+                            refreshed = True
+                            attempt += 1
+                            continue
+                    if response.is_redirect and allow_redirects:
+                        redirects += 1
+                        if redirects >= 3: return failure(ErrorCode.UPSTREAM_ERROR, "Zendesk attachment redirected too many times")
+                        location = response.headers.get("Location")
+                        url = urljoin(url, location) if location else ""
+                        if not self._is_attachment_url(url): return failure(ErrorCode.VALIDATION_ERROR, "attachment redirect URL is unsafe")
+                        continue
+                    if not response.is_success:
+                        retryable = response.status_code == 429 or response.status_code >= 500
+                        result = failure(_error_code(response.status_code), f"Zendesk file download failed with HTTP {response.status_code}", retryable=retryable, request_id=_request_id(response))
+                        if not retryable: return result
+                        if response.status_code == 429:
+                            delay = _retry_after(response)
+                            if delay is None: return result
+                            delay += random.uniform(0.0, min(0.25, 30.0-delay))
+                    else:
+                        try:
+                            declared_size = int(response.headers.get("Content-Length", "0"))
+                        except ValueError:
+                            declared_size = 0
+                        if declared_size > max_bytes: return failure(ErrorCode.VALIDATION_ERROR, "file exceeds the download size limit")
+                        size = 0
+                        def chunks():
+                            nonlocal size
+                            for chunk in response.iter_bytes(chunk_size=65536):
+                                size += len(chunk)
+                                if size > max_bytes: raise _DownloadSizeExceeded
+                                yield chunk
+                        if store is None:
+                            data = {"content": b"".join(chunks())}
+                        else:
+                            stored = store(chunks())
+                            if not stored.get("ok"): return stored
+                            data = stored["data"]
+                        return success({**data, "content_type": response.headers.get("Content-Type") or "application/octet-stream", "size": size}, request_id=_request_id(response))
+            except _DownloadSizeExceeded:
+                return failure(ErrorCode.VALIDATION_ERROR, "file exceeds the download size limit")
+            except httpx.TimeoutException:
+                result = failure(ErrorCode.TIMEOUT, "Zendesk file download timed out", retryable=True)
+            except httpx.HTTPError:
+                result = failure(ErrorCode.UPSTREAM_ERROR, "Zendesk file download could not be completed", retryable=True)
+            if attempt == 2 or sleep_total + delay > 30.0: return result
+            self._sleep(delay)
+            sleep_total += delay
+            attempt += 1
+
+    def _record_cooldown(self, response: httpx.Response) -> float:
+        if response.status_code != 429: return 0.0
         try:
-            with self._client.stream("GET", image_url, headers=self._authorization.headers()) as response:
-                if not response.is_success:
-                    return failure(_error_code(response.status_code), f"Zendesk Help Center image download failed with HTTP {response.status_code}", retryable=response.status_code >= 500, request_id=_request_id(response))
-                try:
-                    declared_size = int(response.headers.get("Content-Length", "0"))
-                except ValueError:
-                    declared_size = 0
-                if declared_size > max_bytes: return failure(ErrorCode.VALIDATION_ERROR, "Help Center image exceeds the download size limit")
-                content = bytearray()
-                for chunk in response.iter_bytes():
-                    content.extend(chunk)
-                    if len(content) > max_bytes: return failure(ErrorCode.VALIDATION_ERROR, "Help Center image exceeds the download size limit")
-                return success({"content": bytes(content), "content_type": response.headers.get("Content-Type") or "application/octet-stream", "size": len(content)}, request_id=_request_id(response))
-        except httpx.TimeoutException:
-            return failure(ErrorCode.TIMEOUT, "Zendesk Help Center image download timed out", retryable=True)
-        except httpx.HTTPError:
-            return failure(ErrorCode.UPSTREAM_ERROR, "Zendesk Help Center image download could not be completed", retryable=True)
+            duration = float(response.headers.get("Retry-After", "nan"))
+        except ValueError:
+            return 0.0
+        if not math.isfinite(duration) or duration < 0: return 0.0
+        with _COOLDOWN_LOCK:
+            deadline = time.monotonic() + duration
+            _COOLDOWNS[self._base_url] = max(_COOLDOWNS.get(self._base_url, 0.0), deadline)
+        return deadline
+
+    def _cooldown_failure(self, own_cooldown: float = 0.0) -> dict[str, object] | None:
+        with _COOLDOWN_LOCK:
+            now = time.monotonic()
+            for tenant, deadline in list(_COOLDOWNS.items()):
+                if deadline <= now: del _COOLDOWNS[tenant]
+            cooldown = _COOLDOWNS.get(self._base_url, 0.0)
+        if cooldown > now and cooldown > own_cooldown:
+            return failure(ErrorCode.RATE_LIMITED, "Zendesk tenant is in a shared rate-limit cooldown; retry later", retryable=True, operation_state="not_applied")
+        return None
 
     def _build_url(self, path: str, subdomain: str | None = None) -> str | None:
         parsed = urlsplit(path)

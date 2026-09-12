@@ -20,7 +20,7 @@ from urllib.parse import urlencode, urlsplit
 
 import httpx
 
-from .config import AuthMode, ConfigurationError, Settings, _has_unsafe_permissions
+from .config import AuthMode, ConfigurationError, Settings, _has_unsafe_permissions, require_private_file_support
 from .locking import exclusive_lock
 
 
@@ -180,6 +180,7 @@ class OAuthTokenStore:
             raise ConfigurationError("invalid_oauth_tokens", "OAuth token file is invalid") from error
 
     def save(self, tokens: OAuthTokens) -> None:
+        require_private_file_support()
         values: dict[str, object] = {}
         if self.path.exists():
             self._require_user_only_permissions()
@@ -197,6 +198,7 @@ class OAuthTokenStore:
         self._save_values(values)
 
     def _save_values(self, values: dict[str, object]) -> None:
+        require_private_file_support()
         self.path.parent.mkdir(parents=True, exist_ok=True)
         temporary_path: Path | None = None
         try:

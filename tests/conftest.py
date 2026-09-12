@@ -5,4 +5,6 @@ import pytest
 
 @pytest.fixture(autouse=True)
 def isolate_saved_connection(tmp_path, monkeypatch):
+    import zendesk_mcp_server.client as client
+    monkeypatch.setattr(client, "_COOLDOWNS", {})
     monkeypatch.setattr(Path, "home", lambda: tmp_path)

@@ -19,7 +19,7 @@ from .auth import (
     save_connection,
     _oauth_refresh_requester,
 )
-from .config import AuthMode, ConfigurationError, Settings
+from .config import AuthMode, ConfigurationError, Settings, require_private_file_support
 
 
 class _LoopbackHTTPServer(HTTPServer):
@@ -72,6 +72,7 @@ def login(
         raise ConfigurationError("invalid_oauth_configuration", "Login requires public OAuth configuration")
     if not isinstance(port, int) or isinstance(port, bool) or not 0 <= port <= 65535 or timeout <= 0:
         raise ConfigurationError("invalid_oauth_callback", "OAuth callback port or timeout is invalid")
+    require_private_file_support()
 
     result: dict[str, str] = {}
     expected_state = ""

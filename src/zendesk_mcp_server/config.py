@@ -17,12 +17,14 @@ _CHECK_POSIX_PERMISSIONS = os.name != "nt"
 _CAPABILITIES = frozenset({"support", "operations", "guide", "community", "csat", "custom_objects", "git_zen", "time_tracking", "badges"})
 _OAUTH_SCOPES = {
     "support": {"tickets:read", "users:read", "groups:read", "organizations:read", "brands:read", "ticket_attachments:read"},
-    "operations": {"ticket_views:read", "macros:read", "triggers:read"},
-    "guide": {"hc:read"},
+    "operations": {"account_settings:read", "users:read", "groups:read", "organizations:read", "brands:read", "tickets:read", "ticket_views:read", "macros:read", "triggers:read"},
+    "guide": {"brands:read", "hc:read"},
     "community": {"hc:read"},
     "csat": {"satisfaction_ratings:read"},
-    "custom_objects": {"custom_objects:read"},
+    "custom_objects": {"custom_objects:read", "account_settings:read"},
     "badges": {"hc:read"},
+    "git_zen": {"tickets:read"},
+    "time_tracking": {"tickets:read"},
 }
 _AUTH_ENV_NAMES = frozenset({
     "ZENDESK_SUBDOMAIN", "ZENDESK_AUTH_MODE", "ZENDESK_EMAIL",
@@ -72,6 +74,8 @@ class Settings:
     oauth: OAuthConfig | None = None
     capabilities: frozenset[str] = frozenset({"support", "operations", "guide", "community"})
     git_zen_field_id: int | None = None
+    time_tracking_total_field_id: int | None = None
+    time_tracking_last_field_id: int | None = None
 
     @classmethod
     def load(
@@ -118,6 +122,11 @@ class Settings:
         if git_zen_field_id is not None and git_zen_field_id < 1: raise ConfigurationError("invalid_git_zen_field", "ZENDESK_GIT_ZEN_FIELD_ID must be a positive integer")
 
         subdomain = environ.get("ZENDESK_SUBDOMAIN")
+        time_fields = [environ.get(name) for name in ("ZENDESK_TIME_TRACKING_TOTAL_FIELD_ID", "ZENDESK_TIME_TRACKING_LAST_FIELD_ID")]
+        if any(value is not None for value in time_fields):
+            if any(not isinstance(value, str) or len(value) > 20 or not value.isascii() or not value.isdecimal() or int(value) < 1 for value in time_fields) or int(time_fields[0]) == int(time_fields[1]):
+                raise ConfigurationError("invalid_time_tracking_fields", "Time Tracking requires two distinct positive field IDs")
+            time_fields = [int(value) for value in time_fields]
         if subdomain is not None:
             subdomain = subdomain.strip().lower()
             if not _SUBDOMAIN_PATTERN.fullmatch(subdomain):
@@ -146,6 +155,7 @@ class Settings:
 
         oauth = None
         if oauth_complete:
+            require_private_file_support()
             if subdomain is None:
                 raise ConfigurationError("incomplete_oauth", "incomplete OAuth configuration")
             oauth = OAuthConfig(
@@ -180,6 +190,8 @@ class Settings:
             oauth=oauth if selected_mode is AuthMode.OAUTH else None,
             capabilities=capabilities,
             git_zen_field_id=git_zen_field_id,
+            time_tracking_total_field_id=time_fields[0],
+            time_tracking_last_field_id=time_fields[1],
         )
 
     def connection_status(self) -> dict[str, object]:
@@ -259,8 +271,10 @@ def _parse_bool(environ: Mapping[str, str], name: str) -> bool:
 
 def _oauth_scopes(capabilities: frozenset[str], write_mode: str, public: bool, destructive: bool, impersonation: bool, external_upload: bool) -> tuple[str, ...]:
     scopes = set().union(*(_OAUTH_SCOPES.get(capability, set()) for capability in capabilities))
-    if write_mode == "standard": scopes.add("tickets:write")
-    if public or destructive or external_upload: scopes.add("hc:write")
+    # Approved exception: Search/Search Export require broad read, not tickets:read.
+    if "support" in capabilities: scopes.add("read")
+    if write_mode == "standard" and capabilities & {"support", "operations", "time_tracking"}: scopes.add("tickets:write")
+    if (public or destructive or external_upload) and capabilities & {"guide", "community", "badges"}: scopes.add("hc:write")
     if impersonation: scopes.add("impersonate")
     return tuple(sorted(scopes))
 
@@ -271,7 +285,13 @@ def saved_connection_path() -> Path:
 
 def _has_unsafe_permissions(path: Path) -> bool:
     mode = path.stat().st_mode
-    return _CHECK_POSIX_PERMISSIONS and bool(stat.S_IMODE(mode) & 0o077)
+    require_private_file_support()
+    return bool(stat.S_IMODE(mode) & 0o077)
+
+
+def require_private_file_support() -> None:
+    if not _CHECK_POSIX_PERMISSIONS:
+        raise ConfigurationError("unsupported", "OAuth storage requires user-only file permissions; Windows ACL support is not implemented")
 
 
 def _load_saved_connection(path: Path) -> dict[str, object]:

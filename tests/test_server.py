@@ -5,6 +5,264 @@ import json
 from mcp import types
 
 
+def test_conversation_mcp_preserves_limit_cursor_and_untrusted_content(monkeypatch):
+    from zendesk_mcp_server.contracts import success
+    from zendesk_mcp_server.tools.tickets import TicketTools
+    module = importlib.import_module("zendesk_mcp_server.server")
+    class Client:
+        def get(self, path, *, params=None):
+            assert path == "/api/v2/tickets/7/comments.json"
+            assert params == {"page[size]": "1", "page[after]": "second", "include": "users"}
+            return success({"comments": [{"id": 2, "body": "untrusted", "public": False}], "meta": {"has_more": False}})
+    monkeypatch.setattr(module, "build_ticket_tools", lambda _: TicketTools(Client()))
+    server = module.create_server({})
+    request = types.CallToolRequest(params=types.CallToolRequestParams(name="zendesk_get_ticket_conversation", arguments={"ticket_id": 7, "limit": 1, "cursor": "second"}))
+    result = asyncio.run(server.request_handlers[types.CallToolRequest](request))
+    assert result.root.structuredContent == {"ok": True, "data": {"comments": [{"id": 2, "body": "untrusted", "public": False, "untrusted_user_content": True, "side": "unknown"}], "has_more": False, "next_cursor": None, "truncated": False}}
+
+
+def test_scope_expansion_requires_reauthorization_in_factories_and_gate(monkeypatch):
+    from zendesk_mcp_server import server as module
+    from zendesk_mcp_server.config import ConfigurationError
+    def load(_):
+        raise ConfigurationError("oauth_relogin_required", "OAuth scope expansion requires login again")
+    monkeypatch.setattr(module.Settings, "load", load)
+    readers = (module.build_connection_status, module.build_ticket_tools,
+               module.build_metadata_tools, module.build_guide_tools, module.build_community_tools,
+               lambda env: module._capability_gate(env, "zendesk_get_ticket"))
+    for reader in readers:
+        result = reader({})
+        assert result["error"]["code"] == "reauthorization_required"
+        assert result["error"]["operation_state"] == "not_applied"
+        assert result["error"]["retryable"] is False
+
+
+def test_connection_status_redacts_invalid_integration_field_settings():
+    from zendesk_mcp_server.server import build_connection_status
+    secret_like = "sensitive-setting-marker"
+    for values in ({"ZENDESK_GIT_ZEN_FIELD_ID": "9" * 5000},
+                   {"ZENDESK_GIT_ZEN_FIELD_ID": secret_like},
+                   {"ZENDESK_TIME_TRACKING_TOTAL_FIELD_ID": secret_like, "ZENDESK_TIME_TRACKING_LAST_FIELD_ID": "34"},
+                   {"ZENDESK_TIME_TRACKING_TOTAL_FIELD_ID": "12"}):
+        result = build_connection_status({"ZENDESK_SUBDOMAIN": "example", **values}, probe=True)
+        assert result["ok"] is False
+        assert result["error"]["code"] == "validation_error"
+        assert result["error"]["operation_state"] == "not_applied"
+        assert secret_like not in json.dumps(result)
+        assert "9" * 100 not in json.dumps(result)
+
+
+def test_badge_icon_mcp_preserves_omitted_replacement_and_null(monkeypatch, tmp_path):
+    from zendesk_mcp_server.approvals import ApprovalStore
+    module = importlib.import_module("zendesk_mcp_server.server")
+    writes = []
+    class Client:
+        def __init__(self, *args, **kwargs): pass
+        def request(self, method, path, *, json_body=None):
+            writes.append((method, path, json_body))
+            return {"ok": True, "data": {"badge": {"id": "badge-1"}}}
+    monkeypatch.setattr(module, "ZendeskClient", Client)
+    env = {"ZENDESK_SUBDOMAIN": "example", "ZENDESK_EMAIL": "test@example.test", "ZENDESK_API_TOKEN": "test-only", "ZENDESK_CAPABILITIES": "community,badges", "ZENDESK_WRITE_MODE": "standard", "ZENDESK_ENABLE_PUBLIC_WRITES": "true", "ZENDESK_APPROVAL_STORE": str(tmp_path / "approvals.json")}
+    server = module.create_server(env)
+    def call(arguments):
+        request = types.CallToolRequest(params=types.CallToolRequestParams(name="zendesk_update_badge", arguments=arguments))
+        return asyncio.run(server.request_handlers[types.CallToolRequest](request)).root.structuredContent
+    for change in ({"name": "Renamed"}, {"icon_upload_id": "uploaded-icon"}, {"icon_upload_id": None}):
+        arguments = {"badge_id": "badge-1", **change}
+        preview = call(arguments)
+        assert preview["ok"] is True
+        store = ApprovalStore.from_environment(env)
+        identifier = preview["data"]["approval_request_id"]
+        assert store.preview(identifier)["payload"]["badge"] == change
+        token = store.approve(identifier)
+        assert call({**arguments, "execution_mode": "apply", "approval_request_id": identifier, "approval_token": token})["ok"] is True
+    assert writes == [("PUT", "/api/v2/gather/badges/badge-1", {"badge": change}) for change in ({"name": "Renamed"}, {"icon_upload_id": "uploaded-icon"}, {"icon_upload_id": None})]
+
+
+def test_badge_delete_mcp_previews_full_cascade_in_local_approval(monkeypatch, tmp_path):
+    from zendesk_mcp_server.approvals import ApprovalStore
+    module = importlib.import_module("zendesk_mcp_server.server")
+    reads = []
+    class Client:
+        def __init__(self, *args, **kwargs): pass
+        def get(self, path, *, params=None):
+            reads.append((path, params))
+            return {"ok": True, "data": {"badge_assignments": [{"id": f"assignment-{i}", "badge_id": "badge-1", "user_id": str(i)} for i in range(1001)]}}
+        def request(self, *args, **kwargs):
+            raise AssertionError("preview must not write to Zendesk")
+    monkeypatch.setattr(module, "ZendeskClient", Client)
+    env = {"ZENDESK_SUBDOMAIN": "example", "ZENDESK_EMAIL": "test@example.test", "ZENDESK_API_TOKEN": "test-only", "ZENDESK_CAPABILITIES": "community,badges", "ZENDESK_APPROVAL_STORE": str(tmp_path / "approvals.json")}
+    server = module.create_server(env)
+    request = types.CallToolRequest(params=types.CallToolRequestParams(name="zendesk_delete_badge", arguments={"badge_id": "badge-1"}))
+    result = asyncio.run(server.request_handlers[types.CallToolRequest](request)).root.structuredContent
+    assert result["ok"] is True
+    data = result["data"]
+    assert data["cascade_assignment_count"] == 1001
+    assert data["irreversible"] is True and data["outbound_write"] is False
+    approved = ApprovalStore.from_environment(env).preview(data["approval_request_id"])
+    assert approved["account"] == "example"
+    assert approved["payload"] == {key: data[key] for key in ("badge_id", "cascade_assignment_count", "cascade_snapshot_sha256", "irreversible")}
+    assert reads == [("/api/v2/gather/badge_assignments", {"badge_id": "badge-1"})]
+
+
+def test_custom_object_mcp_search_and_csv_artifact_use_real_factories(monkeypatch, tmp_path):
+    import csv
+    from pathlib import Path
+    from urllib.parse import unquote, urlsplit
+    module = importlib.import_module("zendesk_mcp_server.server")
+    ticket = {"id": 7, "custom_fields": [{"id": 10, "value": "01GCSJW391QVSC80GYDH7E93Q6"}]}
+    record = {"id": "01GCSJW391QVSC80GYDH7E93Q6", "custom_object_fields": {"serial": "example"}}
+    class Client:
+        def __init__(self, *args, **kwargs): pass
+        def get(self, path, *, params=None):
+            if path == "/api/v2/search.json": return {"ok": True, "data": {"results": [ticket], "next_page": None}}
+            if path == "/api/v2/search/export.json": return {"ok": True, "data": {"results": [ticket], "meta": {"has_more": False}}}
+            if path == "/api/v2/ticket_fields.json": return {"ok": True, "data": {"ticket_fields": [{"id": 10, "relationship_target_type": "zen:custom_object:asset"}], "meta": {"has_more": False}}}
+            assert path == f"/api/v2/custom_objects/asset/records/{record['id']}.json"
+            return {"ok": True, "data": {"custom_object_record": record}}
+        def request(self, *args, **kwargs): raise AssertionError("Reads must not mutate Zendesk")
+    monkeypatch.setattr(module, "ZendeskClient", Client)
+    server = module.create_server({"ZENDESK_SUBDOMAIN": "example", "ZENDESK_EMAIL": "test@example.test", "ZENDESK_API_TOKEN": "test-only", "ZENDESK_CAPABILITIES": "support,custom_objects", "ZENDESK_ATTACHMENT_CACHE_ROOT": str(tmp_path / "attachments")})
+    arguments = {"query": "status:open", "projection": {"fields": ["id"], "include_custom_objects": ["asset"]}}
+    async def call(name, args):
+        return (await server.request_handlers[types.CallToolRequest](types.CallToolRequest(params=types.CallToolRequestParams(name=name, arguments=args)))).root
+    search = asyncio.run(call("zendesk_search_tickets", arguments))
+    assert search.structuredContent["items"] == [{"id": 7, "custom_objects": {"asset": [record]}}]
+    exported = asyncio.run(call("zendesk_export_tickets", {**arguments, "format": "csv"}))
+    resource = next(content for content in exported.content if isinstance(content, types.ResourceLink))
+    path = Path(unquote(urlsplit(str(resource.uri)).path))
+    assert path.resolve().is_relative_to(tmp_path.resolve())
+    with path.open(newline="") as stream:
+        assert list(csv.DictReader(stream))[0]["asset.serial"] == "example"
+
+
+def test_time_tracking_app_mcp_loads_field_settings_and_dispatches(monkeypatch):
+    module = importlib.import_module("zendesk_mcp_server.server")
+    calls = []
+    class Client:
+        def __init__(self, *args, **kwargs): pass
+        def get(self, path, *, params=None):
+            assert path == "/api/v2/tickets/7.json"
+            return {"ok": True, "data": {"ticket": {"updated_at": "2026-09-12T00:00:00Z", "custom_fields": [{"id": 12, "value": 60}, {"id": 34, "value": 10}]}}}
+        def request(self, method, path, *, json_body=None):
+            calls.append((method, path, json_body))
+            return {"ok": True, "data": {"ticket": {"id": 7}}}
+    monkeypatch.setattr(module, "ZendeskClient", Client)
+    server = module.create_server({"ZENDESK_SUBDOMAIN": "example", "ZENDESK_EMAIL": "test@example.test", "ZENDESK_API_TOKEN": "test-only", "ZENDESK_CAPABILITIES": "support,time_tracking", "ZENDESK_WRITE_MODE": "standard", "ZENDESK_TIME_TRACKING_TOTAL_FIELD_ID": "12", "ZENDESK_TIME_TRACKING_LAST_FIELD_ID": "34"})
+    def call(name, arguments):
+        request = types.CallToolRequest(params=types.CallToolRequestParams(name=name, arguments=arguments))
+        return asyncio.run(server.request_handlers[types.CallToolRequest](request)).root.structuredContent
+    assert call("zendesk_get_time_tracking", {"ticket_id": 7})["data"]["total_time_spent_sec"] == 60
+    assert call("zendesk_log_time", {"ticket_id": 7, "time_spent": "2m", "note": "Work"})["ok"] is True
+    assert calls == [("PUT", "/api/v2/tickets/7.json", {"ticket": {"custom_fields": [{"id": 12, "value": 180}, {"id": 34, "value": 120}], "comment": {"body": "Work", "public": False}, "safe_update": True, "updated_stamp": "2026-09-12T00:00:00Z"}})]
+
+
+def test_time_tracking_mcp_preserves_scan_limit_and_cursor(monkeypatch):
+    from zendesk_mcp_server.contracts import success
+    from zendesk_mcp_server.tools.tickets import TicketTools
+    module = importlib.import_module("zendesk_mcp_server.server")
+    class Client:
+        def get(self, path, *, params=None):
+            assert path == "/api/v2/tickets/7/audits.json"
+            assert params == {"page[size]": "1", "page[after]": "next", "include_boundary_indicators": "true"}
+            return success({"audits": [{"id": 2, "metadata": {"custom": {"time_spent": "1m"}}}], "meta": {"has_more": False}})
+    monkeypatch.setattr(module, "build_ticket_tools", lambda _: TicketTools(Client()))
+    server = module.create_server({"ZENDESK_CAPABILITIES": "support,time_tracking"})
+    request = types.CallToolRequest(params=types.CallToolRequestParams(name="zendesk_get_time_tracking", arguments={"ticket_id": 7, "limit": 1, "cursor": "next"}))
+    result = asyncio.run(server.request_handlers[types.CallToolRequest](request))
+    assert result.root.structuredContent == {"ok": True, "data": {"entries": [{"audit_id": 2, "author_id": None, "created_at": None, "time_spent": "1m"}], "has_more": False, "next_cursor": None, "truncated": False}}
+
+
+def test_ticket_search_mcp_preserves_cursor_projection_and_global_cap(monkeypatch):
+    from zendesk_mcp_server.contracts import success
+    from zendesk_mcp_server.tools.tickets import TicketTools
+    module = importlib.import_module("zendesk_mcp_server.server")
+    calls = []
+    class Client:
+        def get(self, path, *, params=None):
+            calls.append((path, params))
+            assert path == "/api/v2/search.json"
+            assert params == {"query": "type:ticket status:open", "per_page": "100", "page": "10"}
+            return success({"results": [{"id": i, "subject": "excluded"} for i in range(900, 1000)], "next_page": "https://untrusted.example/next"})
+    monkeypatch.setattr(module, "build_ticket_tools", lambda _: TicketTools(Client()))
+    server = module.create_server({})
+    request = types.CallToolRequest(params=types.CallToolRequestParams(name="zendesk_search_tickets", arguments={"query": "status:open", "limit": 150, "cursor": "950", "projection": {"fields": ["id"]}}))
+    result = asyncio.run(server.request_handlers[types.CallToolRequest](request))
+    data = result.root.structuredContent
+    assert data == {"ok": True, "items": [{"id": i} for i in range(950, 1000)], "has_more": True, "next_cursor": None, "next_page": None, "truncated": True}
+    assert len(calls) == 1
+
+
+def test_guide_mcp_calls_preserve_pagination_arguments(monkeypatch):
+    from zendesk_mcp_server.contracts import success
+    from zendesk_mcp_server.tools.guide import GuideTools
+    module = importlib.import_module("zendesk_mcp_server.server")
+    cases = [
+        ("list_help_center_categories", {}, "/api/v2/help_center/categories.json", "categories", {}),
+        ("list_help_center_sections", {}, "/api/v2/help_center/sections.json", "sections", {}),
+        ("list_guide_user_segments", {"built_in": False, "applicable": True}, "/api/v2/help_center/user_segments/applicable.json", "user_segments", {"built_in": "false"}),
+        ("get_satisfaction_ratings", {}, "/api/v2/satisfaction_ratings.json", "satisfaction_ratings", {}),
+        ("list_csat", {"backend": "legacy", "score": "good"}, "/api/v2/satisfaction_ratings.json", "satisfaction_ratings", {"score": "good"}),
+        ("list_csat", {"backend": "survey", "ticket_id": 9}, "/api/v2/guide/survey_responses", "survey_responses", {"filter[subject_zrns]": "zen:ticket:9"}),
+        ("list_guide_permission_groups", {}, "/api/v2/guide/permission_groups.json", "permission_groups", None),
+        ("search_help_center_articles", {"query": "billing"}, "/api/v2/help_center/articles/search.json", "results", None),
+    ]
+    for name, arguments, endpoint, key, filters in cases:
+        class Client:
+            def get(self, path, *, params=None):
+                assert path == endpoint
+                if filters is None:
+                    expected = {"per_page": "100", "page": "1"}
+                    if key == "results": expected["query"] = "billing"
+                    assert params == expected
+                    return success({key: [{"id": 8}, {"id": 9}], "next_page": None})
+                assert params == {**filters, "page[size]": "1", "page[after]": "1"}
+                return success({key: [{"id": 9}], "meta": {"has_more": False}})
+        monkeypatch.setattr(module, "build_guide_tools", lambda _: GuideTools(Client()))
+        server = module.create_server({"ZENDESK_CAPABILITIES": "guide,csat"})
+        request = types.CallToolRequest(params=types.CallToolRequestParams(name=f"zendesk_{name}", arguments={**arguments, "limit": 1, "cursor": "1"}))
+        result = asyncio.run(server.request_handlers[types.CallToolRequest](request))
+        expected_result = {"ok": True, "items": [{"id": 9}], "has_more": False, "next_cursor": None, "truncated": False}
+        if name in {"get_satisfaction_ratings", "list_csat"}: expected_result["untrusted_user_content"] = True
+        assert result.root.structuredContent == expected_result, name
+
+
+def test_metadata_mcp_calls_preserve_pagination_arguments(monkeypatch):
+    from zendesk_mcp_server.contracts import success
+    from zendesk_mcp_server.tools.metadata import MetadataTools
+    module = importlib.import_module("zendesk_mcp_server.server")
+    cases = [
+        ("list_groups", {}, "/api/v2/groups.json", "groups"),
+        ("list_group_users", {"group_id": 4}, "/api/v2/groups/4/users.json", "users"),
+        ("list_brands", {}, "/api/v2/brands.json", "brands"),
+        ("list_ticket_fields", {}, "/api/v2/ticket_fields.json", "ticket_fields"),
+        ("list_ticket_forms", {}, "/api/v2/ticket_forms.json", "ticket_forms"),
+        ("list_views", {}, "/api/v2/views.json", "views"),
+        ("list_view_tickets", {"view_id": 4}, "/api/v2/views/4/tickets.json", "tickets"),
+        ("list_macros", {}, "/api/v2/macros.json", "macros"),
+        ("list_triggers", {}, "/api/v2/triggers.json", "triggers"),
+        ("search_users", {"query": "agent"}, "/api/v2/users/search.json", "users"),
+        ("list_custom_statuses", {}, "/api/v2/custom_statuses.json", "custom_statuses"),
+    ]
+    for name, arguments, endpoint, key in cases:
+        class Client:
+            def get(self, path, *, params=None):
+                assert path == endpoint
+                if name == "search_users":
+                    assert params == {"query": "agent", "per_page": "100", "page": "1"}
+                    return success({key: [{"id": 8}, {"id": 9}], "next_page": None})
+                if name == "list_custom_statuses":
+                    assert params is None
+                    return success({key: [{"id": 8}, {"id": 9}]})
+                assert params == {"page[size]": "1", "page[after]": "1"}
+                return success({key: [{"id": 9}], "meta": {"has_more": False}})
+        monkeypatch.setattr(module, "build_metadata_tools", lambda _: MetadataTools(Client()))
+        server = module.create_server({"ZENDESK_CAPABILITIES": "operations"})
+        request = types.CallToolRequest(params=types.CallToolRequestParams(name=f"zendesk_{name}", arguments={**arguments, "limit": 1, "cursor": "1"}))
+        result = asyncio.run(server.request_handlers[types.CallToolRequest](request))
+        assert result.root.structuredContent == {"ok": True, "items": [{"id": 9}], "has_more": False, "next_cursor": None, "truncated": False}, name
+
+
 def test_ticket_list_exposes_resume_cursor():
     from zendesk_mcp_server.server import build_tools
     tool = next(tool for tool in build_tools() if tool.name == "zendesk_list_tickets")
@@ -62,13 +320,14 @@ def test_help_center_article_image_result_uses_image_content():
 def test_ticket_export_result_includes_a_resource_link_without_its_cache_path():
     from zendesk_mcp_server.server import ticket_export_content
 
-    content = ticket_export_content({"ok": True, "data": {"format": "csv", "cache_path": "/private/cache/exports/tickets.csv", "item_count": 2, "truncated": False}})
+    content = ticket_export_content({"ok": True, "data": {"format": "csv", "cache_path": "/private/cache/exports/tickets.csv", "item_count": 2, "truncated": False, "size": 42}})
 
     assert isinstance(content[0], types.TextContent)
     assert "cache_path" not in str(content[0].text)
     assert isinstance(content[1], types.ResourceLink)
     assert str(content[1].uri) == "file:///private/cache/exports/tickets.csv"
     assert content[1].mimeType == "text/csv"
+    assert content[1].size == 42
 
 
 def test_csat_export_result_includes_a_resource_link_without_its_cache_path():
@@ -108,7 +367,7 @@ def test_knowledge_base_resource_reuses_locale_article_exports(monkeypatch):
 
     class GuideExport:
         def list_locales(self): return success({"locales": ["en-us"]})
-        def export_articles(self, locale, max_articles=100000): return success({"articles": [{"id": 1, "locale": locale}], "truncated": False})
+        def export_article_artifact(self, locale, max_articles=100000): return success({"item_count": 1, "cache_path": "/tmp/kb.json", "format": "json", "truncated": False})
 
     monkeypatch.setattr(server_module, "build_guide_tools", lambda _: GuideExport())
     server = server_module.create_server({"ZENDESK_ENABLE_KNOWLEDGE_BASE_RESOURCE": "true"})
@@ -116,7 +375,43 @@ def test_knowledge_base_resource_reuses_locale_article_exports(monkeypatch):
 
     result = asyncio.run(server.request_handlers[types.ReadResourceRequest](request))
 
-    assert result.root.contents[0].text == '{"ok": true, "data": {"locales": [{"locale": "en-us", "articles": [{"id": 1, "locale": "en-us"}], "truncated": false}], "truncated": false}}'
+    import json
+    data = json.loads(result.root.contents[0].text)["data"]
+    entry = data["locales"][0]
+    assert entry["locale"] == "en-us" and entry["item_count"] == 1
+    assert entry["resource"]["type"] == "resource_link"
+    assert entry["resource"]["uri"] == "file:///tmp/kb.json"
+    assert "articles" not in entry and "cache_path" not in entry
+    assert data["truncated"] is False
+
+
+def test_knowledge_base_manifest_points_to_real_streamed_export(tmp_path, monkeypatch):
+    import json
+    from pathlib import Path
+    from urllib.parse import urlsplit, unquote
+    from zendesk_mcp_server import server as module
+    from zendesk_mcp_server.config import Settings
+    from zendesk_mcp_server.contracts import success
+    from zendesk_mcp_server.tools.guide import GuideTools
+    class Client:
+        def get(self, path, *, params=None):
+            if path.endswith("locales.json"): return success({"locales": ["en-us"]})
+            assert path == "/api/v2/help_center/en-us/articles.json"
+            return success({"articles": [{"id": 7, "body": "article body"}], "meta": {"has_more": False}})
+    guide = GuideTools(Client(), Settings.load({"ZENDESK_ATTACHMENT_CACHE_ROOT": str(tmp_path / "attachments")}))
+    monkeypatch.setattr(module, "build_guide_tools", lambda _: guide)
+    server = module.create_server({"ZENDESK_ENABLE_KNOWLEDGE_BASE_RESOURCE": "true"})
+    request = types.ReadResourceRequest(params=types.ReadResourceRequestParams(uri="zendesk://knowledge-base"))
+    result = asyncio.run(server.request_handlers[types.ReadResourceRequest](request))
+    text = result.root.contents[0].text
+    entry = json.loads(text)["data"]["locales"][0]
+    path = Path(unquote(urlsplit(entry["resource"]["uri"]).path))
+    assert path.is_relative_to(tmp_path)
+    assert json.loads(path.read_text()) == [{"id": 7, "body": "article body"}]
+    assert entry["item_count"] == 1 and "article body" not in text
+    assert entry["size"] == path.stat().st_size
+    assert entry["resource"]["size"] == path.stat().st_size
+    assert entry["mime_type"] == "application/json"
 
 
 def test_knowledge_base_shares_total_limit_across_locales(monkeypatch):
@@ -126,10 +421,10 @@ def test_knowledge_base_shares_total_limit_across_locales(monkeypatch):
     class GuideExport:
         calls = []
         def list_locales(self): return success({"locales": ["en-us", "ko", "ja"]})
-        def export_articles(self, locale, max_articles=100000):
+        def export_article_artifact(self, locale, max_articles=100000):
             self.calls.append((locale, max_articles))
             count = 99999 if locale == "en-us" else max_articles
-            return success({"articles": [{"id": 1}] * count, "truncated": False})
+            return success({"item_count": count, "cache_path": "/tmp/kb.json", "truncated": False})
     guide = GuideExport()
     monkeypatch.setattr(server_module, "build_guide_tools", lambda _: guide)
     server = server_module.create_server({"ZENDESK_ENABLE_KNOWLEDGE_BASE_RESOURCE": "true"})
@@ -137,7 +432,7 @@ def test_knowledge_base_shares_total_limit_across_locales(monkeypatch):
     result = asyncio.run(server.request_handlers[types.ReadResourceRequest](request))
     body = json.loads(result.root.contents[0].text)
     assert guide.calls == [("en-us", 100000), ("ko", 1)]
-    assert sum(len(item["articles"]) for item in body["data"]["locales"]) == 100000
+    assert sum(item["item_count"] for item in body["data"]["locales"]) == 100000
     assert body["data"]["truncated"] is True
 
 
@@ -145,10 +440,10 @@ def test_knowledge_base_preserves_truncation_and_rejects_invalid_export(monkeypa
     import json
     from zendesk_mcp_server import server as server_module
     from zendesk_mcp_server.contracts import success
-    for payload in ({"articles": [{"id": 1}], "truncated": True}, {"articles": "invalid", "truncated": False}):
+    for payload in ({"item_count": 1, "cache_path": "/tmp/kb.json", "truncated": True}, {"item_count": "invalid", "truncated": False}):
         class GuideExport:
             def list_locales(self): return success({"locales": ["en-us"]})
-            def export_articles(self, locale, max_articles=100000): return success(payload)
+            def export_article_artifact(self, locale, max_articles=100000): return success(payload)
         monkeypatch.setattr(server_module, "build_guide_tools", lambda _: GuideExport())
         server = server_module.create_server({"ZENDESK_ENABLE_KNOWLEDGE_BASE_RESOURCE": "true"})
         request = types.ReadResourceRequest(params=types.ReadResourceRequestParams(uri="zendesk://knowledge-base"))
@@ -164,11 +459,14 @@ def test_knowledge_base_preserves_truncation_and_rejects_invalid_export(monkeypa
 def test_knowledge_base_resource_caches_its_export_for_one_hour(monkeypatch):
     from zendesk_mcp_server import server as server_module
     from zendesk_mcp_server.contracts import success
+    clock = {"wall": 10000, "elapsed": 0}
+    monkeypatch.setattr(server_module.time, "time", lambda: clock["wall"])
+    monkeypatch.setattr(server_module.time, "monotonic", lambda: clock["elapsed"])
 
     class GuideExport:
         calls = 0
         def list_locales(self): self.calls += 1; return success({"locales": ["en-us"]})
-        def export_articles(self, locale, max_articles=100000): self.calls += 1; return success({"articles": [], "truncated": False})
+        def export_article_artifact(self, locale, max_articles=100000): self.calls += 1; return success({"item_count": 0, "cache_path": "/tmp/kb.json", "truncated": False})
 
     guide = GuideExport()
     monkeypatch.setattr(server_module, "build_guide_tools", lambda _: guide)
@@ -176,9 +474,13 @@ def test_knowledge_base_resource_caches_its_export_for_one_hour(monkeypatch):
     request = types.ReadResourceRequest(params=types.ReadResourceRequestParams(uri="zendesk://knowledge-base"))
 
     asyncio.run(server.request_handlers[types.ReadResourceRequest](request))
+    clock.update(wall=13599, elapsed=3599)
     asyncio.run(server.request_handlers[types.ReadResourceRequest](request))
 
     assert guide.calls == 2
+    clock.update(wall=9000, elapsed=3600)
+    asyncio.run(server.request_handlers[types.ReadResourceRequest](request))
+    assert guide.calls == 4
 
 
 def test_ticket_search_tools_accept_the_shared_structured_filter():
@@ -344,6 +646,84 @@ def test_oauth_authorization_failure_requires_reauthorization(monkeypatch):
     assert result["error"]["code"] == "reauthorization_required"
 
 
+def test_content_subscription_mcp_dispatch_preserves_scope_limit_and_cursor(monkeypatch):
+    import zendesk_mcp_server.server as module
+    from zendesk_mcp_server.contracts import success
+    from zendesk_mcp_server.tools.community import CommunityTools
+
+    calls = []
+    class Client:
+        def get(self, path, *, params=None):
+            calls.append((path, params))
+            return success({"subscriptions": [{"id": 7}], "meta": {"has_more": True, "after_cursor": "next"}})
+    monkeypatch.setattr(module, "build_community_tools", lambda _: CommunityTools(Client()))
+    server = module.create_server({"ZENDESK_CAPABILITIES": "community"})
+    for kind in ("post", "topic"):
+        request = types.CallToolRequest(params=types.CallToolRequestParams(name="zendesk_list_content_subscriptions", arguments={"content_type": kind, "content_id": 4, "limit": 1, "cursor": "before"}))
+        result = asyncio.run(server.request_handlers[types.CallToolRequest](request)).root
+        assert result.structuredContent == {"ok": True, "items": [{"id": 7}], "has_more": True, "next_cursor": "next", "truncated": True}
+        assert calls[-1] == (f"/api/v2/community/{kind}s/4/subscriptions.json", {"page[size]": "1", "page[after]": "before"})
+    assert len(calls) == 2
+
+
+def test_badge_list_mcp_dispatch_preserves_local_cursor_and_filters(monkeypatch):
+    import zendesk_mcp_server.server as module
+    from zendesk_mcp_server.contracts import success
+    from zendesk_mcp_server.tools.community import CommunityTools
+
+    calls = []
+    class Client:
+        def get(self, path, *, params=None):
+            calls.append((path, params))
+            key = path.rsplit("/", 1)[-1]
+            return success({key: [{"id": "first"}, {"id": "second"}, {"id": "third"}]})
+    monkeypatch.setattr(module, "build_community_tools", lambda _: CommunityTools(Client()))
+    server = module.create_server({"ZENDESK_CAPABILITIES": "community,badges"})
+    for name, key, filters in (
+        ("zendesk_list_badge_categories", "badge_categories", {"brand_id": 4}),
+        ("zendesk_list_badges", "badges", {"brand_id": 4}),
+        ("zendesk_list_badge_assignments", "badge_assignments", {"brand_id": 4, "user_id": 7, "badge_id": "badge-1", "badge_category_id": "category-1"}),
+    ):
+        request = types.CallToolRequest(params=types.CallToolRequestParams(name=name, arguments={**filters, "limit": 1, "cursor": "1"}))
+        result = asyncio.run(server.request_handlers[types.CallToolRequest](request)).root
+        assert result.structuredContent == {"ok": True, "items": [{"id": "second"}], "has_more": True, "next_cursor": "2", "truncated": True}
+        assert calls[-1] == ("/api/v2/gather/" + key, {k: str(v) for k, v in filters.items()})
+    assert len(calls) == 3
+
+
+def test_badge_icon_update_preserves_omitted_null_and_replacement_through_mcp(tmp_path, monkeypatch):
+    import zendesk_mcp_server.server as module
+    from zendesk_mcp_server.approvals import ApprovalStore
+    from zendesk_mcp_server.config import Settings
+    from zendesk_mcp_server.contracts import success
+    from zendesk_mcp_server.tools.community import CommunityTools
+
+    calls = []
+    class Client:
+        def request(self, method, path, *, json_body=None):
+            calls.append((method, path, json_body))
+            return success({"badge": {"id": "badge-1"}})
+    store = ApprovalStore(tmp_path / "approvals.json")
+    settings = Settings.load({"ZENDESK_WRITE_MODE": "standard", "ZENDESK_ENABLE_PUBLIC_WRITES": "true"})
+    community = CommunityTools(Client(), settings, store)
+    monkeypatch.setattr(module, "build_community_tools", lambda _: community)
+    server = module.create_server({"ZENDESK_CAPABILITIES": "community,badges"})
+    handler = server.request_handlers[types.CallToolRequest]
+    def call(arguments):
+        request = types.CallToolRequest(params=types.CallToolRequestParams(name="zendesk_update_badge", arguments=arguments))
+        return asyncio.run(handler(request)).root.structuredContent
+    for update in ({"name": "Renamed"}, {"icon_upload_id": None}, {"icon_upload_id": "upload-1"}):
+        arguments = {"badge_id": "badge-1", **update}
+        before = len(calls)
+        preview = call(arguments)
+        assert preview["ok"] is True and len(calls) == before, preview
+        request_id = preview["data"]["approval_request_id"]
+        result = call({**arguments, "execution_mode": "apply", "approval_request_id": request_id, "approval_token": store.approve(request_id)})
+        assert result["ok"] is True
+        assert calls[-1] == ("PUT", "/api/v2/gather/badges/badge-1", {"badge": update})
+        assert len(calls) == before + 1
+
+
 def test_connection_status_tool_probes_the_authenticated_user(monkeypatch):
     import zendesk_mcp_server.server as module
 
@@ -377,16 +757,47 @@ def test_mcp_dispatch_forwards_ticket_pagination_inputs(monkeypatch):
     monkeypatch.setattr(module, "build_ticket_tools", lambda _: TicketTools(Client()))
     server = module.create_server({"ZENDESK_SUBDOMAIN": "acme"})
     for name, arguments in (
-        ("zendesk_list_tickets", {"limit": 2, "cursor": "next"}),
+        ("zendesk_list_tickets", {"limit": 2, "cursor": "next", "sort": "-updated_at"}),
         ("zendesk_search_tickets", {"query": "status:open", "limit": 2, "page": 3}),
     ):
         request = types.CallToolRequest(params=types.CallToolRequestParams(name=name, arguments=arguments))
         result = asyncio.run(server.request_handlers[types.CallToolRequest](request))
         assert result.root.structuredContent["ok"] is True
     assert calls == [
-        ("/api/v2/tickets.json", {"page[size]": "2", "page[after]": "next"}),
+        ("/api/v2/tickets.json", {"page[size]": "2", "page[after]": "next", "sort": "-updated_at"}),
         ("/api/v2/search.json", {"query": "type:ticket status:open", "per_page": "2", "page": "3"}),
     ]
+
+
+def test_audit_does_not_modify_symlink_or_hardlink_targets(tmp_path):
+    import os
+    import time
+    from zendesk_mcp_server.audit import AuditLog
+    target = tmp_path / "existing.txt"
+    target.write_text("keep")
+    target.chmod(0o644)
+    for kind in ("symlink", "hardlink"):
+        path = tmp_path / kind
+        if kind == "symlink": path.symlink_to(target)
+        else: os.link(target, path)
+        AuditLog(path).record("probe", "read", {}, {"ok": True}, started_at=time.monotonic())
+        assert target.read_text() == "keep"
+        assert target.stat().st_mode & 0o777 == 0o644
+
+
+def test_tool_call_survives_unsupported_audit_permissions(tmp_path, monkeypatch, caplog):
+    import os
+    from zendesk_mcp_server import server as server_module
+    from zendesk_mcp_server.contracts import success
+    monkeypatch.delattr(os, "fchmod", raising=False)
+    monkeypatch.setattr(server_module, "build_connection_status", lambda *_args, **_kwargs: success({"configured": True}))
+    path = tmp_path / "not-created" / "audit.jsonl"
+    server = server_module.create_server({"ZENDESK_AUDIT_LOG": str(path)})
+    request = types.CallToolRequest(params=types.CallToolRequestParams(name="zendesk_get_connection_status", arguments={}))
+    result = asyncio.run(server.request_handlers[types.CallToolRequest](request))
+    assert result.root.structuredContent == success({"configured": True})
+    assert not path.parent.exists()
+    assert "unsupported" in caplog.text and "audit" in caplog.text
 
 
 def test_tool_call_writes_a_redacted_audit_event(tmp_path, monkeypatch):
@@ -432,7 +843,7 @@ def test_enabled_conditional_ticket_tools_are_dispatched(monkeypatch):
 
     class TicketTools:
         def get_git_zen_links(self, ticket_id): return success({"tool": "git_zen", "ticket_id": ticket_id})
-        def get_time_tracking(self, ticket_id): return success({"tool": "time_tracking", "ticket_id": ticket_id})
+        def get_time_tracking(self, ticket_id, *, limit=100, cursor=None): return success({"tool": "time_tracking", "ticket_id": ticket_id})
         def log_time(self, ticket_id, time_spent, note): return success({"tool": "log_time", "ticket_id": ticket_id, "time_spent": time_spent, "note": note})
 
     monkeypatch.setattr(module, "build_ticket_tools", lambda _: TicketTools())
@@ -604,7 +1015,7 @@ def test_community_vote_tool_accepts_post_or_user_cursor_pagination():
             "post_id": {"type": "integer", "minimum": 1},
             "user_id": {"oneOf": [{"type": "integer", "minimum": 1}, {"type": "string", "enum": ["me"]}]},
             "cursor": {"type": "string", "minLength": 1},
-            "limit": {"type": "integer", "minimum": 1, "maximum": 100, "default": 100},
+            "limit": {"type": "integer", "minimum": 1, "maximum": 1000, "default": 100},
         },
         "anyOf": [{"required": ["post_id"]}, {"required": ["user_id"]}],
     }
@@ -618,7 +1029,7 @@ def test_community_post_comment_and_topic_lists_expose_cursor_controls():
     for name in ("zendesk_list_community_posts", "zendesk_list_community_comments", "zendesk_list_community_topics"):
         properties = tools[name].inputSchema["properties"]
         assert properties["cursor"] == {"type": "string", "minLength": 1}
-        assert properties["limit"] == {"type": "integer", "minimum": 1, "maximum": 100, "default": 100}
+        assert properties["limit"] == {"type": "integer", "minimum": 1, "maximum": 1000, "default": 100}
 
 
 def test_user_subscription_list_exposes_cursor_controls():
@@ -627,7 +1038,7 @@ def test_user_subscription_list_exposes_cursor_controls():
     tool = next(item for item in build_tools() if item.name == "zendesk_list_user_subscriptions")
 
     assert tool.inputSchema["properties"]["cursor"] == {"type": "string", "minLength": 1}
-    assert tool.inputSchema["properties"]["limit"] == {"type": "integer", "minimum": 1, "maximum": 100, "default": 100}
+    assert tool.inputSchema["properties"]["limit"] == {"type": "integer", "minimum": 1, "maximum": 1000, "default": 100}
 
 
 def test_content_tag_search_exposes_cursor_controls():
@@ -636,7 +1047,7 @@ def test_content_tag_search_exposes_cursor_controls():
     tool = next(item for item in build_tools() if item.name == "zendesk_search_content_tags")
 
     assert tool.inputSchema["properties"]["cursor"] == {"type": "string", "minLength": 1}
-    assert tool.inputSchema["properties"]["limit"] == {"type": "integer", "minimum": 1, "maximum": 100, "default": 100}
+    assert tool.inputSchema["properties"]["limit"] == {"type": "integer", "minimum": 1, "maximum": 1000, "default": 100}
 
 
 def test_community_comment_read_accepts_post_and_locale_scope():
