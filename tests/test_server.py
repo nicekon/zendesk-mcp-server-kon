@@ -202,6 +202,8 @@ def test_guide_mcp_calls_preserve_pagination_arguments(monkeypatch):
         ("list_help_center_sections", {}, "/api/v2/help_center/sections.json", "sections", {}),
         ("list_help_center_categories", {"locale": "ko"}, "/api/v2/help_center/ko/categories.json", "categories", {}),
         ("list_help_center_sections", {"locale": "ko"}, "/api/v2/help_center/ko/sections.json", "sections", {}),
+        ("list_help_center_categories", {"sort_by": "position", "sort_order": "desc"}, "/api/v2/help_center/categories.json", "categories", {"sort_by": "position", "sort_order": "desc"}),
+        ("list_help_center_sections", {"locale": "ko", "category_id": "cat-A", "sort_by": "updated_at", "sort_order": "asc"}, "/api/v2/help_center/ko/categories/cat-A/sections.json", "sections", {"sort_by": "updated_at", "sort_order": "asc"}),
         ("list_user_segments", {"built_in": False, "applicable": True}, "/api/v2/help_center/user_segments/applicable.json", "user_segments", {"built_in": "false"}),
         ("get_satisfaction_ratings", {}, "/api/v2/satisfaction_ratings.json", "satisfaction_ratings", {}),
         ("list_csat", {"backend": "legacy", "score": "good"}, "/api/v2/satisfaction_ratings.json", "satisfaction_ratings", {"score": "good"}),

@@ -142,7 +142,14 @@ locale 생략 시 선택 브랜드의 default_locale을 확인하며, category/s
 PRD 활성 locale 정책에 따라 제외한다. `include_metadata=true`로 기본 locale의
 section/category/author 이름을 ID로 연결하며, 확인되지 않은 이름은 null이다.
 5개 신규 도메인 회귀와 MCP metadata/ImageContent 회귀, 전체 618 passed가 근거다.
-운영 계정의 전체 번역 실증과 구별한다. 다음은 G4/G6/G7 및 G5/G8이다.
+운영 계정의 전체 번역 실증과 구별한다.
+
+### 후속 구현: G4
+
+category/section의 sort_by·sort_order와 section의 category_id를 구현했다.
+공통 페이지 수집기에 필터를 넘기며 선택 브랜드·locale·category 경로를 유지한다.
+18개 다중 페이지 조합, 5개 입력 거부, MCP 전달 회귀 및 전체 641 passed가 근거다.
+다음은 G6/G7 및 G5/G8이다. 실제 계정별 결과 동등성 증거는 별도다.
 
 M10의 원본 priority/status 정렬, M06의 원본 상세 GitLab metadata, M19의 표시 포맷은
 PRD가 승인한 범위와 추가 대조한다. 원본 입력과 다르다는 이유만으로 위험한 호환 alias나

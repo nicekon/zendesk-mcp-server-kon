@@ -294,6 +294,15 @@ Category and section list tools now accept an optional `locale` (for example,
 Omitting it preserves the existing unlocalized list request. Resume a cursor
 with the same brand and locale; refresh the MCP tool list to discover this input.
 
+Both navigation tools accept `sort_by` (`position`, `created_at`, `updated_at`)
+and `sort_order` (`asc`, `desc`). Section lists additionally accept `category_id`
+to limit results to one category, with or without an explicit locale. All filters
+remain fixed across pages; resume with the same category, brand, locale and sort.
+Omitted sort parameters retain the API defaults. Invalid sort values and dot-only
+category IDs are rejected before querying the brand. See official
+[Categories](https://developer.zendesk.com/api-reference/help_center/help-center-api/categories/)
+and [Sections](https://developer.zendesk.com/api-reference/help_center/help-center-api/sections/).
+
 Help Center exports accept optional `category_id` and `section_id`. If both are
 provided, the section scope takes precedence. IDs are kept as supplied and encoded
 as path segments, not coerced to integers. Dot-only IDs (`.` or `..`) are rejected

@@ -130,6 +130,35 @@ def test_navigation_rejects_disabled_locale_before_listing(key):
     assert client.paths == [("/api/v2/help_center/locales.json", None)]
 
 
+@pytest.mark.parametrize("key,scope,path", [("categories", {}, "categories"), ("sections", {}, "sections"), ("sections", {"category_id": "cat-A"}, "categories/cat-A/sections")])
+@pytest.mark.parametrize("sort_by", ["position", "created_at", "updated_at"])
+@pytest.mark.parametrize("sort_order", ["asc", "desc"])
+def test_navigation_sort_and_category_scope_survive_every_page(key, scope, path, sort_by, sort_order):
+    seen = []
+    class Client:
+        def get(self, endpoint, *, params=None):
+            assert endpoint == "/api/v2/brands/7.json"
+            return success({"brand": {"subdomain": "one", "has_help_center": True}})
+        def get_for_subdomain(self, subdomain, endpoint, *, params=None):
+            assert subdomain == "one"
+            if endpoint.endswith("locales.json"): return success({"locales": ["ko"]})
+            assert endpoint == f"/api/v2/help_center/ko/{path}.json"
+            seen.append(params)
+            more = "page[after]" not in params
+            return success({key: [{"id": "one" if more else "two"}], "meta": {"has_more": more, "after_cursor": "next"}})
+    result = getattr(GuideTools(Client()), f"list_{key}")(brand_id=7, locale="ko", sort_by=sort_by, sort_order=sort_order, limit=2, **scope)
+    assert result["items"] == [{"id": "one"}, {"id": "two"}]
+    assert seen == [{"sort_by": sort_by, "sort_order": sort_order, "page[size]": "2"}, {"sort_by": sort_by, "sort_order": sort_order, "page[size]": "1", "page[after]": "next"}]
+
+
+@pytest.mark.parametrize("args", [{"sort_by": "title"}, {"sort_by": []}, {"sort_order": "DESC"}, {"category_id": ".."}, {"category_id": False}])
+def test_navigation_invalid_filter_is_rejected_before_brand_lookup(args):
+    client = StubClient()
+    result = GuideTools(client).list_sections(brand_id=7, **args)
+    assert result["error"]["code"] == "validation_error"
+    assert client.paths == []
+
+
 def test_guide_and_csat_reads_use_fixed_endpoints():
     client = StubClient()
     tools = GuideTools(client)

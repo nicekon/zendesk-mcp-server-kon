@@ -35,20 +35,24 @@ class GuideTools:
     def __init__(self, client: GuideClient | None, settings: Settings | None = None, approvals: ApprovalStore | None = None, brand_subdomain: str | None = None) -> None: self._client, self._settings, self._approvals, self._brand_subdomain = client, settings, approvals, brand_subdomain
     def list_locales(self, *, brand_id: int | None = None) -> dict[str, object]:
         scoped = self._for_brand(brand_id); return scoped if isinstance(scoped, dict) else scoped._get("/api/v2/help_center/locales.json")
-    def list_categories(self, *, brand_id: int | None = None, locale: str | None = None, limit: int = 100, cursor: str | None = None) -> dict[str, object]:
-        return self._list_navigation("categories", brand_id, locale, limit, cursor)
-    def list_sections(self, *, brand_id: int | None = None, locale: str | None = None, limit: int = 100, cursor: str | None = None) -> dict[str, object]:
-        return self._list_navigation("sections", brand_id, locale, limit, cursor)
-    def _list_navigation(self, key: str, brand_id: int | None, locale: str | None, limit: int, cursor: str | None) -> dict[str, object]:
+    def list_categories(self, *, brand_id: int | None = None, locale: str | None = None, sort_by: str | None = None, sort_order: str | None = None, limit: int = 100, cursor: str | None = None) -> dict[str, object]:
+        return self._list_navigation("categories", brand_id, locale, limit, cursor, sort_by=sort_by, sort_order=sort_order)
+    def list_sections(self, *, brand_id: int | None = None, locale: str | None = None, category_id: object = None, sort_by: str | None = None, sort_order: str | None = None, limit: int = 100, cursor: str | None = None) -> dict[str, object]:
+        return self._list_navigation("sections", brand_id, locale, limit, cursor, category_id=category_id, sort_by=sort_by, sort_order=sort_order)
+    def _list_navigation(self, key: str, brand_id: int | None, locale: str | None, limit: int, cursor: str | None, *, category_id: object = None, sort_by: str | None = None, sort_order: str | None = None) -> dict[str, object]:
         if locale is not None and (not isinstance(locale, str) or not _LOCALE.fullmatch(locale)):
             return failure(ErrorCode.VALIDATION_ERROR, "locale must be a valid Help Center locale")
+        if sort_by not in (None, "position", "created_at", "updated_at") or sort_order not in (None, "asc", "desc") or (category_id is not None and _help_center_id(category_id) is None):
+            return failure(ErrorCode.VALIDATION_ERROR, "category_id and navigation sort parameters must be valid")
         scoped = self._for_brand(brand_id)
         if isinstance(scoped, dict): return scoped
         if locale is not None:
             invalid = scoped._validate_active_locale(locale)
             if invalid is not None: return invalid
         prefix = f"{locale}/" if locale is not None else ""
-        return collect_cursor(scoped._get, f"/api/v2/help_center/{prefix}{key}.json", key, limit, cursor)
+        if category_id is not None: prefix += f"categories/{_help_center_id(category_id)}/"
+        filters = {key: value for key, value in {"sort_by": sort_by, "sort_order": sort_order}.items() if value is not None}
+        return collect_cursor(scoped._get, f"/api/v2/help_center/{prefix}{key}.json", key, limit, cursor, filters=filters)
     def get_satisfaction_ratings(self, limit: int = 100, *, cursor: str | None = None) -> dict[str, object]:
         return self.list_csat("legacy", limit=limit, cursor=cursor)
     def list_csat(self, backend: str = "auto", *, score: str | None = None, ticket_id: int | None = None, responder_ids: list[int] | None = None, created_at_start: str | None = None, created_at_end: str | None = None, limit: int = 100, cursor: str | None = None) -> dict[str, object]:
