@@ -125,7 +125,15 @@ cursor를 지원한다. 선택 브랜드의 활성 locale 합집합으로 검증
 브랜드 목록을 완전히 수집한다. 기존 singular 입력 검색은 유지하며 두 경로 혼용은
 거부한다. 16개 신규 도메인 회귀 및 실제 MCP 호출 회귀, 전체 586 passed가 근거다.
 기존 offset cursor를 Unified Search에 재사용하면 안 된다. 실제 다중 브랜드 계정의
-검색 결과 동등성은 아직 검증하지 않았다. 다음 구현은 G2/G3이다.
+검색 결과 동등성은 아직 검증하지 않았다.
+
+### 후속 구현: G3
+
+locale 생략 시 선택 브랜드의 default_locale을 확인하며, category/section 범위를
+공식 경로에 적용하는 export를 구현했다. 둘 다 지정하면 section이 우선한다.
+공통 page reader가 explicit locale의 활성 여부도 확인하므로 inline/export artifact
+경로에 동일하게 적용된다. 21개 신규 도메인 회귀와 MCP CSV/file-link 회귀,
+전체 610 passed가 근거다. 실제 계정 전체 export 실증과는 구별한다. 다음은 G2다.
 
 M10의 원본 priority/status 정렬, M06의 원본 상세 GitLab metadata, M19의 표시 포맷은
 PRD가 승인한 범위와 추가 대조한다. 원본 입력과 다르다는 이유만으로 위험한 호환 alias나

@@ -175,21 +175,34 @@ class GuideTools:
         if not set(locales) <= enabled:
             return failure(ErrorCode.VALIDATION_ERROR, "Requested locales are not enabled in the selected Help Centers")
         return collect_cursor(self._get, "/api/v2/guide/search", "results", limit, cursor, filters=filters, page_size=50)
-    def export_articles(self, locale: str, max_articles: int = 100000, *, brand_id: int | None = None) -> dict[str, object]:
+    def export_articles(self, locale: str | None = None, max_articles: int = 100000, *, brand_id: int | None = None, category_id: object = None, section_id: object = None) -> dict[str, object]:
         articles: list[object] = []
-        result = self._export_article_pages(locale, max_articles, articles.extend, brand_id=brand_id)
+        result = self._export_article_pages(locale, max_articles, articles.extend, brand_id=brand_id, category_id=category_id, section_id=section_id)
         if not result.get("ok"): return result
         return success({"articles": articles, "truncated": result["data"]["truncated"]})
-    def _export_article_pages(self, locale: str, max_articles: int, consume: Callable[[list[object]], None], *, brand_id: int | None = None) -> dict[str, object]:
+    def _export_article_pages(self, locale: str | None, max_articles: int, consume: Callable[[list[object]], None], *, brand_id: int | None = None, category_id: object = None, section_id: object = None) -> dict[str, object]:
+        if (locale is not None and (not isinstance(locale, str) or not _LOCALE.fullmatch(locale))) or type(max_articles) is not int or not 1 <= max_articles <= 100000 or any(value is not None and _help_center_id(value) is None for value in (category_id, section_id)):
+            return failure(ErrorCode.VALIDATION_ERROR, "locale, scope IDs, and max_articles must be valid")
         scoped = self._for_brand(brand_id)
         if isinstance(scoped, dict): return scoped
-        if scoped is not self: return scoped._export_article_pages(locale, max_articles, consume)
-        if not isinstance(locale, str) or not _LOCALE.fullmatch(locale) or not isinstance(max_articles, int) or isinstance(max_articles, bool) or not 1 <= max_articles <= 100000: return failure(ErrorCode.VALIDATION_ERROR, "locale and max_articles must be valid")
+        if scoped is not self: return scoped._export_article_pages(locale, max_articles, consume, category_id=category_id, section_id=section_id)
+        locales_result = self.list_locales()
+        if not locales_result.get("ok"): return locales_result
+        data = locales_result.get("data")
+        enabled = data.get("locales") if isinstance(data, dict) else None
+        if not isinstance(enabled, list) or any(not isinstance(value, str) for value in enabled):
+            return failure(ErrorCode.UPSTREAM_ERROR, "Zendesk returned invalid Help Center locales")
+        if locale is None:
+            locale = data.get("default_locale")
+            if not isinstance(locale, str) or not _LOCALE.fullmatch(locale) or locale not in enabled:
+                return failure(ErrorCode.UPSTREAM_ERROR, "Zendesk did not provide an enabled default Help Center locale")
+        elif locale not in enabled: return failure(ErrorCode.VALIDATION_ERROR, "locale is not enabled for this Help Center")
+        scope = f"sections/{_help_center_id(section_id)}/" if section_id is not None else f"categories/{_help_center_id(category_id)}/" if category_id is not None else ""
         count = 0; cursor: str | None = None; seen: set[str] = set()
         while count < max_articles:
             params = {"page[size]": str(min(100, max_articles - count))}
             if cursor is not None: params["page[after]"] = cursor
-            result = self._get(f"/api/v2/help_center/{locale}/articles.json", params)
+            result = self._get(f"/api/v2/help_center/{locale}/{scope}articles.json", params)
             if not result.get("ok"): return result
             data = result.get("data"); page = data.get("articles") if isinstance(data, dict) else None; meta = data.get("meta") if isinstance(data, dict) else None
             if not isinstance(page, list) or any(not isinstance(article, dict) for article in page) or not isinstance(meta, dict) or not isinstance(meta.get("has_more"), bool): return failure(ErrorCode.UPSTREAM_ERROR, "Zendesk returned an invalid article export page")
@@ -203,7 +216,7 @@ class GuideTools:
             seen.add(cursor)
             del result, data, page, meta
         return success({"item_count": count, "truncated": True})
-    def export_article_artifact(self, locale: str, max_articles: int = 100000, *, brand_id: int | None = None, output_format: str = "json") -> dict[str, object]:
+    def export_article_artifact(self, locale: str | None = None, max_articles: int = 100000, *, brand_id: int | None = None, category_id: object = None, section_id: object = None, output_format: str = "json") -> dict[str, object]:
         if output_format not in {"json", "csv"}: return failure(ErrorCode.VALIDATION_ERROR, "output_format must be json or csv")
         if self._settings is None or self._settings.attachment_cache_root is None: return failure(ErrorCode.NOT_CONFIGURED, "Zendesk export cache is not configured")
         root = self._settings.attachment_cache_root.parent / "exports"
@@ -212,7 +225,7 @@ class GuideTools:
             with tempfile.TemporaryFile(mode="w+", encoding="utf-8") as spool:
                 def consume(page):
                     for article in page: spool.write(json.dumps(article, ensure_ascii=False, separators=(",", ":")) + "\n")
-                result = self._export_article_pages(locale, max_articles, consume, brand_id=brand_id)
+                result = self._export_article_pages(locale, max_articles, consume, brand_id=brand_id, category_id=category_id, section_id=section_id)
                 if not result.get("ok"): return result
                 def items():
                     spool.seek(0)
@@ -422,7 +435,7 @@ def _epoch(value: str | None, *, milliseconds: bool) -> int | None:
 
 def _help_center_id(value: object) -> str | None:
     if isinstance(value, int) and not isinstance(value, bool) and value > 0: return str(value)
-    return quote(value, safe="") if isinstance(value, str) and value else None
+    return quote(value, safe="") if isinstance(value, str) and value and value not in {".", ".."} else None
 
 
 class _ImageSourceParser(HTMLParser):

@@ -231,6 +231,27 @@ def test_guide_mcp_calls_preserve_pagination_arguments(monkeypatch):
         assert result.root.structuredContent == expected_result, name
 
 
+def test_mcp_scoped_export_uses_default_locale_and_returns_file(monkeypatch, tmp_path):
+    from zendesk_mcp_server.contracts import success
+    from zendesk_mcp_server.config import Settings
+    from zendesk_mcp_server.tools.guide import GuideTools
+    module = importlib.import_module("zendesk_mcp_server.server")
+    class Client:
+        def get(self, path, *, params=None):
+            if path == "/api/v2/help_center/locales.json":
+                return success({"locales": ["ko"], "default_locale": "ko"})
+            assert path == "/api/v2/help_center/ko/sections/sec-A/articles.json"
+            return success({"articles": [{"id": "a", "body": "본문"}], "meta": {"has_more": False}})
+    settings = Settings.load({"ZENDESK_ATTACHMENT_CACHE_ROOT": str(tmp_path / "attachments")})
+    monkeypatch.setattr(module, "build_guide_tools", lambda _: GuideTools(Client(), settings))
+    server = module.create_server({"ZENDESK_CAPABILITIES": "guide"})
+    request = types.CallToolRequest(params=types.CallToolRequestParams(name="zendesk_export_help_center_articles", arguments={"section_id": "sec-A", "category_id": 9, "format": "csv"}))
+    result = asyncio.run(server.request_handlers[types.CallToolRequest](request))
+    assert result.root.structuredContent["ok"] is True
+    assert result.root.structuredContent["data"]["item_count"] == 1
+    assert any(isinstance(item, types.ResourceLink) for item in result.root.content)
+
+
 def test_mcp_unified_article_search_accepts_filter_only_query_and_opaque_cursor(monkeypatch):
     from zendesk_mcp_server.contracts import success
     from zendesk_mcp_server.tools.guide import GuideTools

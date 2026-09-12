@@ -17,6 +17,8 @@
 
 ## 최근 코드 검증
 
+- G3 범위별 export: locale 생략 시 선택한 브랜드의 공식 default_locale을 사용하고, category_id/section_id(동시 지정은 section 우선)를 전체 페이지에 적용한다. 문자열 ID를 정수로 강제 변환하지 않는다. 공통 page reader에서 explicit locale의 활성 여부도 확인하도록 보완했다. 잘못된 입력은 브랜드 요청 전 거부, 기본 언어 누락·불일치는 오류로 반환한다. 21개 도메인 실패와 MCP CSV/file-link 실패를 먼저 재현한 뒤 전체 610 passed. 기존 페이지 실패·메모리 상한·중간 실패 시 artifact 미공개 회귀도 통과했다. 해당 export 도구 입력 fixture만 변경했고 실제 운영 데이터는 변경하지 않았다.
+
 - G1 구조화 검색: `locales` 배열을 받는 Unified Search 경로를 기존 도구에 추가했다. query 선택·복수 brand/category/section·ARTICLE 필터·opaque cursor·공식 page size 50을 검증했다. 선택된 브랜드의 활성 locale 합집합을 확인하며 브랜드 미지정 시 전체 브랜드 목록을 페이지 순회한다. 기존 singular 입력/offset 경로는 유지하고 schema와 runtime에서 혼용을 거부한다. 16개 도메인 실패 및 실제 MCP 등록/전달 실패를 먼저 재현했고 전체 586 passed. schema fixture는 해당 검색 도구 1개만 갱신했다. 실제 계정의 다중 브랜드 검색 E2E나 G2–G8 완료를 뜻하지 않는다.
 
 - CSAT auto의 score 기반 추정을 제거했다. 공식 Account Settings `active_features`의 legacy/survey boolean으로 한 번 판단하고 목록·export의 전체 페이지에서 동일 backend를 유지한다. 판정 실패·권한 오류에는 fallback하지 않고, 비호환 필터도 자동 전환 없이 거부한다. 명시 backend는 과거 데이터 조회를 위해 감지를 생략한다. 조건부 OAuth `account_settings:read` 및 기존 grant의 재로그인 요구를 추가했다. 15개 auto 회귀와 OAuth scope 회귀의 실패를 먼저 확인했으며 전체 569 passed. 계정 설정·로그인 정보·운영 데이터는 변경하지 않았다. 공식 문서 근거와 호환성은 migration의 CSAT 항목 참조.

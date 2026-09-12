@@ -19,6 +19,7 @@ def test_article_export_rejects_invalid_or_nonprogressing_pages(page):
     class Client:
         def __init__(self): self.calls = 0
         def get(self, path, *, params=None):
+            if path == "/api/v2/help_center/locales.json": return success({"locales": ["en-us"], "default_locale": "en-us"})
             self.calls += 1
             assert self.calls == 1
             return success(page)
@@ -333,10 +334,67 @@ def test_guide_article_read_resolves_brand_id_to_its_subdomain():
     assert client.paths[-1] == ("brand-one", "/api/v2/help_center/articles/guide-1.json", None)
 
 
+@pytest.mark.parametrize("scope,path_part", [({}, ""), ({"category_id": "cat-A"}, "categories/cat-A/"), ({"section_id": 9}, "sections/9/"), ({"category_id": "cat-A", "section_id": "sec-B"}, "sections/sec-B/")])
+@pytest.mark.parametrize("locale", [None, "ko"])
+@pytest.mark.parametrize("artifact", [False, True])
+def test_scoped_article_export_resolves_brand_default_and_keeps_scope(tmp_path, scope, path_part, locale, artifact):
+    calls = []
+    class Client:
+        def get(self, path, *, params=None):
+            assert path == "/api/v2/brands/7.json"
+            return success({"brand": {"subdomain": "one", "has_help_center": True}})
+        def get_for_subdomain(self, subdomain, path, *, params=None):
+            assert subdomain == "one"
+            calls.append((path, params))
+            if path == "/api/v2/help_center/locales.json":
+                return success({"locales": ["en-us", "ko"], "default_locale": "ko"})
+            assert path == f"/api/v2/help_center/ko/{path_part}articles.json"
+            more = "page[after]" not in params
+            return success({"articles": [{"id": "a" if more else "b", "body": "<p>본문</p>"}], "meta": {"has_more": more, "after_cursor": "next"}})
+    tools = GuideTools(Client(), Settings.load({"ZENDESK_ATTACHMENT_CACHE_ROOT": str(tmp_path / "attachments")}))
+    result = (tools.export_article_artifact if artifact else tools.export_articles)(locale, max_articles=2, brand_id=7, **scope)
+    assert result["ok"] is True
+    items = json.loads(Path(result["data"]["cache_path"]).read_text()) if artifact else result["data"]["articles"]
+    assert items == [{"id": "a", "body": "<p>본문</p>"}, {"id": "b", "body": "<p>본문</p>"}]
+    assert calls == [("/api/v2/help_center/locales.json", None), (f"/api/v2/help_center/ko/{path_part}articles.json", {"page[size]": "2"}), (f"/api/v2/help_center/ko/{path_part}articles.json", {"page[size]": "1", "page[after]": "next"})]
+
+
+@pytest.mark.parametrize("locale,data,code", [
+    (None, {"locales": ["ko"]}, "upstream_error"),
+    (None, {"locales": ["ko"], "default_locale": "../ko"}, "upstream_error"),
+    (None, {"locales": ["ko"], "default_locale": "en-us"}, "upstream_error"),
+    ("en-us", {"locales": ["ko"]}, "validation_error"),
+])
+def test_article_export_rejects_unknown_default_or_disabled_locale(locale, data, code):
+    class Client:
+        def get(self, path, *, params=None):
+            assert path == "/api/v2/help_center/locales.json"
+            return success(data)
+    assert GuideTools(Client()).export_articles(locale)["error"]["code"] == code
+
+
+def test_article_export_rejects_invalid_scope_before_brand_lookup():
+    client = StubClient()
+    for scope in ({"section_id": False}, {"category_id": 0}, {"section_id": ""}):
+        assert GuideTools(client).export_articles(brand_id=7, **scope)["error"]["code"] == "validation_error"
+    assert client.paths == []
+
+
+@pytest.mark.parametrize("identifier", [".", ".."])
+def test_help_center_dot_segment_ids_never_reach_the_client(identifier):
+    client = StubClient()
+    tools = GuideTools(client)
+    assert tools.get_article(identifier)["error"]["code"] == "validation_error"
+    assert tools.export_articles("en-us", section_id=identifier)["error"]["code"] == "validation_error"
+    assert tools.export_articles("en-us", category_id=identifier)["error"]["code"] == "validation_error"
+    assert client.paths == []
+
+
 def test_article_export_uses_locale_cursor_pagination():
     class ExportClient:
         def __init__(self): self.paths = []
         def get(self, path, *, params=None):
+            if path == "/api/v2/help_center/locales.json": return success({"locales": ["en-us"], "default_locale": "en-us"})
             self.paths.append((path, params))
             if params and params.get("page[after]") == "next": return success({"articles": [{"id": 2}], "meta": {"has_more": False}})
             return success({"articles": [{"id": 1}], "meta": {"has_more": True, "after_cursor": "next"}})
@@ -354,6 +412,7 @@ def test_article_export_uses_locale_cursor_pagination():
 def test_article_export_enforces_local_limit_even_when_upstream_ignores_page_size():
     class OversizedPageClient:
         def get(self, path, *, params=None):
+            if path == "/api/v2/help_center/locales.json": return success({"locales": ["en-us"], "default_locale": "en-us"})
             assert params["page[size]"] == "1"
             return success({"articles": [{"id": 1}, {"id": 2}], "meta": {"has_more": False}})
 
@@ -366,6 +425,7 @@ def test_article_export_empty_final_page_and_repeated_cursor():
         class PagesClient:
             calls = 0
             def get(self, path, *, params=None):
+                if path == "/api/v2/help_center/locales.json": return success({"locales": ["en-us"], "default_locale": "en-us"})
                 self.calls += 1
                 if self.calls == 1:
                     return success({"articles": [{"id": 1}], "meta": {"has_more": True, "after_cursor": "next"}})
@@ -383,6 +443,7 @@ def test_article_export_empty_final_page_and_repeated_cursor():
 def test_article_export_writes_a_managed_artifact(tmp_path):
     class ExportClient:
         def get(self, path, *, params=None):
+            if path == "/api/v2/help_center/locales.json": return success({"locales": ["en-us"], "default_locale": "en-us"})
             return success({"articles": [{"id": 1, "title": "Welcome"}], "meta": {"has_more": False}})
 
     settings = Settings.load({"ZENDESK_ATTACHMENT_CACHE_ROOT": str(tmp_path / "attachments")})
@@ -400,6 +461,7 @@ def test_article_artifact_streams_pages_and_preserves_late_csv_columns(tmp_path)
     class ExportClient:
         previous = None
         def get(self, path, *, params=None):
+            if path == "/api/v2/help_center/locales.json": return success({"locales": ["en-us"], "default_locale": "en-us"})
             if params.get("page[after]") == "next":
                 assert self.previous() is None, "previous page is still retained"
                 return success({"articles": [{"id": 2, "late": "추가"}], "meta": {"has_more": False}})
@@ -421,6 +483,7 @@ def test_article_export_does_not_buffer_the_serialized_artifact(tmp_path, output
     import tracemalloc
     class Client:
         def get(self, path, *, params=None):
+            if path == "/api/v2/help_center/locales.json": return success({"locales": ["en-us"], "default_locale": "en-us"})
             start = int(params.get("page[after]", "0"))
             end = min(10000, start + int(params["page[size]"]))
             return success({"articles": [{"id": i, "body": str(i) + "x" * 1024} for i in range(start, end)], "meta": {"has_more": end < 10000, "after_cursor": str(end)}})
@@ -441,6 +504,7 @@ def test_article_export_does_not_buffer_the_serialized_artifact(tmp_path, output
 def test_article_export_failure_does_not_publish_partial_artifact(tmp_path):
     class ExportClient:
         def get(self, path, *, params=None):
+            if path == "/api/v2/help_center/locales.json": return success({"locales": ["en-us"], "default_locale": "en-us"})
             if params.get("page[after]"):
                 return failure(ErrorCode.PERMISSION_DENIED, "denied")
             return success({"articles": [{"id": 1}], "meta": {"has_more": True, "after_cursor": "next"}})

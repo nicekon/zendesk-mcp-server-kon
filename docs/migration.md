@@ -294,6 +294,19 @@ Category and section list tools now accept an optional `locale` (for example,
 Omitting it preserves the existing unlocalized list request. Resume a cursor
 with the same brand and locale; refresh the MCP tool list to discover this input.
 
+Help Center exports accept optional `category_id` and `section_id`. If both are
+provided, the section scope takes precedence. IDs are kept as supplied and encoded
+as path segments, not coerced to integers. Dot-only IDs (`.` or `..`) are rejected
+by the common Help Center ID validator to prevent URL path normalization from
+changing the requested scope. The selected brand and scope apply to
+every exported page. Omit `locale` to use that brand's `default_locale` from the
+enabled-locales API; missing/invalid default metadata is an error, not a fallback
+to English. Explicit locales must also be enabled. Both the in-process export
+and managed JSON/CSV file export use the same validated page reader.
+The existing `max_articles` bound, streaming file storage and no-partial-file-on-
+failure behavior are unchanged. See the official [article list routes](https://developer.zendesk.com/api-reference/help_center/help-center-api/articles/)
+and [enabled/default locales](https://developer.zendesk.com/api-reference/help_center/help-center-api/translations/#list-enabled-locales-and-default-locale).
+
 Article search now also supports Unified Search through a non-empty `locales`
 array, with optional `query`, `brand_ids`, `category_ids` and `section_ids` arrays.
 For example, `{"locales":["ko","en-us"],"brand_ids":[7,8],"limit":100}` searches
