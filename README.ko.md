@@ -32,7 +32,7 @@ Codex 같은 AI 앱에서 **Zendesk 티켓·도움말·커뮤니티를 대화로
 - `your-client-id`: **클라이언트 식별자**입니다. 이메일이나 API 토큰이 아닙니다.
 
 ```bash
-uvx --from 'git+https://github.com/nicekon/zendesk-mcp-server-kon.git@e829b165d0fe99d48266cddd26fb8448ff476fed' zendesk login --subdomain your-company --client-id your-client-id
+uvx --from 'git+https://github.com/nicekon/zendesk-mcp-server-kon.git@457e674525a1e6bf40ef699b1cc433bfed3ea800' zendesk login --subdomain your-company --client-id your-client-id
 ```
 
 브라우저가 열리면 Zendesk에 로그인하고 접근을 허용하세요.
@@ -57,7 +57,7 @@ http://127.0.0.1:3000/oauth/callback
 ## 2. 연결 확인하기
 
 ```bash
-uvx --from 'git+https://github.com/nicekon/zendesk-mcp-server-kon.git@e829b165d0fe99d48266cddd26fb8448ff476fed' zendesk check --probe
+uvx --from 'git+https://github.com/nicekon/zendesk-mcp-server-kon.git@457e674525a1e6bf40ef699b1cc433bfed3ea800' zendesk check --probe
 ```
 
 결과에 `"ok": true`, `"configured": true`, `"verified_user"`가 있으면 로그인 확인이 끝났습니다.
@@ -66,7 +66,7 @@ uvx --from 'git+https://github.com/nicekon/zendesk-mcp-server-kon.git@e829b165d0
 ## 3. Codex에 등록하기
 
 ```bash
-codex mcp add zendesk_mcp -- uvx --from 'git+https://github.com/nicekon/zendesk-mcp-server-kon.git@e829b165d0fe99d48266cddd26fb8448ff476fed' zendesk
+codex mcp add zendesk_mcp -- uvx --from 'git+https://github.com/nicekon/zendesk-mcp-server-kon.git@457e674525a1e6bf40ef699b1cc433bfed3ea800' zendesk
 codex mcp list
 ```
 

@@ -34,7 +34,7 @@ Replace the two example values with those from your administrator:
 - `your-client-id`: your **OAuth client identifier**, not your email or API token.
 
 ```bash
-uvx --from 'git+https://github.com/nicekon/zendesk-mcp-server-kon.git@e829b165d0fe99d48266cddd26fb8448ff476fed' zendesk login --subdomain your-company --client-id your-client-id
+uvx --from 'git+https://github.com/nicekon/zendesk-mcp-server-kon.git@457e674525a1e6bf40ef699b1cc433bfed3ea800' zendesk login --subdomain your-company --client-id your-client-id
 ```
 
 Sign in and allow access in the browser that opens. You do not need to copy a code or start a separate server.
@@ -58,7 +58,7 @@ See [advanced setup](docs/advanced-setup.md) for additional configuration.
 ## 2. Check the connection
 
 ```bash
-uvx --from 'git+https://github.com/nicekon/zendesk-mcp-server-kon.git@e829b165d0fe99d48266cddd26fb8448ff476fed' zendesk check --probe
+uvx --from 'git+https://github.com/nicekon/zendesk-mcp-server-kon.git@457e674525a1e6bf40ef699b1cc433bfed3ea800' zendesk check --probe
 ```
 
 Look for `"ok": true`, `"configured": true`, and `"verified_user"` in the result.
@@ -67,7 +67,7 @@ For errors, see the table below. **Never paste tokens or passwords into chat.**
 ## 3. Connect Codex
 
 ```bash
-codex mcp add zendesk_mcp -- uvx --from 'git+https://github.com/nicekon/zendesk-mcp-server-kon.git@e829b165d0fe99d48266cddd26fb8448ff476fed' zendesk
+codex mcp add zendesk_mcp -- uvx --from 'git+https://github.com/nicekon/zendesk-mcp-server-kon.git@457e674525a1e6bf40ef699b1cc433bfed3ea800' zendesk
 codex mcp list
 ```
 
