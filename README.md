@@ -16,28 +16,18 @@ An administrator must configure editing and sending separately.
 ## Before you start
 
 - You need a Zendesk account and an AI app that supports MCP. This guide uses **Codex**.
-- Install [Git](https://git-scm.com/downloads) and [uv](https://docs.astral.sh/uv/getting-started/installation/). uv installs this tool for you.
+- Install [Git](https://git-scm.com/downloads) and [uv](https://docs.astral.sh/uv/getting-started/installation/). uv runs this tool for you.
 - Run commands in **your computer’s terminal**, not in the AI chat. On macOS, open Terminal.
 - Ask your administrator for your **Zendesk subdomain and OAuth client identifier**.
 
-This is a source installation. Browser login below supports macOS and Linux.
+Browser login below supports macOS and Linux.
 **On Windows, use [API-token setup](docs/advanced-setup.md#api-token).**
 
-## 1. Install
+## Quick install
 
-Run these lines one at a time:
+This uses the tested source revision directly; it does not clone the repository or install a permanent `zendesk` command. The commit SHA pins the server source. To update, replace it with a reviewed newer SHA.
 
-```bash
-git clone https://github.com/nicekon/zendesk-mcp-server-kon.git
-cd zendesk-mcp-server-kon
-uv tool install .
-zendesk --help
-```
-
-If usage instructions appear, installation is complete. If `zendesk` is not found,
-run `uv tool update-shell` and open a new terminal.
-
-## 2. Log in to Zendesk
+## 1. Log in to Zendesk
 
 Replace the two example values with those from your administrator:
 
@@ -45,7 +35,7 @@ Replace the two example values with those from your administrator:
 - `your-client-id`: your **OAuth client identifier**, not your email or API token.
 
 ```bash
-zendesk login --subdomain your-company --client-id your-client-id
+uvx --from 'git+https://github.com/nicekon/zendesk-mcp-server-kon.git@e829b165d0fe99d48266cddd26fb8448ff476fed' zendesk login --subdomain your-company --client-id your-client-id
 ```
 
 Sign in and allow access in the browser that opens. You do not need to copy a code or start a separate server.
@@ -66,38 +56,43 @@ See [advanced setup](docs/advanced-setup.md) for additional configuration.
 
 </details>
 
-## 3. Check the connection
+## 2. Check the connection
 
 ```bash
-zendesk check --probe
+uvx --from 'git+https://github.com/nicekon/zendesk-mcp-server-kon.git@e829b165d0fe99d48266cddd26fb8448ff476fed' zendesk check --probe
 ```
 
 Look for `"ok": true`, `"configured": true`, and `"verified_user"` in the result.
 For errors, see the table below. **Never paste tokens or passwords into chat.**
 
-## 4. Connect Codex
-
-In a terminal with Codex CLI installed, find the executable:
+## 3. Connect Codex
 
 ```bash
-command -v zendesk
-```
-
-Replace `/absolute/path/to/zendesk` below with the printed path. Keep the quotes.
-
-```bash
-codex mcp add zendesk_mcp -- "/absolute/path/to/zendesk"
+codex mcp add zendesk_mcp -- uvx --from 'git+https://github.com/nicekon/zendesk-mcp-server-kon.git@e829b165d0fe99d48266cddd26fb8448ff476fed' zendesk
 codex mcp list
 ```
 
 If `zendesk_mcp` appears, it is registered. Reopen Codex and ask “Check my Zendesk connection” in a new conversation.
 If the registration command is unavailable or you use another app, see [app connection settings](docs/advanced-setup.md#connect-app).
 
+## Alternative: source installation
+
+Use this only when you need a local checkout for development or a local change:
+
+```bash
+git clone https://github.com/nicekon/zendesk-mcp-server-kon.git
+cd zendesk-mcp-server-kon
+uv tool install .
+```
+
+With a source installation, use `zendesk` instead of the `uvx --from ... zendesk` commands above. If `zendesk` is not found, run `uv tool update-shell` and open a new terminal.
+
 ## Troubleshooting
 
 | Problem | What to check |
 | --- | --- |
-| Command not found | Run `uv tool update-shell`, then open a new terminal. |
+| `uvx` is not found | Install [uv](https://docs.astral.sh/uv/getting-started/installation/), then open a new terminal. |
+| `zendesk` is not found after source installation | Run `uv tool update-shell`, then open a new terminal. |
 | Login does not finish | Check the browser consent page. If it timed out, run login again. |
 | `401` or `authentication_failed` | Log in again. For API tokens, check the subdomain, email, and token. |
 | `403` or `permission_denied` | Ask your administrator to check access to that feature. |

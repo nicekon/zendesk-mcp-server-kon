@@ -14,28 +14,18 @@ Codex 같은 AI 앱에서 **Zendesk 티켓·도움말·커뮤니티를 대화로
 ## 준비하기
 
 - Zendesk 계정과 MCP를 지원하는 AI 앱이 필요합니다. 아래는 **Codex 기준**입니다.
-- [Git](https://git-scm.com/downloads)과 [uv](https://docs.astral.sh/uv/getting-started/installation/)를 설치하세요. uv는 이 도구를 설치하는 프로그램입니다.
+- [Git](https://git-scm.com/downloads)과 [uv](https://docs.astral.sh/uv/getting-started/installation/)를 설치하세요. uv가 이 도구를 실행합니다.
 - 명령은 AI 채팅창이 아니라 **내 컴퓨터의 터미널**에 입력합니다. macOS에서는 ‘터미널’ 앱을 여세요.
 - 관리자에게 **Zendesk 서브도메인과 OAuth 클라이언트 식별자**를 요청하세요.
 
-현재 소스에서 설치하는 버전입니다. 아래 브라우저 로그인은 macOS·Linux용입니다.
+아래 브라우저 로그인은 macOS·Linux용입니다.
 **Windows는 [API 토큰 연결](docs/advanced-setup.md#api-token)을 사용하세요.**
 
-## 1. 설치하기
+## 빠른 설치
 
-터미널에서 한 줄씩 실행하세요.
+검증한 소스 리비전을 바로 실행하므로 저장소를 복제하거나 `zendesk` 명령을 영구 설치하지 않습니다. 커밋 SHA는 서버 소스 버전을 고정합니다. 업데이트할 때는 검토한 새 SHA로 바꾸세요.
 
-```bash
-git clone https://github.com/nicekon/zendesk-mcp-server-kon.git
-cd zendesk-mcp-server-kon
-uv tool install .
-zendesk --help
-```
-
-사용 안내가 나오면 설치 완료입니다. `zendesk` 명령을 찾을 수 없다고 나오면
-`uv tool update-shell`을 실행한 뒤 터미널을 새로 열어 주세요.
-
-## 2. Zendesk에 로그인하기
+## 1. Zendesk에 로그인하기
 
 아래 두 값을 관리자에게 받은 정보로 바꾸세요.
 
@@ -43,7 +33,7 @@ zendesk --help
 - `your-client-id`: **클라이언트 식별자**입니다. 이메일이나 API 토큰이 아닙니다.
 
 ```bash
-zendesk login --subdomain your-company --client-id your-client-id
+uvx --from 'git+https://github.com/nicekon/zendesk-mcp-server-kon.git@e829b165d0fe99d48266cddd26fb8448ff476fed' zendesk login --subdomain your-company --client-id your-client-id
 ```
 
 브라우저가 열리면 Zendesk에 로그인하고 접근을 허용하세요.
@@ -65,38 +55,43 @@ http://127.0.0.1:3000/oauth/callback
 
 </details>
 
-## 3. 연결 확인하기
+## 2. 연결 확인하기
 
 ```bash
-zendesk check --probe
+uvx --from 'git+https://github.com/nicekon/zendesk-mcp-server-kon.git@e829b165d0fe99d48266cddd26fb8448ff476fed' zendesk check --probe
 ```
 
 결과에 `"ok": true`, `"configured": true`, `"verified_user"`가 있으면 로그인 확인이 끝났습니다.
 오류가 나오면 아래 표를 확인하세요. **토큰이나 비밀번호를 채팅에 붙여 넣지 마세요.**
 
-## 4. Codex에 등록하기
-
-Codex CLI가 설치된 터미널에서 실행 파일의 위치를 확인하세요.
+## 3. Codex에 등록하기
 
 ```bash
-command -v zendesk
-```
-
-출력된 경로를 아래 `/absolute/path/to/zendesk` 대신 넣으세요. 따옴표는 그대로 둡니다.
-
-```bash
-codex mcp add zendesk_mcp -- "/absolute/path/to/zendesk"
+codex mcp add zendesk_mcp -- uvx --from 'git+https://github.com/nicekon/zendesk-mcp-server-kon.git@e829b165d0fe99d48266cddd26fb8448ff476fed' zendesk
 codex mcp list
 ```
 
 목록에 `zendesk_mcp`가 나오면 등록된 것입니다. Codex를 다시 열고 새 대화에서 “Zendesk 연결 상태를 확인해줘”라고 요청해 보세요.
 등록 명령을 찾지 못하거나 다른 앱을 사용한다면 [앱별 연결 설정](docs/advanced-setup.md#connect-app)을 참고하세요.
 
+## 대안: 소스 설치
+
+개발하거나 로컬 변경을 적용해야 할 때만 사용하세요.
+
+```bash
+git clone https://github.com/nicekon/zendesk-mcp-server-kon.git
+cd zendesk-mcp-server-kon
+uv tool install .
+```
+
+소스 설치를 선택했다면 위의 `uvx --from ... zendesk` 대신 `zendesk` 명령을 사용하세요. `zendesk` 명령을 찾을 수 없으면 `uv tool update-shell`을 실행한 뒤 터미널을 새로 열어 주세요.
+
 ## 문제가 생겼을 때
 
 | 증상 | 확인할 내용 |
 | --- | --- |
-| 명령을 찾을 수 없음 | `uv tool update-shell` 실행 후 터미널을 다시 여세요. |
+| `uvx` 명령을 찾을 수 없음 | [uv](https://docs.astral.sh/uv/getting-started/installation/)를 설치한 뒤 터미널을 다시 여세요. |
+| 소스 설치 뒤 `zendesk` 명령을 찾을 수 없음 | `uv tool update-shell` 실행 후 터미널을 다시 여세요. |
 | 로그인이 끝나지 않음 | 브라우저의 허용 화면을 확인하세요. 시간이 지났다면 로그인 명령을 다시 실행하세요. |
 | `401` 또는 `authentication_failed` | 다시 로그인하세요. API 토큰 방식이면 서브도메인·이메일·토큰을 확인하세요. |
 | `403` 또는 `permission_denied` | 관리자에게 해당 기능의 계정 권한을 확인해 달라고 요청하세요. |
