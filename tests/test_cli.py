@@ -9,7 +9,7 @@ from zendesk_mcp_server.config import AuthMode
 from zendesk_mcp_server.config import ConfigurationError
 
 
-def test_login_command_builds_public_read_only_settings(tmp_path, monkeypatch):
+def test_login_command_builds_default_write_settings(tmp_path, monkeypatch):
     received = []
     monkeypatch.setattr(Path, "home", lambda: tmp_path)
     monkeypatch.setattr("zendesk_mcp_server.login.login", lambda settings, port: received.append((settings, port)))
@@ -20,8 +20,10 @@ def test_login_command_builds_public_read_only_settings(tmp_path, monkeypatch):
     settings, port = received[0]
     assert settings.auth_mode is AuthMode.OAUTH
     assert settings.subdomain == "acme"
-    assert settings.write_mode == "read_only"
+    assert settings.write_mode == "standard"
+    assert settings.public_writes_enabled is True
     assert settings.oauth is not None
+    assert {"tickets:write", "hc:write"} <= set(settings.oauth.scopes)
     assert settings.oauth.client_kind == "public"
     assert settings.oauth.client_secret == ""
     assert settings.oauth.token_store_path == tmp_path / ".config" / "zendesk-mcp-server" / "connection.json"

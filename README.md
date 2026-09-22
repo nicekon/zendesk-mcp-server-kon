@@ -10,8 +10,7 @@ Connect Zendesk to an AI app such as Codex to **find and summarize tickets, help
 - “Summarize this ticket and draft a reply.”
 - “Find help articles about refunds.”
 
-The default is **read-only**. Drafting a reply does not send it to a customer.
-An administrator must configure editing and sending separately.
+New installations can update tickets and create Community posts or comments after OAuth login. Community writes always require a preview and a one-time local approval; destructive, impersonated, and external-upload actions stay disabled by default.
 
 ## Before you start
 
@@ -51,7 +50,7 @@ http://127.0.0.1:3000/oauth/callback
 ```
 
 Share the subdomain and client identifier with users, not a client secret.
-Default login requests read access. The `read` permission needed for search also permits other data reads allowed by the user’s role.
+Default login requests the read access needed for search plus `tickets:write` and `hc:write` for the default ticket and Community capabilities. The `read` permission needed for search also permits other data reads allowed by the user’s role.
 See [advanced setup](docs/advanced-setup.md) for additional configuration.
 
 </details>
@@ -97,7 +96,8 @@ With a source installation, use `zendesk` instead of the `uvx --from ... zendesk
 | `401` or `authentication_failed` | Log in again. For API tokens, check the subdomain, email, and token. |
 | `403` or `permission_denied` | Ask your administrator to check access to that feature. |
 | `not_configured` or `unsupported` | Extra configuration or a different Zendesk plan may be needed. |
-| Reading works but editing does not | Read-only is the default, not an error. |
+| Editing is blocked | Check whether `ZENDESK_WRITE_MODE=read_only` was set. `ZENDESK_ENABLE_PUBLIC_WRITES=false` blocks Community posts and comments but not ordinary ticket edits. |
+| `oauth_relogin_required` | This OAuth connection was created without a scope now required by the active capabilities. Run `zendesk login` again with the same capability settings; tokens are never changed automatically. |
 
 Some features require extra setup. Availability depends on your Zendesk plan and user permissions.
 **Image uploads still have an unresolved real-account permission issue.**

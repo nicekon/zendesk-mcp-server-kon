@@ -33,8 +33,8 @@ def test_auto_uses_api_token_when_no_oauth_settings_exist():
     assert settings.connection_status() == {
         "configured": True,
         "auth_mode": "api_token",
-        "write_mode": "read_only",
-        "active_write_gates": [],
+        "write_mode": "standard",
+        "active_write_gates": ["standard", "public"],
         "capabilities": ["community", "guide", "operations", "support"],
         "subdomain": "acme",
     }
@@ -128,6 +128,7 @@ def test_explicit_auth_environment_never_mixes_with_saved_connection(tmp_path, m
 
 
 def test_saved_connection_requires_relogin_before_scope_expansion(tmp_path, monkeypatch):
+    from dataclasses import replace
     from zendesk_mcp_server.auth import OAuthTokens, save_connection
 
     monkeypatch.setattr(Path, "home", lambda: tmp_path)
@@ -139,11 +140,15 @@ def test_saved_connection_requires_relogin_before_scope_expansion(tmp_path, monk
         "ZENDESK_OAUTH_CLIENT_ID": "client-id",
         "ZENDESK_OAUTH_TOKEN_STORE": str(path),
     })
-    save_connection(saved, OAuthTokens("access", "refresh", 999))
+    assert saved.oauth is not None
+    old_read_only = replace(saved, oauth=replace(saved.oauth, scopes=tuple(scope for scope in saved.oauth.scopes if scope not in {"tickets:write", "hc:write"})))
+    save_connection(old_read_only, OAuthTokens("access", "refresh", 999))
+    before = path.read_bytes()
 
     with pytest.raises(ConfigurationError) as error:
-        Settings.load({"ZENDESK_WRITE_MODE": "standard"})
+        Settings.load({})
     assert error.value.code == "oauth_relogin_required"
+    assert path.read_bytes() == before
 
 
 def test_saved_connection_rejects_group_readable_permissions(tmp_path, monkeypatch):
@@ -192,10 +197,10 @@ def test_windows_without_acl_support_refuses_oauth_reads_and_writes(tmp_path, mo
 
 @pytest.mark.parametrize("capability,extra,expected", [
     ("custom_objects", {}, {"custom_objects:read", "account_settings:read"}),
-    ("community", {"ZENDESK_ENABLE_IMPERSONATION": "true"}, {"hc:read", "users:read", "impersonate"}),
+    ("community", {"ZENDESK_ENABLE_IMPERSONATION": "true"}, {"hc:read", "hc:write", "users:read", "impersonate"}),
     ("csat", {}, {"satisfaction_ratings:read", "account_settings:read"}),
     ("git_zen", {}, {"tickets:read"}),
-    ("time_tracking", {}, {"tickets:read"}),
+    ("time_tracking", {}, {"tickets:read", "tickets:write"}),
     ("time_tracking", {"ZENDESK_WRITE_MODE": "standard"}, {"tickets:read", "tickets:write"}),
     ("guide", {"ZENDESK_WRITE_MODE": "standard", "ZENDESK_ENABLE_PUBLIC_WRITES": "true"}, {"brands:read", "hc:read", "hc:write"}),
     ("git_zen", {"ZENDESK_WRITE_MODE": "standard", "ZENDESK_ENABLE_PUBLIC_WRITES": "true"}, {"tickets:read"}),
@@ -207,7 +212,7 @@ def test_conditional_oauth_scopes_follow_active_read_and_write_tools(capability,
 
 def test_operations_oauth_covers_its_endpoints_without_support_capability():
     settings = Settings.load({"ZENDESK_SUBDOMAIN": "acme", "ZENDESK_AUTH_MODE": "oauth", "ZENDESK_OAUTH_CLIENT_KIND": "public", "ZENDESK_OAUTH_CLIENT_ID": "client", "ZENDESK_OAUTH_TOKEN_STORE": "/tmp/not-read.json", "ZENDESK_CAPABILITIES": "operations"})
-    assert set(settings.oauth.scopes) == {"account_settings:read", "users:read", "groups:read", "organizations:read", "brands:read", "tickets:read", "ticket_views:read", "macros:read", "triggers:read"}
+    assert set(settings.oauth.scopes) == {"account_settings:read", "users:read", "groups:read", "organizations:read", "brands:read", "tickets:read", "tickets:write", "ticket_views:read", "macros:read", "triggers:read"}
 
 
 @pytest.mark.parametrize("capability,removed_scope", [("operations", "account_settings:read"), ("support", "read"), ("csat", "account_settings:read"), ("community", "users:read")])
@@ -264,8 +269,8 @@ def test_empty_environment_is_unconfigured_not_an_import_error():
     assert settings.connection_status() == {
         "configured": False,
         "auth_mode": None,
-        "write_mode": "read_only",
-        "active_write_gates": [],
+        "write_mode": "standard",
+        "active_write_gates": ["standard", "public"],
         "capabilities": ["community", "guide", "operations", "support"],
     }
 
@@ -288,19 +293,19 @@ def test_deprecated_api_key_requires_explicit_migration():
         )
 
 
-def test_write_gates_are_disabled_by_default_and_redacted_in_status():
+def test_write_gates_default_to_standard_and_public_only():
     settings = Settings.load(
         {
             "ZENDESK_SUBDOMAIN": "acme",
             "ZENDESK_EMAIL": "agent@example.test",
             "ZENDESK_API_TOKEN": "secret",
-            "ZENDESK_WRITE_MODE": "standard",
-            "ZENDESK_ENABLE_PUBLIC_WRITES": "true",
         }
     )
 
     assert settings.public_writes_enabled is True
     assert settings.destructive_writes_enabled is False
+    assert settings.impersonation_enabled is False
+    assert settings.external_uploads_enabled is False
     assert settings.connection_status()["active_write_gates"] == ["standard", "public"]
 
 

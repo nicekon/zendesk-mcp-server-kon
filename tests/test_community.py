@@ -553,8 +553,9 @@ def test_content_tag_search_uses_cursor_envelope():
 
 def test_community_post_create_requires_local_public_approval(tmp_path):
     client = StubClient(); store = ApprovalStore(tmp_path / "approvals.json")
-    tools = CommunityTools(client, Settings.load({"ZENDESK_WRITE_MODE": "standard", "ZENDESK_ENABLE_PUBLIC_WRITES": "true"}), store)
+    tools = CommunityTools(client, Settings.load({}), store)
     preview = tools.create_post(4, "Title", "Body")
+    assert tools.create_post(4, "Title", "Body", execution_mode="apply")["error"]["code"] == "approval_required"
     token = store.approve(preview["data"]["approval_request_id"])
     result = tools.create_post(4, "Title", "Body", execution_mode="apply", approval_request_id=preview["data"]["approval_request_id"], approval_token=token)
     assert result["data"]["post"]["id"] == 2
@@ -1025,7 +1026,7 @@ def test_other_user_subscription_requires_public_and_impersonation_gates(tmp_pat
             self.paths.append((path, params)); return success({"user_subscriptions": [], "meta": {"has_more": False}})
 
     client = SubscriptionClient(); store = ApprovalStore(tmp_path / "approvals.json")
-    tools = CommunityTools(client, Settings.load({"ZENDESK_WRITE_MODE": "standard", "ZENDESK_ENABLE_IMPERSONATION": "true"}), store)
+    tools = CommunityTools(client, Settings.load({"ZENDESK_WRITE_MODE": "standard", "ZENDESK_ENABLE_PUBLIC_WRITES": "false", "ZENDESK_ENABLE_IMPERSONATION": "true"}), store)
     preview = tools.upsert_user_subscription(6, 7)
     token = store.approve(preview["data"]["approval_request_id"])
     result = tools.upsert_user_subscription(6, 7, execution_mode="apply", approval_request_id=preview["data"]["approval_request_id"], approval_token=token)

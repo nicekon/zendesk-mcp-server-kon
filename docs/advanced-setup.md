@@ -65,7 +65,7 @@ ZENDESK_API_TOKEN = "YOUR_API_TOKEN"
 ```
 
 다른 앱에서는 같은 값을 Zendesk MCP 서버의 환경변수(`env`) 설정에 넣으세요.
-서버는 기본 읽기 전용입니다. 앱을 다시 열고 “Zendesk 연결 상태를 확인해줘”라고 요청하세요.
+기본으로 일반 티켓 수정과 Community 글·댓글 작성이 활성화됩니다. Community 작성은 아래의 건별 로컬 승인을 거쳐야 합니다. 앱을 다시 열고 “Zendesk 연결 상태를 확인해줘”라고 요청하세요.
 For other apps, set the same server environment variables, reopen the app, and ask it to check the Zendesk connection.
 These app settings do not apply to a separate terminal’s `zendesk check` command.
 
@@ -97,13 +97,25 @@ Optional features remain subject to Zendesk product availability and permissions
 
 ## 수정·전송 권한 / Write access
 
-기본 `read_only`를 유지하는 것이 안전합니다. 일반 티켓 수정에는 앱의 서버 환경변수에
-`ZENDESK_WRITE_MODE=standard`가 필요합니다. OAuth는 같은 설정으로 재로그인도 필요할 수 있습니다.
-Keep the read-only default unless writes are needed. Ordinary ticket changes require the runtime setting
-`ZENDESK_WRITE_MODE=standard` and sufficient authentication permissions.
+새 설치의 기본값은 `ZENDESK_WRITE_MODE=standard`와 `ZENDESK_ENABLE_PUBLIC_WRITES=true`입니다. 따라서 일반 티켓 수정과 Community 글·댓글 작성에 별도 활성화 설정은 필요하지 않습니다.
+New installations default to `ZENDESK_WRITE_MODE=standard` and `ZENDESK_ENABLE_PUBLIC_WRITES=true`, so ordinary ticket changes and Community posts/comments need no extra enablement.
 
-공개 답변·삭제·대행·외부 업로드는 별도 허용 설정과 해당 작업에 대한 일회성 사람 승인이 필요합니다.
-Public, destructive, impersonation, and external-upload operations have additional controls.
+권한을 제한하려면 앱의 서버 환경변수에 아래 중 필요한 값을 설정하세요.
+Use these server environment variables only to restrict the default policy:
+
+```toml
+# 모든 쓰기 차단
+ZENDESK_WRITE_MODE = "read_only"
+
+# 일반 티켓 수정은 유지하고 Community 공개 작성만 차단
+ZENDESK_ENABLE_PUBLIC_WRITES = "false"
+```
+
+기존 읽기 전용 OAuth 토큰에는 `tickets:write` 또는 `hc:write`가 없을 수 있습니다. 실행 중 `oauth_relogin_required`가 나오면, 현재 capability 설정을 유지한 채 `zendesk login`을 다시 실행해 새 범위를 승인하세요. 토큰을 자동으로 변경하거나 범위를 우회하지 않습니다.
+Older read-only OAuth tokens may lack `tickets:write` or `hc:write`. If `oauth_relogin_required` appears, run `zendesk login` again with the current capability settings and approve the new scopes. Tokens are never changed automatically or bypassed.
+
+Community 글·댓글 작성은 기본으로 가능하지만, 항상 preview → 아래의 로컬 승인 → apply 절차를 거칩니다. 삭제·대행 작성·외부 업로드는 기본 `false`이며 해당 환경변수를 명시적으로 켜도 일회성 사람 승인이 필요합니다.
+Community posts and comments are enabled by default but always follow preview → local approval → apply. Destructive, impersonation, and external-upload gates default to `false`; even when explicitly enabled, they require one-time human approval.
 AI가 보여준 작업 미리보기를 확인한 뒤, 사용자 본인이 같은 Zendesk 계정 설정의 터미널에서 실행합니다:
 
 ```bash

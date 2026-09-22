@@ -8,7 +8,7 @@ from mcp import types
 from zendesk_mcp_server.server import build_tools, create_server
 
 
-def test_all_write_tools_block_apply_with_default_readonly_settings(monkeypatch, tmp_path):
+def test_all_write_tools_block_apply_with_explicit_readonly_settings(monkeypatch, tmp_path):
     image = tmp_path / "image.png"
     image.write_bytes(b"\x89PNG\r\n\x1a\n")
     attempts = []
@@ -25,6 +25,7 @@ def test_all_write_tools_block_apply_with_default_readonly_settings(monkeypatch,
     monkeypatch.setattr(httpx.Client, "send", send)
     environment = {
         "ZENDESK_SUBDOMAIN": "readonly-smoke", "ZENDESK_EMAIL": "smoke@example.test", "ZENDESK_API_TOKEN": "not-a-real-token",
+        "ZENDESK_WRITE_MODE": "read_only",
         "ZENDESK_CAPABILITIES": "support,operations,guide,community,csat,git_zen,time_tracking,badges",
         "ZENDESK_ATTACHMENT_CACHE_ROOT": str(tmp_path / "attachments"),
         "ZENDESK_APPROVAL_STORE": str(tmp_path / "approvals.json"),

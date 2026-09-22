@@ -105,10 +105,10 @@ class Settings:
             )
 
         requested_mode = _parse_auth_mode(environ.get("ZENDESK_AUTH_MODE", "auto"))
-        write_mode = environ.get("ZENDESK_WRITE_MODE", "read_only")
+        write_mode = environ.get("ZENDESK_WRITE_MODE", "standard")
         if write_mode not in {"read_only", "standard"}:
             raise ConfigurationError("invalid_write_mode", "ZENDESK_WRITE_MODE is invalid")
-        public_writes_enabled = _parse_bool(environ, "ZENDESK_ENABLE_PUBLIC_WRITES")
+        public_writes_enabled = _parse_bool(environ, "ZENDESK_ENABLE_PUBLIC_WRITES", default=True)
         destructive_writes_enabled = _parse_bool(environ, "ZENDESK_ENABLE_DESTRUCTIVE_WRITES")
         impersonation_enabled = _parse_bool(environ, "ZENDESK_ENABLE_IMPERSONATION")
         external_uploads_enabled = _parse_bool(environ, "ZENDESK_ENABLE_EXTERNAL_UPLOADS")
@@ -215,7 +215,9 @@ class Settings:
         }
 
     def active_write_gates(self) -> list[str]:
-        gates = ["standard"] if self.write_mode == "standard" else []
+        if self.write_mode != "standard":
+            return []
+        gates = ["standard"]
         if self.public_writes_enabled:
             gates.append("public")
         if self.destructive_writes_enabled:
@@ -261,8 +263,8 @@ def _select_auth_mode(
     )
 
 
-def _parse_bool(environ: Mapping[str, str], name: str) -> bool:
-    value = environ.get(name, "false").strip().lower()
+def _parse_bool(environ: Mapping[str, str], name: str, *, default: bool = False) -> bool:
+    value = environ.get(name, str(default).lower()).strip().lower()
     if value in {"true", "1"}:
         return True
     if value in {"false", "0"}:

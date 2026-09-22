@@ -150,8 +150,8 @@ def test_check_cli_reports_unconfigured_state_without_network_or_secrets(monkeyp
         "data": {
             "configured": False,
             "auth_mode": None,
-            "write_mode": "read_only",
-            "active_write_gates": [],
+            "write_mode": "standard",
+            "active_write_gates": ["standard", "public"],
             "capabilities": ["community", "guide", "operations", "support"],
         },
     }

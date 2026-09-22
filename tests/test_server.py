@@ -811,8 +811,8 @@ def test_connection_status_is_available_without_configuration():
         "data": {
             "configured": False,
             "auth_mode": None,
-            "write_mode": "read_only",
-            "active_write_gates": [],
+            "write_mode": "standard",
+            "active_write_gates": ["standard", "public"],
             "capabilities": ["community", "guide", "operations", "support"],
         },
     }
@@ -849,8 +849,8 @@ def test_connection_status_reports_required_oauth_scopes_without_claiming_grant(
         "ZENDESK_CAPABILITIES": "community",
     }
     for gates, expected in (
-        ({}, ["hc:read"]),
-        ({"ZENDESK_ENABLE_IMPERSONATION": "true"}, ["hc:read", "impersonate", "users:read"]),
+        ({}, ["hc:read", "hc:write"]),
+        ({"ZENDESK_ENABLE_IMPERSONATION": "true"}, ["hc:read", "hc:write", "impersonate", "users:read"]),
     ):
         result = module.build_connection_status({**environ, **gates})
         assert result["ok"] is True
@@ -1300,7 +1300,7 @@ def test_canonical_names_preserve_dispatch_capabilities_and_approval_identity(tm
         ("zendesk_upload_community_image", "community", {"image_path": "image.png", "content_type": "image/png", "brand_id": 1}, None),
     )
     for name, capability, arguments, item_id in cases:
-        env = {"ZENDESK_SUBDOMAIN": "example", "ZENDESK_EMAIL": "test@example.test", "ZENDESK_API_TOKEN": "test-only", "ZENDESK_CAPABILITIES": capability, "ZENDESK_APPROVAL_STORE": str(tmp_path / "approvals.json"), "ZENDESK_UPLOAD_ROOT": str(tmp_path)}
+        env = {"ZENDESK_SUBDOMAIN": "example", "ZENDESK_EMAIL": "test@example.test", "ZENDESK_API_TOKEN": "test-only", "ZENDESK_CAPABILITIES": capability, "ZENDESK_WRITE_MODE": "read_only", "ZENDESK_APPROVAL_STORE": str(tmp_path / "approvals.json"), "ZENDESK_UPLOAD_ROOT": str(tmp_path)}
         server = module.create_server(env)
         registered = asyncio.run(server.request_handlers[types.ListToolsRequest](types.ListToolsRequest())).root.tools
         tool = next(tool for tool in registered if tool.name == name)

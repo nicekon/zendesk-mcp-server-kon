@@ -1351,7 +1351,7 @@ def test_search_rejects_blank_query_and_non_integer_limit_without_a_client():
 
 
 def test_create_ticket_requires_write_mode_before_a_client_is_used():
-    result = TicketTools(None, Settings.load({})).create_ticket(
+    result = TicketTools(None, Settings.load({"ZENDESK_WRITE_MODE": "read_only"})).create_ticket(
         requester_id=7,
         subject="Need help",
         description="Details",
@@ -1492,7 +1492,7 @@ def test_assignment_selectors_validate_and_gate_before_lookup():
     for options in ({"assignee_email": "me", "assignee_id": 7}, {"assignee_email": "bad"}, {"assignee_email": "x@example.com role:admin"}, {"assignee_email": "me", "group_id": 0}):
         assert tools.assign_ticket(9, **options)["error"]["code"] == "validation_error"
     assert tools.assign_ticket(0, assignee_email="me")["error"]["code"] == "validation_error"
-    assert TicketTools(client, Settings.load({})).assign_ticket(9, assignee_email="me")["error"]["code"] == "write_disabled"
+    assert TicketTools(client, Settings.load({"ZENDESK_WRITE_MODE": "read_only"})).assign_ticket(9, assignee_email="me")["error"]["code"] == "write_disabled"
     assert client.calls == []
 
 
@@ -1571,7 +1571,7 @@ def test_ticket_tag_noops_and_read_only_never_write():
     assert tools.remove_ticket_tag(9, "absent")["data"]["idempotent"] is True
     assert client.calls == []
     client.get_paths.clear()
-    tools = TicketTools(client, Settings.load({}))
+    tools = TicketTools(client, Settings.load({"ZENDESK_WRITE_MODE": "read_only"}))
     assert tools.add_ticket_tag(9, "priority")["error"]["code"] == "write_disabled"
     assert tools.remove_ticket_tag(9, "billing")["error"]["code"] == "write_disabled"
     assert client.calls == [] and client.get_paths == []
@@ -1773,7 +1773,7 @@ def test_macro_effective_preview_requires_gate_even_with_approval(tmp_path):
                 return super().get(path, params=params)
         client = Client()
         store = ApprovalStore(tmp_path / (risk + ".json"))
-        tools = TicketTools(client, Settings.load({"ZENDESK_WRITE_MODE": "standard"}), store)
+        tools = TicketTools(client, Settings.load({"ZENDESK_WRITE_MODE": "standard", "ZENDESK_ENABLE_PUBLIC_WRITES": "false"}), store)
         preview = tools.apply_macro(9, 4)["data"]
         assert preview["required_risks"] == ["standard", risk]
         request_id = preview["approval_request_id"]
