@@ -1,4 +1,5 @@
 import json
+import os
 from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
 
@@ -19,15 +20,16 @@ def test_oauth_store_writes_user_only_file(tmp_path: Path):
 
     store.save(OAuthTokens(access_token="access", refresh_token="refresh", expires_at=10))
 
-    assert path.stat().st_mode & 0o777 == 0o600
+    if os.name != "nt":
+        assert path.stat().st_mode & 0o777 == 0o600
     assert store.load().refresh_token == "refresh"
-    assert not list(tmp_path.glob(".oauth.json.*"))
+    assert not [path for path in tmp_path.glob(".oauth.json.*") if path.name != ".oauth.json.io.lock"]
 
 
-def test_oauth_store_rejects_group_readable_file(tmp_path: Path):
+def test_oauth_store_rejects_group_readable_file(tmp_path: Path, public_permissions):
     path = tmp_path / "oauth.json"
     path.write_text('{"access_token":"access","refresh_token":"refresh","expires_at":10}')
-    path.chmod(0o640)
+    public_permissions(path)
 
     with pytest.raises(ConfigurationError, match="permissions"):
         OAuthTokenStore(path).load()
@@ -38,12 +40,12 @@ def test_oauth_store_rejects_group_readable_file(tmp_path: Path):
     ("refresh_token", []), ("refresh_token", " "),
     ("expires_at", True), ("expires_at", -1), ("expires_at", 1.5),
 ])
-def test_oauth_store_rejects_malformed_token_values(tmp_path, field, value):
+def test_oauth_store_rejects_malformed_token_values(tmp_path, field, value, private_permissions):
     path = tmp_path / "oauth.json"
     record = {"access_token": "access", "refresh_token": "refresh", "expires_at": 100}
     record[field] = value
     path.write_text(json.dumps(record))
-    path.chmod(0o600)
+    private_permissions(path)
     with pytest.raises(ConfigurationError) as error:
         OAuthTokenStore(path).load()
     assert error.value.code == "invalid_oauth_tokens"
@@ -293,11 +295,11 @@ def test_settings_oauth_code_exchange_reuses_the_configured_state_and_token_stor
     assert OAuthTokenStore(token_path).load().refresh_token == "refresh"
 
 
-def test_oauth_state_store_rejects_group_readable_file(tmp_path: Path):
+def test_oauth_state_store_rejects_group_readable_file(tmp_path: Path, public_permissions):
     from zendesk_mcp_server.auth import OAuthStateStore
     store = OAuthStateStore(tmp_path / "oauth-state.json")
     store.create("https://app.example.test/callback", ("tickets:read",), now=1)
-    store.path.chmod(0o644)
+    public_permissions(store.path)
 
     with pytest.raises(ConfigurationError, match="permissions"):
         store.create("https://app.example.test/callback", ("tickets:read",), now=2)

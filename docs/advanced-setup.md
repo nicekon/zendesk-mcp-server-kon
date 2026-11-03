@@ -43,9 +43,9 @@ For apps that use JSON MCP settings (not Codex’s TOML file):
 
 ## API 토큰 / API token
 
-Windows 또는 브라우저 로그인을 사용하지 않는 환경에서는 API 토큰을 사용할 수 있습니다.
+브라우저 로그인을 사용하지 않는 환경에서는 API 토큰을 사용할 수 있습니다.
 먼저 README의 1단계까지 설치하세요. 관리자에게 API 토큰 접근 허용과 다음 세 값을 확인하세요.
-On Windows, or without browser login, install the tool first and obtain these values from your administrator:
+For API-token authentication on any platform, install the tool first and obtain these values from your administrator:
 
 | 설정 / Setting | 입력할 값 / Value |
 | --- | --- |
@@ -129,7 +129,7 @@ Review the exact operation before approving. Approval is single-use and account-
 ## 연결 관리와 개발 / Connection management and development
 
 - OAuth 연결은 `~/.config/zendesk-mcp-server/connection.json`에 저장됩니다. 패키지를 제거해도 권한이 철회되지는 않습니다. 연결 종료 시 Zendesk에서 접근 권한을 철회하세요. Uninstalling does not revoke access.
-- Windows 브라우저 OAuth 로그인은 현재 지원되지 않습니다. API 토큰을 사용하세요. Windows OAuth is currently unsupported.
+- Windows 브라우저 OAuth는 이 소스 리비전 설치 시 지원합니다. 토큰은 현재 사용자와 LocalSystem만 접근 가능한 보호된 DACL로 저장합니다. See [Windows OAuth setup](windows-oauth.md).
 - 기존 confidential OAuth, 토큰 이전·롤백: [migration.md](migration.md).
 - 시간 추적 필드·Git-Zen·캐시 등 관리자 설정: [.env.example](../.env.example).
 - 개발: `uv sync --group dev`, `uv run pytest -v`, `uv build`.

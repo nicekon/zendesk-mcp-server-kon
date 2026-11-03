@@ -288,21 +288,34 @@ def saved_connection_path() -> Path:
 
 
 def _has_unsafe_permissions(path: Path) -> bool:
+    if os.name == "nt":
+        require_private_file_support()
+        from .windows_storage import validate_file
+        validate_file(path)
+        return False
     mode = path.stat().st_mode
     require_private_file_support()
     return bool(stat.S_IMODE(mode) & 0o077)
 
 
 def require_private_file_support() -> None:
+    if os.name == "nt":
+        from .windows_storage import require_support
+        require_support()
+        return
     if not _CHECK_POSIX_PERMISSIONS:
-        raise ConfigurationError("unsupported", "OAuth storage requires user-only file permissions; Windows ACL support is not implemented")
+        raise ConfigurationError("unsupported", "OAuth storage requires user-only file permissions")
 
 
 def _load_saved_connection(path: Path) -> dict[str, object]:
     try:
         if _has_unsafe_permissions(path):
             raise ConfigurationError("unsafe_oauth_permissions", "OAuth connection file permissions must be user-only")
-        value = json.loads(path.read_text(encoding="utf-8"))
+        if os.name == "nt":
+            from .windows_storage import read_json
+            value = read_json(path)
+        else:
+            value = json.loads(path.read_text(encoding="utf-8"))
     except ConfigurationError:
         raise
     except (OSError, ValueError, json.JSONDecodeError) as error:

@@ -46,7 +46,9 @@ def _request_ignoring_http_error(url: str) -> None:
 def test_login_refuses_unsupported_storage_before_listener_or_browser(tmp_path, monkeypatch):
     from zendesk_mcp_server.login import login
     settings = _settings(tmp_path / "connection.json")
-    monkeypatch.setattr("zendesk_mcp_server.config._CHECK_POSIX_PERMISSIONS", False)
+    def unavailable():
+        raise ConfigurationError("unsupported", "Private storage backend unavailable")
+    monkeypatch.setattr("zendesk_mcp_server.login.require_private_file_support", unavailable)
     def unexpected(*args, **kwargs):
         raise AssertionError("login side effect before storage validation")
     monkeypatch.setattr("zendesk_mcp_server.login._LoopbackHTTPServer", unexpected)
