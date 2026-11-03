@@ -17,8 +17,9 @@ Codex 같은 AI 앱에서 **Zendesk 티켓·도움말·커뮤니티를 대화로
 - 명령은 AI 채팅창이 아니라 **내 컴퓨터의 터미널**에 입력합니다. macOS에서는 ‘터미널’ 앱을 여세요.
 - 관리자에게 **Zendesk 서브도메인과 OAuth 클라이언트 식별자**를 요청하세요.
 
-아래 브라우저 로그인은 macOS·Linux용입니다.
-**Windows는 [API 토큰 연결](docs/advanced-setup.md#api-token)을 사용하세요.**
+이 소스 리비전은 Windows에서도 브라우저 OAuth 로그인을 지원합니다.
+Windows는 [전용 설치 안내](docs/windows-oauth.md)를 따라 주세요.
+아래 빠른 설치에 고정된 이전 커밋에는 Windows OAuth 수정이 포함되어 있지 않습니다.
 
 ## 빠른 설치
 

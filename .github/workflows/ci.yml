@@ -79,6 +79,10 @@ jobs:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v4
       - run: uv python install ${{ matrix.python }}
+      - name: Test OAuth storage and login
+        env:
+          PYTHONUTF8: "1"
+        run: uv run --locked --python ${{ matrix.python }} pytest -q tests/test_windows_oauth.py tests/test_auth.py tests/test_config.py tests/test_login.py tests/test_cli.py tests/test_locking.py
       - run: uv build
       - name: Install and handshake the wheel
         if: runner.os != 'Windows'

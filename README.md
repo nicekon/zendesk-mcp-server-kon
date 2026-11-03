@@ -19,8 +19,9 @@ New installations can update tickets and create Community posts or comments afte
 - Run commands in **your computer’s terminal**, not in the AI chat. On macOS, open Terminal.
 - Ask your administrator for your **Zendesk subdomain and OAuth client identifier**.
 
-Browser login below supports macOS and Linux.
-**On Windows, use [API-token setup](docs/advanced-setup.md#api-token).**
+Browser login supports macOS and Linux. Native Windows OAuth is available when
+installing this source revision; follow the [Windows setup](docs/windows-oauth.md).
+The pinned quick-install revision below predates Windows OAuth support.
 
 ## Quick install
 

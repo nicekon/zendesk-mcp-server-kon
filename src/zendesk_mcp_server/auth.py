@@ -168,7 +168,7 @@ class OAuthTokenStore:
     def load(self) -> OAuthTokens:
         self._require_user_only_permissions()
         try:
-            value = json.loads(self.path.read_text(encoding="utf-8"))
+            value = self._read_values()
             if (
                 not isinstance(value, dict)
                 or any(not isinstance(value.get(key), str) or not value[key].strip() for key in ("access_token", "refresh_token"))
@@ -194,9 +194,11 @@ class OAuthTokenStore:
         if self.path.exists():
             self._require_user_only_permissions()
             try:
-                current = json.loads(self.path.read_text(encoding="utf-8"))
+                current = self._read_values()
                 if isinstance(current, dict):
                     values.update(current)
+            except ConfigurationError:
+                raise
             except (OSError, ValueError, json.JSONDecodeError):
                 pass
         values.update({
@@ -206,8 +208,18 @@ class OAuthTokenStore:
         })
         self._save_values(values)
 
+    def _read_values(self):
+        if os.name == "nt":
+            from .windows_storage import read_json
+            return read_json(self.path)
+        return json.loads(self.path.read_text(encoding="utf-8"))
+
     def _save_values(self, values: dict[str, object]) -> None:
         require_private_file_support()
+        if os.name == "nt":
+            from .windows_storage import write_json
+            write_json(self.path, values)
+            return
         self.path.parent.mkdir(parents=True, exist_ok=True)
         temporary_path: Path | None = None
         try:
@@ -231,6 +243,11 @@ class OAuthTokenStore:
     @contextmanager
     def refresh_lock(self):
         require_private_file_support()
+        if os.name == "nt":
+            from .windows_storage import locked_file
+            with locked_file(self.path.with_name(f".{self.path.name}.lock")):
+                yield
+            return
         self.path.parent.mkdir(parents=True, exist_ok=True)
         try:
             descriptor = os.open(self.path.with_name(f".{self.path.name}.lock"), os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW | os.O_NONBLOCK, 0o600)
@@ -294,6 +311,12 @@ class OAuthStateStore:
 
     @contextmanager
     def _lock(self):
+        require_private_file_support()
+        if os.name == "nt":
+            from .windows_storage import locked_file
+            with locked_file(self.path.with_name(f".{self.path.name}.lock")):
+                yield
+            return
         self.path.parent.mkdir(parents=True, exist_ok=True); descriptor = os.open(self.path.with_name(f".{self.path.name}.lock"), os.O_RDWR | os.O_CREAT, 0o600)
         try:
             os.chmod(descriptor, 0o600)
@@ -305,13 +328,22 @@ class OAuthStateStore:
         if not self.path.exists(): return {}
         try:
             if _has_unsafe_permissions(self.path): raise ConfigurationError("unsafe_oauth_permissions", "OAuth state file permissions must be user-only")
-            value = json.loads(self.path.read_text(encoding="utf-8")); return value.get("states", {}) if isinstance(value, dict) and isinstance(value.get("states", {}), dict) else {}
+            if os.name == "nt":
+                from .windows_storage import read_json
+                value = read_json(self.path)
+            else:
+                value = json.loads(self.path.read_text(encoding="utf-8"))
+            return value.get("states", {}) if isinstance(value, dict) and isinstance(value.get("states", {}), dict) else {}
         except ConfigurationError:
             raise
         except (OSError, ValueError, json.JSONDecodeError) as error:
             raise ConfigurationError("invalid_oauth_state", "OAuth state file is invalid") from error
 
     def _save(self, values: dict[str, object]) -> None:
+        if os.name == "nt":
+            from .windows_storage import write_json
+            write_json(self.path, {"states": values})
+            return
         temporary = self.path.with_name(f".{self.path.name}.{secrets.token_hex(8)}.tmp")
         try:
             with open(temporary, "w", encoding="utf-8") as stream:

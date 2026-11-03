@@ -94,6 +94,8 @@ def _file_paths(source: Path, destination: Path) -> tuple[Path, Path]:
 
 
 def _convert_file(source: Path, destination: Path, *, now: int, rollback: bool) -> dict:
+    if os.name == "nt":
+        raise ConfigurationError("unsupported", "Legacy OAuth file migration requires POSIX; use browser login on Windows")
     require_private_file_support()
     cleanup_pending = False
     try:

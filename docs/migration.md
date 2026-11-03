@@ -2,6 +2,9 @@
 
 ## Local OAuth file conversion
 
+Legacy file conversion and rollback require macOS/Linux. On Windows, use a new
+[browser OAuth login](windows-oauth.md); do not copy a Mac token store to Windows.
+
 Stop both old and new servers before conversion: the old server does not share
 the new server's refresh lock. Use explicit source and new destination paths:
 

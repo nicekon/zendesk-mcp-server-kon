@@ -1,4 +1,6 @@
 import pytest
+import os
+import sys
 from pathlib import Path
 
 from zendesk_mcp_server.config import AuthMode, ConfigurationError, Settings
@@ -151,7 +153,7 @@ def test_saved_connection_requires_relogin_before_scope_expansion(tmp_path, monk
     assert path.read_bytes() == before
 
 
-def test_saved_connection_rejects_group_readable_permissions(tmp_path, monkeypatch):
+def test_saved_connection_rejects_group_readable_permissions(tmp_path, monkeypatch, public_permissions):
     from zendesk_mcp_server.auth import OAuthTokens, save_connection
 
     monkeypatch.setattr(Path, "home", lambda: tmp_path)
@@ -164,7 +166,7 @@ def test_saved_connection_rejects_group_readable_permissions(tmp_path, monkeypat
         "ZENDESK_OAUTH_TOKEN_STORE": str(path),
     })
     save_connection(settings, OAuthTokens("access", "refresh", 999))
-    path.chmod(0o640)
+    public_permissions(path)
 
     with pytest.raises(ConfigurationError) as error:
         Settings.load({})
@@ -186,7 +188,10 @@ def test_windows_without_acl_support_refuses_oauth_reads_and_writes(tmp_path, mo
     })
     save_connection(settings, OAuthTokens("access", "refresh", 999))
     path.chmod(0o666)
-    monkeypatch.setattr(config, "_CHECK_POSIX_PERMISSIONS", False)
+    if os.name == "nt":
+        monkeypatch.setitem(sys.modules, "win32security", None)
+    else:
+        monkeypatch.setattr(config, "_CHECK_POSIX_PERMISSIONS", False)
 
     for operation in (lambda: Settings.load({}), lambda: OAuthTokenStore(path).load(), lambda: OAuthTokenStore(tmp_path / "new.json").save(OAuthTokens("new", "refresh", 999))):
         with pytest.raises(ConfigurationError) as error:
