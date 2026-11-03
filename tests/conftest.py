@@ -30,9 +30,12 @@ def private_permissions():
         acl.AddAccessAllowedAce(ws.ACL_REVISION, win32file.FILE_ALL_ACCESS, user)
         acl.AddAccessAllowedAce(ws.ACL_REVISION, win32file.FILE_ALL_ACCESS,
                                ws.CreateWellKnownSid(ws.WinLocalSystemSid))
+        # Elevated Windows runners can create plain files owned by Administrators.
+        # Match the explicit current-user owner of production OAuth files as well.
         ws.SetNamedSecurityInfo(str(path), ws.SE_FILE_OBJECT,
-                                ws.DACL_SECURITY_INFORMATION | ws.PROTECTED_DACL_SECURITY_INFORMATION,
-                                None, None, acl, None)
+                                ws.OWNER_SECURITY_INFORMATION | ws.DACL_SECURITY_INFORMATION
+                                | ws.PROTECTED_DACL_SECURITY_INFORMATION,
+                                user, None, acl, None)
     return apply
 
 
